@@ -170,36 +170,10 @@ data class Gates(
     val freeDiskOk: Boolean,
     val noBluetoothAudio: Boolean,
 ) {
-    /**
-     * SETUP gates only: permissions and the schedule. Everything else -- power, thermal,
-     * DND, Bluetooth, disk, audio readability -- is a nightly condition reported on the
-     * status screen and checked by the 22:00 arm gate. None of them may ever disarm the
-     * alarm or trap the user on a setup screen.
-     */
-    val allPass: Boolean get() = scheduleExists && exactAlarm && foregroundService &&
-            notHibernating && fullScreenIntent
+    /** Derived from the single GateInfo table -- never a second hand-kept list. */
+    val allPass: Boolean get() = GateInfo.ALL.filter { it.blocking }.all { value(it.key) }
 
-    fun failing(): List<String> = buildList {
-        if (!scheduleExists) add("scheduleExists")
-        if (!exactAlarm) add("exactAlarm")
-        if (!foregroundService) add("foregroundService")
-        if (!p2pSupported) add("p2pSupported")
-        if (!gyroscopePresent) add("gyroscopePresent")
-        if (!staApConcurrent) add("staApConcurrent")
-        if (!groupCredentialsSet) add("groupCredentialsSet")
-        if (!localNetworkPermission) add("localNetworkPermission")
-        if (!notificationPolicyAccess) add("notificationPolicyAccess")
-        if (!dndAllowsAlarms) add("dndAllowsAlarms")
-        if (!volumeNotFixed) add("volumeNotFixed")
-        if (!fullScreenIntent) add("fullScreenIntent")
-        if (!notHibernating) add("notHibernating")
-        if (!thermalOk) add("thermalOk")
-        if (!audioPlayable) add("audioPlayable")
-        if (!powerOk) add("powerOk")
-        if (!vibrationEnabled) add("vibrationEnabled")
-        if (!freeDiskOk) add("freeDiskOk")
-        if (!noBluetoothAudio) add("noBluetoothAudio")
-    }
+    fun failing(): List<String> = GateInfo.ALL.filter { !value(it.key) }.map { it.key }
 }
 
 data class ArmGate(val lastRunAtMs: Long, val result: String, val failingGates: List<String>)

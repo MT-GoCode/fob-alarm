@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtrinh.fobalarm.core.*
+import com.mtrinh.fobalarm.core.entries
 
 /**
  * ONE set of screens for both roles. Role selects a client, not a screen: everything
@@ -252,110 +253,55 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
         return
     }
 
-    // Permissions: the only things you can actually grant.
-    val perms = listOf(
-        "foregroundService" to g.foregroundService,
-        "exactAlarm" to g.exactAlarm,
-        "fullScreenIntent" to g.fullScreenIntent,
-        "notHibernating" to g.notHibernating,
-        "localNetworkPermission" to g.localNetworkPermission,
-    )
-    // Compatibility: facts about the hardware. Nothing to grant.
-    val compat = listOf(
-        "gyroscopePresent" to g.gyroscopePresent,
-        "p2pSupported" to g.p2pSupported,
-    )
-    val pending = perms.count { !it.second }
+    val rows = g.entries()
+    val perms = rows.filter { it.first.kind == GateKind.PERMISSION }
+    val compat = rows.filter { it.first.kind == GateKind.COMPAT }
+    val blocking = perms.count { !it.second && it.first.blocking }
 
     Page(
         title = "Setup",
-        subtitle = if (!isAlarmRole) "These are the alarm phone's permissions. Grant them on that phone."
-                   else if (pending == 0) "All set."
-                   else "$pending permission${if (pending == 1) "" else "s"} still needed.",
-        subtitleColor = if (pending == 0) Good else Muted,
+        subtitle = when {
+            !isAlarmRole -> "These are the alarm phone's permissions. Grant them on that phone."
+            blocking == 0 -> "All set."
+            else -> "$blocking permission${if (blocking == 1) "" else "s"} still needed."
+        },
+        subtitleColor = if (blocking == 0) Good else Muted,
         snapshot = s,
     ) {
         Spacer(Modifier.height(10.dp))
 
-        perms.forEach { (k, ok) ->
+        perms.forEach { (info, ok) ->
             Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(if (ok) "✓" else "•", fontSize = 18.sp,
+                Text(if (ok) "✓" else if (info.blocking) "•" else "◦", fontSize = 18.sp,
                     color = if (ok) Good else Muted, modifier = Modifier.width(26.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(label(k), fontSize = 15.sp,
+                    Text(info.label + if (!info.blocking) "  (optional)" else "",
+                        fontSize = 15.sp,
                         color = if (ok) Muted else MaterialTheme.colorScheme.onSurface)
-                    if (!ok) Text(explain(k), fontSize = 12.sp, color = Muted)
+                    if (!ok) Text(info.explain, fontSize = 12.sp, color = Muted)
                 }
-                if (!ok && isAlarmRole) {
-                    Button(onClick = { onFix(k) },
-                        contentPadding = PaddingValues(horizontal = 18.dp)) { Text("Allow") }
+                if (!ok && isAlarmRole && info.fix != FixAction.NONE) {
+                    Button(onClick = { onFix(info.key) },
+                        contentPadding = PaddingValues(horizontal = 18.dp)) {
+                        Text(if (info.fix == FixAction.REQUEST) "Allow" else "Open")
+                    }
                 }
             }
             HorizontalDivider(color = Color(0xFF151A1F))
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text("This phone", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Muted)
-        compat.forEach { (k, ok) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                Text(if (ok) "✓" else "✗", color = if (ok) Good else Bad,
-                    modifier = Modifier.width(26.dp))
-                Column {
-                    Text(label(k), fontSize = 13.sp)
-                    if (!ok) Text(explain(k), fontSize = 11.sp, color = Muted)
-                }
-            }
-        }
+        Section("This phone")
+        compat.forEach { (info, ok) -> Fact(info.label, if (ok) "yes" else "no", ok) }
 
-        Spacer(Modifier.height(40.dp))
+        // Link state, visible HERE so it can be seen before getting past setup.
+        Section("Link")
+        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected"
+             else "off" + (s.ap.lastError?.let { " — $it" } ?: ""), s.ap.running)
+        Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
+        Text("The group starts once a name and passphrase are set in Settings and " +
+             "nearby-devices is allowed.", fontSize = 11.sp, color = Muted)
     }
-}
-
-private fun label(k: String) = when (k) {
-    "scheduleExists" -> "An alarm is scheduled"
-    "exactAlarm" -> "Exact alarms allowed"
-    "notHibernating" -> "Android won't pause this app"
-    "fullScreenIntent" -> "Can show over the lock screen"
-    "audioPlayable" -> "Ringtone is readable"
-    "dndAllowsAlarms" -> "Do Not Disturb allows alarms"
-    "volumeNotFixed" -> "Alarm volume is settable"
-    "gyroscopePresent" -> "Gyroscope present"
-    "foregroundService" -> "Notifications allowed"
-    "freeDiskOk" -> "Enough free storage"
-    "notificationPolicyAccess" -> "Can read Do Not Disturb policy"
-    "localNetworkPermission" -> "Nearby devices"
-    "groupCredentialsSet" -> "Phones paired"
-    "p2pSupported" -> "Wi-Fi Direct supported"
-    "staApConcurrent" -> "Wi-Fi and group at once"
-    "vibrationEnabled" -> "Vibration enabled"
-    "noBluetoothAudio" -> "No Bluetooth speaker connected"
-    "powerOk" -> "Plugged in right now"
-    "thermalOk" -> "Not overheating"
-    else -> k
-}
-
-private fun explain(k: String) = when (k) {
-    "scheduleExists" -> "No alarm is scheduled at all — a dropped setting or bad migration."
-    "exactAlarm" -> "Without exact alarms the ring time is not guaranteed."
-    "notHibernating" -> "If Android pauses unused apps it force-stops this one and cancels every alarm, silently. Turn OFF \"Pause app activity if unused\" in App info."
-    "fullScreenIntent" -> "Granted automatically to alarm apps on Android 14+. Use Test alarm below to confirm it really works."
-    "audioPlayable" -> "The selected ringtone cannot be opened."
-    "dndAllowsAlarms" -> "A Do Not Disturb or Bedtime rule can mute the alarm stream."
-    "volumeNotFixed" -> "Alarm volume is muted or cannot be set."
-    "gyroscopePresent" -> "Needed for the rotate-to-snooze gesture. The alarm rings either way."
-    "foregroundService" -> "Already granted when you allowed notifications at first launch."
-    "freeDiskOk" -> "Low storage can fail the write that records a ring session."
-    "notificationPolicyAccess" -> "Lets the app detect a Do Not Disturb rule that would mute the alarm."
-    "localNetworkPermission" -> "Required to pair the two phones over Wi-Fi Direct."
-    "groupCredentialsSet" -> "Set the group name and passphrase to pair the phones."
-    "p2pSupported" -> "Wi-Fi Direct, used for the phone-to-phone link."
-    "staApConcurrent" -> "Whether this phone can host the link and stay on home WiFi at the same time."
-    "vibrationEnabled" -> "Vibration is switched off, removing the last backstop."
-    "noBluetoothAudio" -> "A Bluetooth speaker is connected; audio could route out of the box."
-    "powerOk" -> "Right now this phone is on battery or under 50%. Not a setting — just plug it in."
-    "thermalOk" -> "Device is too hot; audio may be throttled."
-    else -> ""
 }
 
 // ---------------------------------------------------------------------------

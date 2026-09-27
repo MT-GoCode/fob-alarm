@@ -41,8 +41,13 @@ class App : Application() {
         // readable over http://<phone>:8766/v1/logs -- there is no logcat here.
         Crash.reportPending(this)
         Boot.ensure(this)
-        Server.start(this)
         wireRingScreen()
+
+        // Owns the group / join loop and the control server, and keeps the process at
+        // foreground-service importance so Wi-Fi Direct is not evicted.
+        P2pJoinBridge.networkProvider = { P2pJoin.network }
+        P2pJoinBridge.joiner = { ctx, ssid, pass -> P2pJoin.join(ctx, ssid, pass) }
+        LinkService.start(this)
 
         // Everything that touches disk, sensors, audio or a service binding goes to a
         // worker. Application.onCreate is on the main thread and blocking it is an ANR.
@@ -55,7 +60,6 @@ class App : Application() {
                 "variant" to BuildConfig.VARIANT)
         }, "fobalarm-init").start()
 
-        startRoleLoop()
     }
 
     /**
@@ -82,29 +86,4 @@ class App : Application() {
         }
     }
 
-    /** Role-specific background work: host the group, or keep joining it. */
-    private fun startRoleLoop() {
-        scope.launch {
-            while (true) {
-                val s = Svc.settings
-                when (s.role) {
-                    Role.ALARM -> {
-                        if (s.ssid != null && s.passphrase != null && !Group.running) {
-                            Group.start(this@App, s)
-                        }
-                        Group.refresh(this@App)
-                    }
-                    Role.CONTROLLER -> {
-                        // The specifier request dies after a ~30s / 3-scan cliff and does
-                        // NOT resume scanning, so re-request rather than wait.
-                        if (s.ssid != null && s.passphrase != null && P2pJoin.network == null) {
-                            P2pJoin.join(this@App, s.ssid!!, s.passphrase!!)
-                        }
-                    }
-                    null -> {}
-                }
-                delay(20_000)
-            }
-        }
-    }
 }

@@ -68,6 +68,7 @@ class BootReceiver : BroadcastReceiver() {
         // Pending alarms survive a package replace, but the exact-alarm re-check can wipe
         // them, and a reboot clears everything. Rebuild unconditionally.
         Svc.recompute("boot:${intent.action}")
+        LinkService.start(ctx)
 
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             Svc.log("package_replaced", "toVersion" to Svc.appVersion)

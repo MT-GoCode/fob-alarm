@@ -79,6 +79,33 @@ class MainActivity : ComponentActivity() {
                     else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
                 var role by remember { mutableStateOf(Svc.settings.role) }
+                if (hibernationHelp) {
+                    AlertDialog(
+                        onDismissRequest = { hibernationHelp = false },
+                        title = { Text("Find this toggle") },
+                        text = {
+                            Column {
+                                Text("On the page that just opened, scroll to:", fontSize = 13.sp)
+                                Spacer(Modifier.height(8.dp))
+                                Text("\"Pause app activity if unused\"", fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold)
+                                Text("(some phones call it \"Remove permissions if app is " +
+                                     "unused\" or \"Manage app if unused\")",
+                                    fontSize = 12.sp, color = Muted)
+                                Spacer(Modifier.height(10.dp))
+                                Text("Turn it OFF, then come back here.", fontSize = 13.sp)
+                                Spacer(Modifier.height(10.dp))
+                                Text("Why: Android force-stops apps you have not opened in " +
+                                     "a few months. This phone lives in a box and is never " +
+                                     "opened, so without this the alarm eventually stops " +
+                                     "firing with no warning.",
+                                    fontSize = 11.sp, color = Muted)
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { hibernationHelp = false }) { Text("Got it") }
+                        })
+                }
                 Surface(Modifier.fillMaxSize()) {
                     when {
                         Crash.pending != null -> CrashScreen()
@@ -191,8 +218,14 @@ class MainActivity : ComponentActivity() {
                     Uri.parse("package:$packageName")))
                 "notificationPolicyAccess" -> startActivity(
                     Intent(ASettings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                "notHibernating" -> startActivity(
-                    IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
+                // Android has no dedicated page for this on most builds -- the intent
+                // lands on App info, where the toggle is several scrolls down under a
+                // name that varies by OEM. Say exactly what to look for.
+                "notHibernating" -> {
+                    hibernationHelp = true
+                    startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(
+                        this, packageName))
+                }
                 // --- device settings we cannot change for you ---
                 "dndAllowsAlarms" -> startActivity(Intent("android.settings.ZEN_MODE_SETTINGS"))
                 "volumeNotFixed", "vibrationEnabled" -> startActivity(Intent(ASettings.ACTION_SOUND_SETTINGS))
@@ -212,6 +245,9 @@ class MainActivity : ComponentActivity() {
                 Toast.LENGTH_LONG).show()
         }
     }
+
+    /** Shown on return, because the destination page does not explain itself. */
+    private var hibernationHelp by mutableStateOf(false)
 
     private fun openNotificationSettings() {
         runCatching {

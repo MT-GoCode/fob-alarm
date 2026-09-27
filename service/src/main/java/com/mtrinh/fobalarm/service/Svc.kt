@@ -423,6 +423,7 @@ object Svc : AlarmHost {
         synchronized(lock) { state = state.copy(settings = state.settings.copy(role = role)) }
         de.role = role.name
         log("role_changed", "to" to role.name)
+        LinkService.start(app)
         return recompute("role_changed")
     }
 
