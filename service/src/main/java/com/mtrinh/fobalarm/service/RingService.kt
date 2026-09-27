@@ -24,6 +24,7 @@ class RingService : Service(), SensorEventListener {
         @Volatile var gyroStale = false
         @Volatile var rvStale = false
         @Volatile var audible: String = "-"
+        @Volatile var quaternion: DoubleArray? = null
 
         fun start(ctx: Context) {
             runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
@@ -108,11 +109,21 @@ class RingService : Service(), SensorEventListener {
             val prev = Svc.session?.ringId
             val src = runCatching { OccurrenceSource.valueOf(Svc.de.nextFireSource) }
                 .getOrDefault(OccurrenceSource.SCHEDULED)
-            Svc.onTrigger(src)
+            // A wrong latch beats silence: never let an engine throw stop the ring.
+            runCatching { Svc.onTrigger(src) }
+                .onFailure { Svc.log("trigger_failed", "error" to it.toString()) }
             val s = Svc.session
-            if (s == null) { teardown(); return START_NOT_STICKY }
+            if (s == null) {
+                // The engine refused to open a session but an alarm was genuinely due.
+                // Ring anyway; the schedule is repaired on the next recompute.
+                Svc.log("ring_without_session")
+                beginAudio()
+                handler.removeCallbacks(heartbeat); handler.post(heartbeat)
+                showRingUi()
+                return START_STICKY
+            }
             // A supersede replaces the session under us: restart audio on the new one.
-            if (prev != null && prev != s.ringId) { audio.stop(); beginAudio() }
+            if (prev != null && prev != s.ringId) beginAudio()   // beginAudio stops first
         }
 
         val pm = getSystemService(PowerManager::class.java)
@@ -125,7 +136,11 @@ class RingService : Service(), SensorEventListener {
         startGesture()
 
         if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
-        else if (Svc.session == null) beginAudio()      // test ring: no engine session
+        else if (Svc.session == null) {
+            // Test ring: no engine session. Read silence from DE, which survives the
+            // process hop -- the in-memory flag does not.
+            audio.stop(); audio.start(Svc.settings, silent = Svc.de.testSilent)
+        }
         handler.removeCallbacks(heartbeat)
         handler.post(heartbeat)
         showRingUi()
@@ -180,7 +195,9 @@ class RingService : Service(), SensorEventListener {
             Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
                 // Only accumulate while actually RINGING: never while snoozed or idle.
                 if (Svc.session?.phase != RingPhase.RINGING) return
-                val crossed = a.onRotationVector(RotationAccumulator.quatFromSensor(e.values), now)
+                val q = RotationAccumulator.quatFromSensor(e.values)
+                quaternion = q
+                val crossed = a.onRotationVector(q, now)
                 rotationDeg = a.degrees
                 if (crossed) doSnooze()
             }

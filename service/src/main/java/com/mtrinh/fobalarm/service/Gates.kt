@@ -45,20 +45,25 @@ object GateEval {
         return c ?: unknownGates(nextFireExists)
     }
 
-    @Volatile private var pending = false
+    private var pending = false
+    private val flagLock = Any()
 
     fun refresh(ctx: Context, settings: Settings, nextFireExists: Boolean) {
-        // Coalesce rather than drop: a request arriving mid-evaluation used to be lost,
-        // so a just-granted permission stayed stale.
-        if (refreshing) { pending = true; return }
-        refreshing = true
+        // Coalesce, never drop. The flags must be read-modify-written under a lock:
+        // @Volatile alone still loses a request that arrives in the gap.
+        synchronized(flagLock) {
+            if (refreshing) { pending = true; return }
+            refreshing = true
+        }
         worker.execute {
-            do {
-                pending = false
-                runCatching { cached = evaluate(ctx, settings, nextFireExists) }
+            while (true) {
+                runCatching { cached = evaluate(ctx, Svc.settings, Svc.lastNextFire != null) }
                     .onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
-            } while (pending)
-            refreshing = false
+                synchronized(flagLock) {
+                    if (!pending) { refreshing = false; return@execute }
+                    pending = false
+                }
+            }
         }
     }
 

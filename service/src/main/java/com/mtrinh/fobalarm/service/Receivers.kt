@@ -46,7 +46,13 @@ class AlarmReceiver : BroadcastReceiver() {
                 Scheduler.ACTION_ARMGATE -> ArmGateRunner.run(ctx)
             }
         } finally {
-            if (wl.isHeld) wl.release()
+            // Deliberately NOT released: startForegroundService only posts to the main
+            // looper, so the service starts after this returns. Let the 60s timeout
+            // expire -- RingService takes its own lock as soon as it runs.
+            if (intent.action != Scheduler.ACTION_FIRE &&
+                intent.action != Scheduler.ACTION_WATCHDOG && wl.isHeld) {
+                wl.release()
+            }
         }
     }
 }
@@ -147,10 +153,10 @@ object SyncWindow {
                     Thread.sleep(3_000)
                 }
                 // Give Android a moment to reassociate with home Wi-Fi, then read time.
-                repeat(12) {
-                    if (Svc.session != null) return@runCatching
+                for (i in 0 until 12) {
+                    if (Svc.session != null) break
                     ClockObserver.poll()
-                    if (ClockObserver.healthy()) return@repeat
+                    if (ClockObserver.healthy()) break      // was `return@repeat`, i.e. continue
                     Thread.sleep(5_000)
                 }
                 if (ClockObserver.healthy()) {

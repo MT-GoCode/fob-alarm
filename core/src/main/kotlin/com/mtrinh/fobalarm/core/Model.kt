@@ -34,11 +34,6 @@ data class Settings(
         const val SNOOZE_CEILING_S = 600
         const val MAX_RING_FLOOR_M = 5
 
-        /** Keys that can silence tomorrow. Password-gated. */
-        val GATED = setOf(
-            "ringtoneUri", "snoozeSeconds", "defaultAlarmTime", "armGateTime",
-            "maxRingMinutes", "alarmVolumePercent", "ssid", "passphrase", "role",
-        )
     }
 }
 
@@ -184,6 +179,8 @@ data class RingView(
     val endsByMs: Long, val rotationDeg: Double, val thresholdDeg: Int,
     val gyroBiasDps: Double, val gyroStale: Boolean, val rvStale: Boolean,
     val audible: String,
+    /** Live orientation, so the instrument can draw the path actually traced. */
+    val quaternion: DoubleArray? = null,
 )
 data class ClockView(
     val lastSyncAttemptMs: Long, val lastSyncOkMs: Long,
@@ -224,6 +221,8 @@ data class Snapshot(
     val peerBlockers: List<String> = emptyList(),
     /** Last successful exchange between the two phones, either direction. */
     val lastHeartbeatMs: Long = 0,
+    /** Non-zero while a test ring is live, so the UI can observe it ending. */
+    val testUntilMs: Long = 0,
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

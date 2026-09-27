@@ -83,8 +83,21 @@ object Server {
         }
     }
 
+    /** Blocks until exactly [len] bytes are read, or the stream ends. */
+    private fun readBody(input: java.io.InputStream, len: Int): String {
+        val buf = ByteArray(len)
+        var off = 0
+        while (off < len) {
+            val n = input.read(buf, off, len - off)
+            if (n < 0) break
+            off += n
+        }
+        return String(buf, 0, off, Charsets.UTF_8)
+    }
+
     private fun handle(ctx: Context, sock: Socket, control: Boolean) = sock.use { s ->
-        val r = BufferedReader(InputStreamReader(s.getInputStream()))
+        val raw = java.io.BufferedInputStream(s.getInputStream())
+        val r = BufferedReader(InputStreamReader(raw, Charsets.UTF_8))
         val request = r.readLine() ?: return@use
         val parts = request.split(" ")
         val method = parts.getOrElse(0) { "GET" }
@@ -97,20 +110,9 @@ object Server {
             if (line.startsWith("Content-Length:", true))
                 contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
         }
-        // Content-Length is BYTES and this reader yields CHARS, and one read() returns
-        // as soon as any data is available. Loop, and stop at the char count we get.
-        val body = if (contentLength > 0) {
-            val sb = StringBuilder()
-            val buf = CharArray(contentLength)
-            var guard = 0
-            while (sb.length < contentLength && guard++ < 64) {
-                val n = r.read(buf, 0, contentLength)
-                if (n <= 0) break
-                sb.appendRange(buf, 0, n)
-                if (!r.ready()) break
-            }
-            sb.toString()
-        } else ""
+        // Content-Length is BYTES. Read bytes off the raw stream and decode once --
+        // counting chars made any non-ASCII passphrase block until the socket timeout.
+        val body = if (contentLength > 0) readBody(raw, contentLength) else ""
 
         val (code, payload) = if (control) route(ctx, method, path, body) else routeLogs(path)
         respond(s, code, payload)
@@ -120,8 +122,15 @@ object Server {
         path.startsWith("/v1/logs") -> 200 to JSONArray().apply {
             Svc.recentEvents(200).forEach { put(Wire.eventToJson(it)) }
         }.toString(2)
+        // Diagnostics only. The group passphrase must never leave the P2P interface:
+        // this port listens on every interface, including home WiFi.
         path.startsWith("/v1/state") -> 200 to runCatching {
-            Wire.snapshotToJson(Svc.snapshot()).toString(2)
+            val o = Wire.snapshotToJson(Svc.snapshot())
+            o.optJSONObject("settings")?.apply {
+                remove("passphrase")
+                remove("ssid")
+            }
+            o.toString(2)
         }.getOrElse { """{"error":"${it.message}"}""" }
         path.startsWith("/v1/history") -> {
             val since = param(path, "since")?.toLongOrNull() ?: 0

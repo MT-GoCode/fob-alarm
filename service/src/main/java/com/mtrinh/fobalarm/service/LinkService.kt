@@ -47,6 +47,11 @@ class LinkService : Service() {
     override fun onCreate() {
         super.onCreate()
         Boot.ensure(this)
+        runCatching {
+            registerReceiver(p2pReceiver, android.content.IntentFilter(
+                android.net.wifi.p2p.WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION),
+                Context.RECEIVER_NOT_EXPORTED)
+        }
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Link",
@@ -62,11 +67,6 @@ class LinkService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        runCatching {
-            registerReceiver(p2pReceiver, android.content.IntentFilter(
-                android.net.wifi.p2p.WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION),
-                Context.RECEIVER_NOT_EXPORTED)
-        }
         runCatching { startForeground(NOTIF_ID, notification()) }
             .onFailure { Svc.log("link_fgs_failed", "error" to it.toString()) }
         alive = true
@@ -83,6 +83,8 @@ class LinkService : Service() {
             val s = Svc.settings
             when (s.role) {
                 Role.ALARM -> {
+                    // The sync window owns the group while it runs.
+                    if (SyncWindow.running) { handler.postDelayed(this, 5_000); return }
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank()) {
                         if (!Group.running) {
                             Group.start(this@LinkService, s)

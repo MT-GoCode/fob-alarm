@@ -43,7 +43,10 @@ object Svc : AlarmHost {
     @Volatile var bootedAtMs: Long = 0
     @Volatile var appVersion: String = "?"
     @Volatile var variant: Variant = Variant.LIVE
-    @Volatile var unlockToken: String? = null
+    @Volatile private var unlockTokenValue: String? = null
+    /** Self-expiring: a stale token must read as locked, not as enabled-but-failing. */
+    val unlockToken: String?
+        get() = unlockTokenValue?.takeIf { System.currentTimeMillis() - unlockedAtMs < 120_000 }
     /** Last device report from the controller. Null until it has ever been heard from. */
     @Volatile var peerDevice: DeviceView? = null
     @Volatile var peerBlockers: List<String> = emptyList()
@@ -99,9 +102,9 @@ object Svc : AlarmHost {
                     state = state.copy(settings = state.settings.copy(
                         passwordHash = Auth.hash(DEFAULT_PASSWORD, salt), passwordSalt = salt))
                 }
-                de.passwordSeeded = true
                 log("default_password_set")
-                recompute("password_seeded")
+                recompute("password_seeded")     // mirrors the hash to DE
+                de.passwordSeeded = true         // only then record that we seeded
             }
         }
 
@@ -195,7 +198,8 @@ object Svc : AlarmHost {
         // wrong room and chirp about gates it cannot pass.
         if (state.settings.role == Role.ALARM) Scheduler.arm(app, r.nextFire)
 
-        if (alsoFire && r.fireNow != null && state.session == null) {
+        if (alsoFire && r.fireNow != null && state.session == null &&
+            state.settings.role == Role.ALARM) {
             log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
             urgent.execute { RingService.start(app) }
         }
@@ -248,7 +252,7 @@ object Svc : AlarmHost {
                     it.snoozeUntilMs, it.endsByMs,
                     RingService.rotationDeg, state.settings.snoozeThresholdDegrees,
                     RingService.gyroBiasDps, RingService.gyroStale, RingService.rvStale,
-                    RingService.audible)
+                    RingService.audible, RingService.quaternion)
             },
             clock = ClockView(ClockObserver.lastAttemptMs, ClockObserver.lastOkMs,
                 ClockObserver.offsetMs, ClockObserver.source,
@@ -266,8 +270,11 @@ object Svc : AlarmHost {
             settings = state.settings.copy(
                 usingDefaultPassword = Auth.isDefault(state.settings, DEFAULT_PASSWORD)),
             lastEvents = recentEvents(10),
-            peerBlockers = peerBlockers,
+            // Stale peer reports must not linger after the peer goes away.
+            peerBlockers = if (peerDevice?.lastSeenMs?.let {
+                    System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
+            testUntilMs = testUntilMs,
         )
     }
 
@@ -275,7 +282,16 @@ object Svc : AlarmHost {
     @Volatile private var selfCacheAtMs = 0L
 
     fun selfDevice(): DeviceView {
-        selfCache?.let { if (System.currentTimeMillis() - selfCacheAtMs < 10_000) return it }
+        val c = selfCache
+        if (c != null) {
+            // Refresh off-thread; never block the lock on a binder call.
+            if (System.currentTimeMillis() - selfCacheAtMs > 10_000) io.execute { readSelf() }
+            return c
+        }
+        return readSelf()
+    }
+
+    private fun readSelf(): DeviceView {
         val bm = app.getSystemService(BatteryManager::class.java)
         val batt = app.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         return DeviceView(
@@ -288,12 +304,16 @@ object Svc : AlarmHost {
         }
     }
 
-    /** Idempotent by content: a replayed request returns the current snapshot, not a second action. */
+    /** True if this request already SUCCEEDED once. Replays return the current snapshot. */
     private fun seen(requestId: String): Boolean = synchronized(seenRequests) {
         val now = System.currentTimeMillis()
         seenRequests.entries.removeAll { now - it.value > 10 * 60_000 }
-        if (seenRequests.containsKey(requestId)) true
-        else { seenRequests[requestId] = now; false }
+        seenRequests.containsKey(requestId)
+    }
+
+    /** Recorded only once the mutation has actually happened. */
+    private fun commit(requestId: String) = synchronized(seenRequests) {
+        seenRequests[requestId] = System.currentTimeMillis()
     }
 
     override fun dismiss(ringId: String, requestId: String, actor: Actor): Snapshot {
@@ -303,6 +323,7 @@ object Svc : AlarmHost {
         // 04:00 session instead.
         val snap = synchronized(lock) {
             val s = state.session ?: throw StaleRingException(snapshot())
+            commit(requestId)
             if (s.ringId != ringId) {
                 log("stale_dismiss_rejected", "got" to ringId, "have" to s.ringId)
                 throw StaleRingException(snapshot())
@@ -316,6 +337,9 @@ object Svc : AlarmHost {
     }
 
     private fun requireUnlocked(patch: Settings, token: String?) {
+        // The gate protects the ALARM phone. On the controller this Svc only holds local
+        // config; the real check happens when the controller POSTs to the alarm phone.
+        if (state.settings.role == Role.CONTROLLER) return
         val changesGated = listOf(
             patch.ringtoneUri != state.settings.ringtoneUri,
             patch.snoozeSeconds != state.settings.snoozeSeconds,
@@ -329,38 +353,46 @@ object Svc : AlarmHost {
         ).any { it }
         if (!changesGated) return
         if (Auth.gateOpen(state.settings)) return
-        val fresh = unlockToken != null && token == unlockToken &&
-                System.currentTimeMillis() - unlockedAtMs < 120_000
-        if (!fresh) throw ForbiddenException()
+        if (unlockToken == null || token != unlockToken) throw ForbiddenException()
     }
 
     override fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        if (ifVersion >= 0 && ifVersion != state.stateVersion) throw ConflictException(snapshot())
-        requireUnlocked(patch, token)
-        // Role change is rejected outright while a ring session is open.
-        if (patch.role != state.settings.role && state.session != null) throw ConflictException(snapshot())
-        val invalid = SettingsValidator.validate(patch)
-        if (invalid.isNotEmpty()) throw IllegalArgumentException(invalid.joinToString { it.reason })
-        val ssidChanged = patch.ssid != state.settings.ssid || patch.passphrase != state.settings.passphrase
-        val snap = synchronized(lock) { apply(Engine.patchSettings(state, ts, patch, actor)) }
-        if (ssidChanged) Executors.newSingleThreadExecutor().execute { Group.restart(app, state.settings) }
+        // Check and apply in ONE transaction: separately, two patches with the same
+        // ifVersion both passed the check and both applied, last writer winning silently.
+        val ssidChanged: Boolean
+        val snap = synchronized(lock) {
+            if (seen(requestId)) return snapshot()
+            if (ifVersion >= 0 && ifVersion != state.stateVersion) throw ConflictException(snapshot())
+            requireUnlocked(patch, token)
+            if (patch.role != state.settings.role && state.session != null) {
+                throw ConflictException(snapshot())
+            }
+            val invalid = SettingsValidator.validate(patch)
+            if (invalid.isNotEmpty()) throw IllegalArgumentException(invalid.joinToString { it.reason })
+            ssidChanged = patch.ssid != state.settings.ssid ||
+                    patch.passphrase != state.settings.passphrase
+            commit(requestId)
+            apply(Engine.patchSettings(state, ts, patch, actor))
+        }
+        // D19: reuse io rather than leaking a fresh executor per credential change.
+        if (ssidChanged) io.execute { Group.restart(app, state.settings) }
         return snap
     }
 
     override fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return synchronized(lock) { apply(Engine.setNap(state, ts, minutes)) }
+        return synchronized(lock) { commit(requestId); apply(Engine.setNap(state, ts, minutes)) }
     }
 
     override fun clearNap(requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return synchronized(lock) { apply(Engine.clearNap(state, ts)) }
+        return synchronized(lock) { commit(requestId); apply(Engine.clearNap(state, ts)) }
     }
 
     override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
         return synchronized(lock) {
+            commit(requestId)
             when {
                 kind == "SKIP" -> apply(Engine.setSkip(state, ts))
                 kind == "NONE" -> apply(Engine.clearOverride(state, ts))
@@ -372,7 +404,7 @@ object Svc : AlarmHost {
 
     override fun clearOverride(requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return synchronized(lock) { apply(Engine.clearOverride(state, ts)) }
+        return synchronized(lock) { commit(requestId); apply(Engine.clearOverride(state, ts)) }
     }
 
     override fun history(sinceSeq: Long, limit: Int): List<Event> {
@@ -403,7 +435,7 @@ object Svc : AlarmHost {
     override fun unlock(secret: String): String {
         if (!Auth.accepts(state.settings, secret)) throw ForbiddenException()
         val t = UUID.randomUUID().toString()
-        unlockToken = t
+        unlockTokenValue = t
         unlockedAtMs = System.currentTimeMillis()
         return t
     }

@@ -68,11 +68,15 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
         if (s.nap.armed) Fact("nap", s.nap.atMs?.let { Fmt.until(it, nowMs) } ?: "?")
     }
 
+    val iAmAlarm = s.self.role == Role.ALARM
     Section("This phone")
     Fact("role", s.self.role?.name ?: "not set", s.self.role != null)
     Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.batteryPct >= 20)
-    Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
-    Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
+    // s.ap always describes the ALARM phone, so only show it as "this phone" there.
+    if (iAmAlarm) {
+        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
+        Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
+    }
 
     Section("Other phone")
     if (s.peer == null) {
@@ -87,6 +91,10 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
             connected)
         Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged),
             s.peer!!.batteryPct >= 20)
+    }
+    if (!iAmAlarm) {
+        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
+        Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
     }
 
     Section("Alarm")

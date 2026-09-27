@@ -183,6 +183,44 @@ Plus: default-password hashing moved off the fire path (20,000 SHA-256 rounds ra
 echoed back from a controller patch, `clearOverride` brought under the lock, and ~90
 lines of dead code removed.
 
+## Verification round 2 — 29 defects, all fixed
+
+Round 2 confirmed 8 of the 9 round-1 fixes landed and found 29 more. The ones that mattered:
+
+- **CRITICAL — the controller could never be paired.** `Svc.init` seeds the default
+  password on *both* phones, so the controller's own local `Svc` rejected its own
+  pairing write with `ForbiddenException`, swallowed by a bare `runCatching`, and
+  `ControllerSetup` looped forever. The controller has no unlock affordance because the
+  gate belongs to the alarm phone. Its local `Svc` is now exempt, and every pairing
+  failure is surfaced.
+- **CRITICAL (security) — the WPA2 passphrase was served unauthenticated.** The log port
+  binds `0.0.0.0:8766` and `/v1/state` returned the whole settings object including
+  `passphrase`. Any device on home Wi-Fi could read the group credential that the
+  control port's entire security argument rests on. Stripped.
+- **HIGH — the controller could ring.** `Scheduler.arm` was role-guarded; the `fireNow`
+  branch was not. A controller that was off overnight would boot and start a real ring
+  session in the wrong room.
+- **HIGH — a silent test became a full-volume siren** on a sticky restart, because that
+  path never consulted `de.testSilent`.
+- **HIGH — the hourly sync blacked the link out for ~63s every hour.** `return@repeat`
+  is `continue`, not `break`, so the group stayed down for all twelve polls even when
+  the clock synced on the first.
+- **HIGH — `ifVersion` was checked outside the lock**, so two concurrent patches with
+  the same version both applied, last writer winning silently.
+- **`seen()` consumed a request id before the operation could fail**, so retrying a
+  rejected request returned 200 and the UI reported "synced" for a change that never
+  applied.
+- **Any non-ASCII request body hung the control port** for 10s and returned nothing:
+  `Content-Length` is bytes, the read loop counted chars.
+- **The fire-path wake lock was released before the service started**, since
+  `startForegroundService` only posts to the main looper.
+- **An engine throw on the fire path killed the ring.** Now it rings anyway.
+
+Plus: receiver re-registration leak, binder calls under the ring lock, a leaked executor
+and P2P channel per retry, the coalescing race, a 4h control that clamped to 2h, stale
+non-Compose reads in device settings, the "Use built-in" control round 1 missed, tokens
+that never expired in the UI, and the globe's dead projection code now fed real data.
+
 ## Priority order
 
 1. Controller permission rows are dead controls (§5).

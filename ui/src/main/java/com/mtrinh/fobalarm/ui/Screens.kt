@@ -75,8 +75,7 @@ fun RootScreen(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    listOf(if ((app.localGates ?: s.gates).allPass && s.mode != Mode.INIT)
-                               "Status" else "Setup",
+                    listOf(if ((app.localGates ?: s.gates).allPass) "Status" else "Setup",
                         "Settings", "History").forEachIndexed { i, label ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i },
@@ -206,7 +205,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             // #39: a naked dial means nothing at 4 AM.
             Text("or turn the phone over to snooze", fontSize = T.label, color = Muted)
             Box(Modifier.fillMaxWidth().height(170.dp)) {
-                RotationInstrument(ring.rotationDeg, ring.thresholdDeg, null,
+                RotationInstrument(ring.rotationDeg, ring.thresholdDeg, ring.quaternion,
                     ring.rvStale, Modifier.fillMaxSize())
             }
         } else {
@@ -230,9 +229,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
 @Composable
 private fun WaitingScreen(app: AppState, s: Snapshot) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
-    val nag = Nag.evaluate(s, app.lastOkMs, now)
+    val nag = Nag.evaluate(s, app.lastOkMs, app.nowMs)
 
     Page(snapshot = s) {
 

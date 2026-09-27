@@ -130,11 +130,17 @@ class MainActivity : ComponentActivity() {
                         role == Role.CONTROLLER && Svc.settings.passphrase.isNullOrBlank() ->
                             ControllerSetup { ssid, pass ->
                                 runCatching {
-                                    Svc.patchSettings(-1, Svc.settings.copy(ssid = ssid, passphrase = pass),
-                                        java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
+                                    Svc.patchSettings(-1,
+                                        Svc.settings.copy(ssid = ssid, passphrase = pass),
+                                        java.util.UUID.randomUUID().toString(),
+                                        Svc.unlockToken, Actor.CONTROLLER)
+                                }.onSuccess {
+                                    P2pJoin.join(this@MainActivity, ssid, pass)
+                                    recreate()
+                                }.onFailure {
+                                    Toast.makeText(this@MainActivity,
+                                        "Could not save: ${it.message}", Toast.LENGTH_LONG).show()
                                 }
-                                P2pJoin.join(this@MainActivity, ssid, pass)
-                                recreate()
                             }
                         else -> {
                             val client = remember(role) { buildClient(role!!) }
@@ -175,6 +181,9 @@ class MainActivity : ComponentActivity() {
                                         Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
                                             java.util.UUID.randomUUID().toString(),
                                             Svc.unlockToken, Actor.CONTROLLER)
+                                    }.onFailure {
+                                        Toast.makeText(this@MainActivity,
+                                            "Could not reset: ${it.message}", Toast.LENGTH_LONG).show()
                                     }
                                     recreate()
                                 },
@@ -307,10 +316,16 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DeviceSettings() {
-        // Same lock treatment as every other gated control, or these read as broken.
-        val locked = Svc.settings.hasPassword && Svc.unlockToken == null
-        var ssid by remember { mutableStateOf(Svc.settings.ssid ?: "DIRECT-fa-alarm") }
-        var pass by remember { mutableStateOf(Svc.settings.passphrase ?: "") }
+        // Driven by observable snapshot state, not by Svc globals: reading those meant
+        // the subtree did not recompose after an unlock or a ringtone change.
+        val snap = if (::app.isInitialized) app.snapshot else null
+        val locked = (snap?.settings?.hasPassword ?: true) && app.token == null
+        var ssid by remember(snap?.settings?.ssid) {
+            mutableStateOf(snap?.settings?.ssid ?: "DIRECT-fa-alarm")
+        }
+        var pass by remember(snap?.settings?.passphrase) {
+            mutableStateOf(snap?.settings?.passphrase ?: "")
+        }
         var confirm by remember { mutableStateOf(false) }
         var pw by remember { mutableStateOf("") }
 
@@ -348,17 +363,23 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(S.sm))
         Section("Ringtone", "A built-in tone is used unless you choose a file.")
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (Svc.settings.ringtoneUri != null) "Your file" else "Built-in tone",
+            Text(if (snap?.settings?.ringtoneUri != null) "Your file" else "Built-in tone",
                 fontSize = T.body, modifier = Modifier.weight(1f))
             TextButton(enabled = !locked,
                 onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
-            if (Svc.settings.ringtoneUri != null) {
-                TextButton(onClick = {
-                    runCatching {
-                        Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null),
-                            java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
-                    }
-                }) { Text("Use built-in") }
+            if (snap?.settings?.ringtoneUri != null) {
+                TextButton(
+                    enabled = !locked,
+                    onClick = {
+                        runCatching {
+                            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null),
+                                java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
+                        }.onFailure {
+                            Toast.makeText(this@MainActivity, "Unlock settings first",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                        refreshGates()
+                    }) { Text("Use built-in") }
             }
         }
 

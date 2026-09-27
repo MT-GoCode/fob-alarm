@@ -82,7 +82,10 @@ class App : Application() {
             // Finish ONLY when the ring is genuinely over -- an open session or a live
             // test. Never render the tabbed screen here: a snapshot flicker used to drop
             // the user into Settings mid-ring.
-            val ringing = snap == null || snap.ring != null || Svc.testActive
+            // Observe the test window through the snapshot; Svc.testActive is a plain
+            // getter and never triggers recomposition, so the screen used to linger.
+            val ringing = snap == null || snap.ring != null ||
+                    (snap.testUntilMs > 0 && System.currentTimeMillis() < snap.testUntilMs)
             LaunchedEffect(ringing) { if (!ringing) activity.finish() }
             Surface(Modifier.fillMaxSize()) {
                 if (snap?.ring != null) RingOnlyScreen(app, snap)

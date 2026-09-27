@@ -72,7 +72,7 @@ fun SettingsScreen(
         }
         LockedRow(locked) {
             DurationSetting("Give up after", s.settings.maxRingMinutes * 60,
-                minSeconds = 5 * 60, maxSeconds = 4 * 3600) { secs ->
+                minSeconds = 5 * 60, maxSeconds = 120 * 60) { secs ->
                 app.patch("Give up after") { it.copy(maxRingMinutes = secs / 60) }
             }
         }

@@ -23,7 +23,6 @@ object Wire {
             put("foregroundService", s.gates.foregroundService)
             put("p2pSupported", s.gates.p2pSupported)
             put("gyroscopePresent", s.gates.gyroscopePresent)
-            put("staApConcurrent", true)
             put("groupCredentialsSet", s.gates.groupCredentialsSet)
             put("localNetworkPermission", s.gates.localNetworkPermission)
             put("notificationPolicyAccess", s.gates.notificationPolicyAccess)

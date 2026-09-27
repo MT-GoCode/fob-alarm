@@ -30,9 +30,11 @@ object Group {
         val pass = s.passphrase ?: return
         if (running) return
         runCatching {
-            val m = ctx.getSystemService(WifiP2pManager::class.java) ?: return
+            val m = manager ?: ctx.getSystemService(WifiP2pManager::class.java) ?: return
             manager = m
-            val ch = m.initialize(ctx, Looper.getMainLooper(), null)
+            // Initialize ONCE: a fresh channel per retry leaked a binder object every
+            // few seconds on a phone that could not form a group.
+            val ch = channel ?: m.initialize(ctx, Looper.getMainLooper(), null)
             channel = ch
             val cfg = WifiP2pConfig.Builder()
                 .setNetworkName(if (ssid.startsWith("DIRECT-")) ssid else "DIRECT-fa-$ssid")

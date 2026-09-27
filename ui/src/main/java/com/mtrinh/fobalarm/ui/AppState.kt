@@ -35,7 +35,7 @@ class AppState(
     var lastOkMs by mutableLongStateOf(0L); private set
     var lastError by mutableStateOf<String?>(null); private set
     var dismissUi by mutableStateOf<DismissUi>(DismissUi.Idle); private set
-    var token by mutableStateOf<String?>(null); private set
+    var token by mutableStateOf<String?>(null); internal set
     var history by mutableStateOf<List<Event>>(emptyList()); private set
     /** This phone's own gates, even when the snapshot describes the other phone. */
     var localGates by mutableStateOf<Gates?>(null)
@@ -53,7 +53,6 @@ class AppState(
         get() = if (isLocal) (snapshot?.peer?.lastSeenMs ?: 0L) else lastOkMs
 
     val connected: Boolean get() = linkAtMs != 0L && nowMs - linkAtMs < 60_000
-    val linkAgeMs: Long get() = if (linkAtMs == 0L) Long.MAX_VALUE / 2 else nowMs - linkAtMs
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
     var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
@@ -204,6 +203,7 @@ class AppState(
                 .onFailure { e ->
                     timeout.cancel()
                     syncOk = false
+                    if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
                         is ClientError.Forbidden -> "$label not saved, unlock first"
                         is ClientError.Conflict -> "$label not saved, changed elsewhere"

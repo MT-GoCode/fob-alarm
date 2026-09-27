@@ -68,9 +68,6 @@ data class GateInfo(
             GateInfo("p2pSupported", "Wi-Fi Direct",
                 "Used for the phone-to-phone link.",
                 GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
-            GateInfo("staApConcurrent", "Wi-Fi and group at once",
-                "Whether this phone can host the link and stay on home Wi-Fi together.",
-                GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
 
             // ---- conditions: tonight's state, never a setup step ----
             // A CONDITION, not a setup step, and meaningless on the controller, which
