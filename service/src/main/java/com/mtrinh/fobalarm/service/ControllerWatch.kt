@@ -41,8 +41,16 @@ object ControllerWatch {
         )
     }
 
-    /** One poll. Called from the LinkService tick; never from the UI. */
+    @Volatile private var polling = false
+
+    /** One poll, one at a time. Called from the LinkService tick; never from the UI. */
     fun poll(ctx: Context) {
+        if (polling) return
+        polling = true
+        try { pollOnce(ctx) } finally { polling = false }
+    }
+
+    private fun pollOnce(ctx: Context) {
         val r = runBlocking { client.snapshot() }
         r.onSuccess { s ->
             lastSnapshot = s

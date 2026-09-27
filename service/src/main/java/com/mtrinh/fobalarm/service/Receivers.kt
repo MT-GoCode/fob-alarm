@@ -193,7 +193,10 @@ object SyncWindow {
 /** The persisted crash file, shared with :app so health can report it. */
 object Crash {
     fun file(ctx: Context) = java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")
-    fun hasPending(ctx: Context) = runCatching { file(ctx).exists() }.getOrDefault(false)
+    /** Cached: read once at startup and on write/clear, never under the ring lock. */
+    @Volatile var pending: Boolean = false
+    fun refresh(ctx: Context) { pending = runCatching { file(ctx).exists() }.getOrDefault(false) }
+    fun hasPending(@Suppress("UNUSED_PARAMETER") ctx: Context) = pending
 }
 
 /** Hibernation and force-stop both cancel every PendingIntent. Make it visible. */

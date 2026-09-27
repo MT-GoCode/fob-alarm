@@ -9,6 +9,7 @@ object Crash {
     private fun file(ctx: Context) = com.mtrinh.fobalarm.service.Crash.file(ctx)
 
     fun write(ctx: Context, thread: String, e: Throwable) {
+        com.mtrinh.fobalarm.service.Crash.pending = true
         runCatching {
             file(ctx).writeText(buildString {
                 appendLine("at ${System.currentTimeMillis()}")
@@ -21,6 +22,7 @@ object Crash {
     @Volatile var pending: String? = null
 
     fun reportPending(ctx: Context) {
+        com.mtrinh.fobalarm.service.Crash.refresh(ctx)
         val f = file(ctx)
         if (!f.exists()) return
         pending = runCatching { f.readText() }.getOrNull()
@@ -30,5 +32,6 @@ object Crash {
     fun clear(ctx: Context) {
         runCatching { file(ctx).delete() }
         pending = null
+        com.mtrinh.fobalarm.service.Crash.pending = false
     }
 }

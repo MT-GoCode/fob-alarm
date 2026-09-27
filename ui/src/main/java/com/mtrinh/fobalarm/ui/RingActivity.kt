@@ -55,7 +55,12 @@ open class RingActivity : ComponentActivity() {
                 val c = content
                 // Never a black screen with no control: if the content was never wired,
                 // the ring must still be stoppable from here.
-                if (c != null) c(this) else FallbackDismiss { finish() }
+                if (c != null) c(this) else FallbackDismiss {
+                    // Dismiss the alarm, not just this window.
+                    sendBroadcast(android.content.Intent("com.mtrinh.fobalarm.DISMISS")
+                        .setClassName(packageName, "com.mtrinh.fobalarm.service.AlarmReceiver"))
+                    finish()
+                }
             }
         }
     }
