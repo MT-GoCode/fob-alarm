@@ -24,6 +24,8 @@ data class Settings(
     val passwordSalt: String? = null,
     /** Set from the wire on the controller, which never sees the hash itself. */
     val hasPasswordRemote: Boolean = false,
+    /** True while the shipped default password is still in use. */
+    val usingDefaultPassword: Boolean = false,
 ) {
     val hasPassword: Boolean get() = passwordHash != null || hasPasswordRemote
 

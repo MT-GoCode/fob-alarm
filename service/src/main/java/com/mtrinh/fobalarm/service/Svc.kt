@@ -21,7 +21,12 @@ import java.util.concurrent.Executors
  */
 object Svc : AlarmHost {
 
-    /** Documented in the README. Change it in Settings. */
+    /**
+     * Deliberate: the gate exists to slow down a half-asleep user, not to keep a secret
+     * from an attacker, and a password the owner does not know would defeat its purpose.
+     * Exposure is limited to the Wi-Fi Direct group, whose WPA2 passphrase the user sets.
+     * Settings shows a warning while this is still in use.
+     */
     const val DEFAULT_PASSWORD = "12345678"
 
     lateinit var app: Context; private set
@@ -250,7 +255,8 @@ object Svc : AlarmHost {
             tomorrow = TomorrowView(
                 state.override?.kind?.name ?: "NONE", ovFire, boundAt),
             nap = NapView(state.nap != null, state.nap?.fireAtMs),
-            settings = state.settings,
+            settings = state.settings.copy(
+                usingDefaultPassword = Auth.isDefault(state.settings, DEFAULT_PASSWORD)),
             lastEvents = recentEvents(10),
             peerBlockers = peerBlockers,
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,

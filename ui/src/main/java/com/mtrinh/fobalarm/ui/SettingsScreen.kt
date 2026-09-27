@@ -47,6 +47,10 @@ fun SettingsScreen(
                     else if (locked) "Unlock to change the locked settings."
                     else "Locks again after a couple of minutes.",
                     fontSize = T.caption, color = Muted)
+                if (s.settings.usingDefaultPassword) {
+                    Text("Still using the default password 12345678. Change it below.",
+                        fontSize = T.caption, color = Bad)
+                }
             }
             if (locked) Button(onClick = { showUnlock = true }) { Text("Unlock") }
         }

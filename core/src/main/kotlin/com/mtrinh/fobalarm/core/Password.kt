@@ -31,6 +31,13 @@ object Auth {
     fun accepts(s: Settings, secret: String): Boolean =
         gateOpen(s) || verifies(secret, s.passwordHash, s.passwordSalt)
 
+    /**
+     * True while the factory default is still in use. Surfaced in Settings so a known
+     * password is never mistaken for a private one.
+     */
+    fun isDefault(s: Settings, default: String): Boolean =
+        s.passwordHash != null && verifies(default, s.passwordHash, s.passwordSalt)
+
     private fun constantTimeEquals(a: String, b: String): Boolean {
         if (a.length != b.length) return false
         var r = 0

@@ -90,8 +90,15 @@ Current build when this list was written: **0.2.23**.
 - [x] **DONE** — No recovery code.
 - [x] **DONE** — Locked rows are visibly locked and tapping explains why.
 - [x] **DONE** — **Default password `12345678`.** Set on first run so the app is gated
-  from the start rather than open until someone remembers. Must still be changeable,
-  and must never gate dismiss.
+  from the start rather than open until someone remembers. Changeable, and never gates
+  dismiss.
+  - Security note: an automated review flagged this as a hardcoded credential. Kept
+    deliberately, because the gate exists to slow down a half-asleep owner rather than
+    to keep a secret from an attacker, and a password the owner does not know would
+    defeat its own purpose. Exposure is limited to the Wi-Fi Direct group, whose WPA2
+    passphrase the user chooses, and the control port binds to that interface only.
+    Settings now shows a red warning while the default is still in use, so a known
+    password is never mistaken for a private one.
 
 ## 8. Connectivity
 

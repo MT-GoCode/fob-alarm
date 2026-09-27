@@ -113,6 +113,7 @@ object Wire {
         // and the link that carries it is the WPA2 group it unlocks.
         .put("passphrase", s.passphrase ?: JSONObject.NULL)
         .put("hasPassword", s.hasPassword)
+        .put("usingDefaultPassword", s.usingDefaultPassword)
 
     /** Patches carry only the keys present; absent keys keep their current value. */
     fun settingsFrom(o: JSONObject, base: Settings) = base.copy(
@@ -127,6 +128,7 @@ object Wire {
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),
         hasPasswordRemote = o.optBoolean("hasPassword", base.hasPasswordRemote),
+        usingDefaultPassword = o.optBoolean("usingDefaultPassword", base.usingDefaultPassword),
         ssid = if (o.has("ssid") && !o.isNull("ssid")) o.getString("ssid") else base.ssid,
         passphrase = if (o.has("passphrase") && !o.isNull("passphrase")) o.getString("passphrase") else base.passphrase,
     )
