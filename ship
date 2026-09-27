@@ -6,8 +6,7 @@
 # deleted (a LAN-fed install path that could commit a package mid-ring).
 set -euo pipefail
 cd "$(dirname "$0")"
-export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.apps/Contents/jbr/Contents/Home}"
-export JAVA_HOME="${JAVA_HOME/Android Studio.apps/Android Studio.app}"
+export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
 
 TASK=":app:assembleRelease"
 APK=app/build/outputs/apk/release/app-release.apk

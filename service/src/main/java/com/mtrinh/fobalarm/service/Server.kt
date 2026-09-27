@@ -138,6 +138,7 @@ object Server {
         val body = if (contentLength > 0) readBody(raw, contentLength) else ""
 
         val (code, payload) = if (control) route(ctx, method, path, body) else routeLogs(path)
+        Health.lastRequestMs = System.currentTimeMillis()
         respond(s, code, payload)
     }
 
@@ -163,7 +164,12 @@ object Server {
                 Svc.history(since, limit).forEach { put(Wire.eventToJson(it)) }
             }).toString(2)
         }
-        else -> 200 to """{"endpoints":["/v1/logs","/v1/state","/v1/history"]}"""
+        path.startsWith("/v1/health") -> {
+            val problems = Health.problems()
+            (if (problems.isEmpty()) 200 else 503) to JSONObject()
+                .put("ok", problems.isEmpty()).put("problems", JSONArray(problems)).toString(2)
+        }
+        else -> 200 to """{"endpoints":["/v1/health","/v1/logs","/v1/state","/v1/history"]}"""
     }
 
     private fun param(path: String, key: String): String? =
@@ -183,6 +189,12 @@ object Server {
             ?: java.util.UUID.randomUUID().toString()
         return try {
             when {
+                // Loopback self-test target: exercises the full request path (headers,
+                // Content-Length, multi-byte body) with no side effects.
+                path.startsWith("/v1/ping") && method == "POST" ->
+                    200 to JSONObject().put("echo", o.optString("echo"))
+                        .put("bytes", body.toByteArray(Charsets.UTF_8).size).toString()
+
                 path.startsWith("/v1/snapshot") -> {
                     // The controller piggybacks its own device on the poll it already
                     // makes, so the alarm phone can render both devices. No new endpoint.
@@ -259,7 +271,8 @@ object Server {
     private fun respond(s: Socket, code: Int, body: String) {
         val bytes = body.toByteArray()
         val reason = when (code) {
-            200 -> "OK"; 403 -> "Forbidden"; 404 -> "Not Found"; 409 -> "Conflict"; else -> "Error"
+            200 -> "OK"; 403 -> "Forbidden"; 404 -> "Not Found"; 409 -> "Conflict"
+            503 -> "Service Unavailable"; else -> "Error"
         }
         s.getOutputStream().apply {
             write(("HTTP/1.1 $code $reason\r\nContent-Type: application/json\r\n" +

@@ -66,7 +66,14 @@ class LinkService : Service() {
         }
     }
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (Svc.settings.role == Role.CONTROLLER && wakeLock == null) {
+            wakeLock = getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:watch")
+                .also { it.acquire() }
+        }
         runCatching { startForeground(NOTIF_ID, notification()) }
             .onFailure { Svc.log("link_fgs_failed", "error" to it.toString()) }
         alive = true
@@ -91,6 +98,7 @@ class LinkService : Service() {
                             backoffMs = (backoffMs * 2).coerceAtMost(120_000)
                         } else backoffMs = 5_000L
                         Group.refresh(this@LinkService)
+                        Health.probe(this@LinkService)
                     }
                 }
                 Role.CONTROLLER -> {
@@ -102,7 +110,12 @@ class LinkService : Service() {
                         // 15s, not 120s: a human is standing in front of this phone
                         // waiting for the dismiss button to work.
                         backoffMs = (backoffMs * 2).coerceAtMost(15_000)
-                    } else backoffMs = 5_000L
+                    } else {
+                        // Linked: watch the alarm phone from the SERVICE, so the alert and
+                        // its dismiss work with no Activity alive at all.
+                        Thread { ControllerWatch.poll(this@LinkService) }.start()
+                        backoffMs = if (ControllerWatch.ringing) 2_000L else 15_000L
+                    }
                 }
                 null -> {}
             }
@@ -112,6 +125,7 @@ class LinkService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { wakeLock?.release() }; wakeLock = null
         runCatching { unregisterReceiver(p2pReceiver) }
         alive = false
         handler.removeCallbacksAndMessages(null)

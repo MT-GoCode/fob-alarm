@@ -292,6 +292,7 @@ object Svc : AlarmHost {
                     System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
+            problems = runCatching { Health.problems() }.getOrDefault(emptyList()),
         )
     }
 

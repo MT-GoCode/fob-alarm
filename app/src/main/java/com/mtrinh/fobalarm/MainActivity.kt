@@ -162,15 +162,6 @@ class MainActivity : ComponentActivity() {
                                         this@MainActivity, Svc.settings, Svc.lastNextFire != null)
                                 }
                             }
-                            // A ring on the other phone must WAKE this one. Otherwise at
-                            // 04:00 you walk into a dark, locked phone and the only
-                            // control the product promises is two interactions away.
-                            if (role == Role.CONTROLLER) {
-                                LaunchedEffect(app.snapshot?.ring?.ringId) {
-                                    if (app.snapshot?.ring != null) RemoteRingAlert.raise(this@MainActivity)
-                                    else RemoteRingAlert.clear(this@MainActivity)
-                                }
-                            }
                             RootScreen(
                                 app = app,
                                 isAlarmRole = role == Role.ALARM,

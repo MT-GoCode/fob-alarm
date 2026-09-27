@@ -80,6 +80,7 @@ object Wire {
         put("peerBlockers", JSONArray(s.peerBlockers))
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
+        put("problems", JSONArray(s.problems))
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -234,6 +235,7 @@ object Wire {
             } ?: emptyList(),
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
+            problems = o.optJSONArray("problems")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         )
     }
 

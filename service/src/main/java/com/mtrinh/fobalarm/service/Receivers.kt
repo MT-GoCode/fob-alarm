@@ -19,6 +19,10 @@ object Boot {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Boot.ensure(ctx)
+        if (intent.action == ControllerWatch.ACTION_REMOTE_DISMISS) {
+            Thread { ControllerWatch.dismissNow(ctx) }.start()
+            return
+        }
         if (Svc.settings.role != Role.ALARM) return      // controller never fires alarms
         // AlarmManager's own wake lock ends when onReceive returns and the FGS-start
         // allowlist is ~10s, so take a lock and start the service SYNCHRONOUSLY.
@@ -184,6 +188,12 @@ object SyncWindow {
             running = false
         }, "sync-window").start()
     }
+}
+
+/** The persisted crash file, shared with :app so health can report it. */
+object Crash {
+    fun file(ctx: Context) = java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")
+    fun hasPending(ctx: Context) = runCatching { file(ctx).exists() }.getOrDefault(false)
 }
 
 /** Hibernation and force-stop both cancel every PendingIntent. Make it visible. */

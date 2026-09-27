@@ -2,7 +2,8 @@
 # logcat replacement. With no argument, finds both phones on the LAN by the port the
 # app itself listens on -- more reliable than mDNS and needs nothing installed.
 #   ./logs                 discover and summarise both phones
-#   ./logs <ip>            event log
+#   ./logs <ip>            health: pass/fail plus what is wrong
+#   ./logs <ip> logs       event log
 #   ./logs <ip> state      live snapshot
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -34,7 +35,7 @@ if [ $# -eq 0 ]; then
   exit 0
 fi
 
-HOST="$1"; WHAT="${2:-logs}"
+HOST="$1"; WHAT="${2:-health}"
 curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)

@@ -222,6 +222,8 @@ data class Snapshot(
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */
     val testUntilMs: Long = 0,
+    /** Human sentences. Empty means healthy. Same list `/v1/health` serves. */
+    val problems: List<String> = emptyList(),
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

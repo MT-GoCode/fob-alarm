@@ -402,8 +402,10 @@ object Engine {
             else -> "session_end"
         }
         return recompute(next, ts, "session_end:$outcome").let {
-            it.copy(events = listOf(PendingEvent(evType,
-                mapOf("ringId" to s.ringId, "snoozeCount" to s.snoozeCount.toString()))) + it.events)
+            it.copy(events = listOf(PendingEvent(evType, mapOf(
+                "ringId" to s.ringId,
+                "snoozeCount" to s.snoozeCount.toString(),
+                "ringingMs" to (now - s.startedAtMs).toString()))) + it.events)
         }
     }
 

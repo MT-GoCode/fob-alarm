@@ -17,9 +17,9 @@ import com.mtrinh.fobalarm.core.*
 @Composable
 fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Unit) {
 
-    val myBlockers = s.gates.failing().filter { GateInfo.of(it)?.blocking == true }
-    val peerBlockers = s.peerBlockers
-    val willRing = myBlockers.isEmpty() && s.nextFire != null
+    val alarmProblems = s.problems
+    val peerBlockers = s.peerBlockers.map { GateInfo.of(it)?.label ?: it }
+    val willRing = alarmProblems.isEmpty() && s.nextFire != null
 
     // --- headline -----------------------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -37,22 +37,15 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
         }
     }
 
-    // --- anything that would stop it ringing, on EITHER phone ---------------
-    if (myBlockers.isNotEmpty() || peerBlockers.isNotEmpty()) {
+    // --- anything wrong, on either phone, as sentences ---------------------
+    if (alarmProblems.isNotEmpty() || peerBlockers.isNotEmpty()) {
         Spacer(Modifier.height(S.sm))
         Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
-            Column(Modifier.padding(14.dp)) {
-                Text("The alarm will not ring", fontSize = T.body,
-                    fontWeight = FontWeight.Bold, color = Color.Black)
-                myBlockers.forEach {
-                    Text("Alarm phone: " + (GateInfo.of(it)?.label ?: it),
-                        fontSize = T.label, color = Color.Black)
-                }
-                peerBlockers.forEach {
-                    Text("Controller: " + (GateInfo.of(it)?.label ?: it),
-                        fontSize = T.label, color = Color.Black)
-                }
-                Text("Open Setup to fix.", fontSize = T.caption, color = Color.Black)
+            Column(Modifier.padding(S.md)) {
+                Text(if (alarmProblems.isNotEmpty()) "The alarm will not ring" else "Needs attention",
+                    fontSize = T.body, fontWeight = FontWeight.Bold, color = Color.Black)
+                alarmProblems.forEach { Text(it, fontSize = T.label, color = Color.Black) }
+                peerBlockers.forEach { Text("Controller: missing $it", fontSize = T.label, color = Color.Black) }
             }
         }
     }
