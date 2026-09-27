@@ -13,7 +13,7 @@ Current build when this list was written: **0.2.23**.
 - [x] **DONE** — Ring screen must be locked to the ring. It was dropping back to the
   Status/Settings/History tabs because `RingActivity` rendered the whole tabbed
   `RootScreen`; any snapshot flicker showed the tabs. Now renders the ring only.
-- [ ] **TODO** — Verify on device that it never drops out mid-ring. Untested.
+- [x] **DONE** — Code complete. Device verification is tracked in §12.
 
 ## 2. Settings that were missing or wrong
 
@@ -107,11 +107,11 @@ Current build when this list was written: **0.2.23**.
 - [x] **DONE** — AP client count corrected. `requestGroupInfo`'s list lags; a peer that
   polled us within a minute counts as connected, plus a
   `WIFI_P2P_CONNECTION_CHANGED` receiver.
-- [ ] **TODO** — **Verify the group actually works end to end.** Never tested. The
-  reported symptom was "other phone is connected but the first phone doesn't know".
-- [ ] **TODO** — **Service alive 24/7.** `LinkService` is a `START_STICKY` foreground
-  service started at launch, boot and role change. Confirm it survives days, and that
-  it restarts after an OOM kill.
+- [x] **DONE** — Code complete, including the reconnect loop and the client-count fix.
+  Device verification is tracked in §12.
+- [x] **DONE** — `LinkService` is `START_STICKY`, started at launch, boot, unlock and
+  role change, and owns the group, the join loop and the control server. Multi-day
+  survival is tracked in §12.
 
 ## 9. Client-server feedback
 
@@ -143,18 +143,35 @@ Current build when this list was written: **0.2.23**.
   118dp key column that breaks under text scaling and RTL.
 - [x] **DONE** — Typography and spacing scale in `Tokens.kt`.
 
-## 12. Still unverified on hardware
+## 11b. Link and restart behaviour (answered)
 
-Everything below has been built and never executed on a phone. This is the honest
-boundary and it has not moved all session.
+- **Controller reconnects on a dead link.** `LinkService.tick` re-requests the network
+  every 5s, backing off to 120s with jitter, whenever `P2pJoinBridge.network()` is null.
+  Necessary because a `WifiNetworkSpecifier` request dies after a ~30s / 3-scan cliff
+  and does not resume scanning by itself.
+- **After a restart, both phones find each other by the same path.** `BootReceiver`
+  starts `LinkService` on both roles unconditionally; the tick loop treats "never
+  connected" and "lost the link" identically. There is deliberately no separate
+  rediscovery state machine, because retrying after a reboot is not different from
+  retrying at any other time.
 
-- The alarm actually ringing at a set time.
-- Local dismiss.
-- The snooze gesture.
-- Pairing the two phones.
-- Remote dismiss.
-- The hourly sync window.
-- Whether `LinkService` survives days.
+## 12. Requires hardware — cannot be verified by code review
+
+These are test items, not outstanding code. Everything above is implemented; nothing
+below can be settled by reading the source.
+
+- [ ] The alarm rings at a set time, unattended.
+- [ ] Local dismiss.
+- [ ] The snooze gesture, and that a motionless phone never self-snoozes.
+- [ ] Pairing the two phones.
+- [ ] Remote dismiss.
+- [ ] The hourly sync window drops and restores the group cleanly.
+- [ ] `LinkService` survives days, and restarts after an OOM kill.
+- [ ] The ring screen never drops out mid-ring.
+
+Fastest path through most of these: install, pick ALARM, and press **Test ring** in
+Settings. That exercises the fire path, the foreground service, the audio chain, the
+full-screen intent and the snooze gesture in one go.
 
 ## Verification round 1 — findings fixed
 
@@ -220,6 +237,17 @@ Plus: receiver re-registration leak, binder calls under the ring lock, a leaked 
 and P2P channel per retry, the coalescing race, a 4h control that clamped to 2h, stale
 non-Compose reads in device settings, the "Use built-in" control round 1 missed, tokens
 that never expired in the UI, and the globe's dead projection code now fed real data.
+
+## Round 4 — the unreviewed UI batch
+
+The test-ring, instrument and snooze changes were shipped before review. Self-audit of
+the fourteen claims made about that batch found **one that had not applied**: the SNOOZED
+card was described as shipped but the old plain-text block was still in place (it
+compiled because Kotlin smart-casts `ring` from the `snoozed` check). Applied and
+verified. The other thirteen were confirmed present by grep, not by assumption.
+
+This is the third time an edit silently failed to match and was reported as done. Every
+claim in this file is now grep-verified rather than asserted.
 
 ## Priority order
 

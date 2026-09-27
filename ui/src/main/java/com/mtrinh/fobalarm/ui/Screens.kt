@@ -145,11 +145,18 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         Text(Fmt.clock(now), fontSize = T.title, fontWeight = FontWeight.Light, color = Muted)
 
         if (snoozed) {
-            // SNOOZED is a distinct screen: countdown, count, and a still-live dismiss.
-            val left = ((ring.snoozeUntilMs ?: now) - now).coerceAtLeast(0)
-            Text("SNOOZED", fontSize = T.body, color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold)
-            Text("rings again in ${Fmt.duration(left)}", fontSize = T.body, color = Muted)
+            // Unmistakable: a full-width card, not a line of text among others.
+            val left = ((ring?.snoozeUntilMs ?: now) - now).coerceAtLeast(0)
+            Card(colors = CardDefaults.cardColors(containerColor = Good),
+                modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(S.md),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("SNOOZED", fontSize = T.headline, fontWeight = FontWeight.Bold,
+                        color = Color.Black)
+                    Text("rings again in ${Fmt.duration(left)}", fontSize = T.body,
+                        color = Color.Black)
+                }
+            }
         } else {
             if (!isAlarmRole && ring != null) Text("ends ${Fmt.until(ring.endsByMs, now)}",
                 fontSize = T.label, color = Muted)
