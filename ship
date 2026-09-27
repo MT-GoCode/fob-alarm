@@ -26,7 +26,10 @@ AAPT=$(ls -d "$HOME"/Library/Android/sdk/build-tools/* | sort -V | tail -1)/aapt
 
 # Pre-flight. USE_EXACT_ALARM missing from the shipped manifest means Android wipes every
 # setAlarmClock on update, and the runtime gate notices far too late.
-if ! "$AAPT" dump permissions "$APK" 2>/dev/null | grep -q "android.permission.USE_EXACT_ALARM"; then
+# Capture first: `grep -q` exits on first match, aapt2 dies on SIGPIPE, and with
+# `set -o pipefail` the whole pipeline reports failure even on success.
+PERMS=$("$AAPT" dump permissions "$APK" 2>/dev/null || true)
+if ! printf '%s' "$PERMS" | grep -q "android.permission.USE_EXACT_ALARM"; then
   echo "FATAL: USE_EXACT_ALARM missing from built manifest. Refusing to serve." >&2
   exit 1
 fi
@@ -34,8 +37,9 @@ echo "==> pre-flight ok (USE_EXACT_ALARM present)"
 
 mkdir -p .serve releases
 cp "$APK" .serve/fobalarm.apk
-VC=$("$AAPT" dump badging "$APK" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
-VN=$("$AAPT" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+BADGING=$("$AAPT" dump badging "$APK" 2>/dev/null || true)
+VC=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+VN=$(printf '%s' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
 SHA=$(shasum -a 256 .serve/fobalarm.apk | cut -d' ' -f1)
 IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
 URL="http://$IP:$PORT/fobalarm.apk"
