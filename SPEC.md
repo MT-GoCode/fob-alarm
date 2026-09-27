@@ -988,27 +988,32 @@ scenario where you need it.
 
 # Plan (no ADB, no Device Owner — V1)
 
-## Phase 0 hard gate: can you still install at all, in 2027?
+## Developer verification — handled by registration, not by developer mode
 
-**This is the one finding that can invalidate the whole approach, and it needs two actions before any code.**
+**This is not a blocker, and an earlier draft had the escape hatch backwards.**
 
-Google's developer verification requires apps installed on **certified** Android devices to come from a verified
-developer, with the package name and evidence of the private signing key registered. Rollout: APIs Aug 2026, first
-countries Sept 30 2026, **global 2027+**. The escape hatch for unverified apps is ADB — or the new "advanced flow,"
-whose **first mandatory step is enabling Developer mode** (then a coercion check, a reboot, a 24-hour wait, and
-biometric auth). This project's founding premise is that Developer Options are carrier-locked and unreachable.
+Google's developer verification requires apps installed on **certified** Android devices to come from a registered
+developer (package name + evidence of the signing key). Timeline: regional deadline 2026-09-30 (Brazil, Indonesia,
+Singapore, Thailand), **global 2027+**. Nothing is enforced here today.
 
-If that premise holds, then from 2027 there is **no install path at all**: not the §13 update channel, not a
-replacement phone, not a bug fix. The app already on the phone keeps ringing, so this fails **silently** until the
-day you need to change something. Note also that verification ships via **Google Play services**, not the OS, so it
-reaches these phones whether or not they ever see Android 17.
+The relevant tier is a **limited distribution account**: free, no government ID, up to **20 devices**. Authorization
+is per-*device*, via a QR from the Android Developer Console — scan it with the phone, the user confirms the consent
+prompt, and **normal APK installation works on that phone from then on, without ADB and without developer mode.**
+The "advanced flow" (developer mode → coercion check → reboot → 24 h wait → biometric) exists for installing apps
+from developers who never registered. It does not apply to our own registered app.
 
-1. **Test the premise in the direction that matters.** On each phone: Settings → About phone → tap Build number ×7.
-   Whether Developer options appears is a **blocking Phase-0 gate**. The entire no-ADB architecture rests on an
-   assumption that has only ever been tested in the failing direction.
-2. **Register a limited-distribution developer account now** (free tier: no government ID, no fee, up to 20
-   devices), registering the final `applicationId` and the final signing key, and record both devices' registration
-   IDs in the README. Do it **before shipping v1.0** — package name and key become immutable once registered.
+So the §13 install/update path is unaffected in both eras. Actions:
+
+1. **Register a limited distribution account before shipping v1.0**, with the final `applicationId` and the final
+   signing key — both become immutable at registration, which is the only reason this has to happen early.
+2. **Scan the console QR once per phone** to authorize them. Record both device registrations in the README, since
+   a replacement phone in 2029 needs the same one-time authorization.
+3. Nothing here requires Developer Options, which remain carrier-locked and are not needed. What their absence
+   genuinely costs is unchanged and already designed around: **logcat** (replaced by `/v1/logs`) and
+   **`dpm set-device-owner`** for V2.
+
+Sources: developer.android.com/developer-verification/guides/limited-distribution ·
+support.google.com/android-developer-console/answer/17131204
 
 ## What no-ADB actually costs, and what it doesn't
 
