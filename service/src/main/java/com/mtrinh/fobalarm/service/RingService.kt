@@ -17,6 +17,8 @@ class RingService : Service(), SensorEventListener {
         const val CHANNEL_STATUS = "status"
         const val NOTIF_ID = 42
         const val ACTION_STOP = "stop"
+        /** Resume an open session after the process died: never a new trigger. */
+        const val ACTION_RESUME = "resume"
 
         @Volatile var serviceAlive = false
         @Volatile var rotationDeg: Double = 0.0
@@ -26,15 +28,17 @@ class RingService : Service(), SensorEventListener {
         @Volatile var audible: String = "-"
         @Volatile var quaternion: DoubleArray? = null
 
-        fun start(ctx: Context) {
-            runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
+        fun start(ctx: Context, resume: Boolean = false) {
+            val intent = Intent(ctx, RingService::class.java)
+            if (resume) intent.action = ACTION_RESUME
+            runCatching { ctx.startForegroundService(intent) }
                 .onFailure {
                     // Blew the ~10s FGS allowlist window (cold start after an OTA, busy
                     // disk). Retry on a DEDICATED request code: reusing 1001 would share
                     // the PendingIntent with the real scheduled fire and, under
                     // FLAG_UPDATE_CURRENT, overwrite the next alarm with a 5s retry.
                     Svc.log("fgs_start_failed", "error" to it.toString())
-                    Scheduler.armFireRetry(ctx)
+                    if (resume) Scheduler.armWatchdog(ctx) else Scheduler.armFireRetry(ctx)
                 }
         }
 
@@ -105,8 +109,10 @@ class RingService : Service(), SensorEventListener {
             return START_STICKY
         }
 
-        if (intent == null) {
-            // START_STICKY restart, not a real trigger. Only resume; never create.
+        if (intent == null || intent.action == ACTION_RESUME) {
+            // START_STICKY restart, watchdog or boot: not a trigger. Only resume; never
+            // create, and never ask the engine, which would read a resumed nap as a
+            // scheduled alarm superseding it.
             if (Svc.session == null && !Svc.testActive) {
                 Svc.log("sticky_restart_no_session")
                 teardown(); return START_NOT_STICKY

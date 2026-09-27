@@ -31,11 +31,15 @@ class AlarmReceiver : BroadcastReceiver() {
         val wl = ctx.getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:receiver")
         wl.acquire(60_000)
+        // True when the ring service has been asked to start: the lock is then handed to
+        // it and deliberately NOT released here. startForegroundService only posts to the
+        // main looper, so the service starts after this returns and takes its own lock.
+        var handedOff = false
         try {
             when (intent.action) {
                 Scheduler.ACTION_FIRE -> {
                     Svc.log("alarm_fired")
-                    RingService.start(ctx)
+                    RingService.start(ctx); handedOff = true
                 }
                 // A test that arrives after its window has lapsed simply does nothing.
                 Scheduler.ACTION_TEST -> if (Svc.de.pendingTest) RingService.start(ctx)
@@ -43,7 +47,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     val open = Svc.session
                     if (open != null && open.endsByMs > System.currentTimeMillis()) {
                         Svc.log("watchdog_resurrect")
-                        RingService.start(ctx)
+                        RingService.start(ctx, resume = true); handedOff = true
                     } else if (open != null) {
                         Svc.recompute("watchdog_after_cap")     // reaps it as CAPPED
                     }
@@ -67,13 +71,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
             }
         } finally {
-            // Deliberately NOT released: startForegroundService only posts to the main
-            // looper, so the service starts after this returns. Let the 60s timeout
-            // expire -- RingService takes its own lock as soon as it runs.
-            if (intent.action != Scheduler.ACTION_FIRE &&
-                intent.action != Scheduler.ACTION_WATCHDOG && wl.isHeld) {
-                wl.release()
-            }
+            if (!handedOff && wl.isHeld) wl.release()
         }
     }
 }
@@ -89,7 +87,7 @@ class BootReceiver : BroadcastReceiver() {
         val open = Svc.session
         if (open != null && open.endsByMs > System.currentTimeMillis()) {
             Svc.log("resume_session_after_boot", "ringId" to open.ringId)
-            RingService.start(ctx)
+            RingService.start(ctx, resume = true)
         }
         // Pending alarms survive a package replace, but the exact-alarm re-check can wipe
         // them, and a reboot clears everything. Rebuild unconditionally.
@@ -165,7 +163,7 @@ object SyncWindow {
         if (Svc.session != null || Svc.testActive || running) return
         // Never drop the group in the minutes before the alarm: the controller would
         // still be rejoining when the ring starts, and remote dismiss would be dead.
-        val next = Svc.lastNextFire?.atMs ?: return
+        val next = Svc.lastNextFire?.atMs ?: Long.MAX_VALUE
         if (next - System.currentTimeMillis() < 10 * 60_000L) return
         running = true
         lastAttemptMs = System.currentTimeMillis()

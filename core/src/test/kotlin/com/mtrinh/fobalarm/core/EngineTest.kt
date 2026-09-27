@@ -523,4 +523,26 @@ class ZombieSessionTest {
             "binding a stray ring to today would silently skip today's 04:00")
         assertEquals(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
     }
+
+    @Test fun `a moved alarm missed while the phone was dead rings when it comes back`() {
+        val c = FakeClock(at("2026-09-25T22:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-09-25T21:00:00-07:00[America/Los_Angeles]"))
+        val moved = Engine.setOverrideTime(st, c, "07:00").state      // 26th, 07:00
+
+        c.set("2026-09-26T06:00:00-07:00[America/Los_Angeles]")       // alive, before it
+        val tick = Engine.recompute(moved, c, "tick")
+        assertNotNull(tick.state.override)
+
+        c.set("2026-09-26T08:00:00-07:00[America/Los_Angeles]")       // dead across 07:00
+        val back = Engine.recompute(tick.state, c, "boot")
+        assertEquals(OccurrenceSource.SCHEDULED, back.fireNow, "the moved alarm was missed: it rings now")
+        assertNull(back.state.override, "a resolved override clears")
+        assertTrue(back.state.latches.any { it.id.localDate == "2026-09-26" && it.reason == LatchReason.MISSED })
+
+        val r = Engine.onTrigger(back.state, c, OccurrenceSource.SCHEDULED, "r1")
+        assertEquals("2026-09-26", r.state.session!!.occurrenceId.localDate)
+        val done = Engine.endSession(r.state, c, Outcome.DISMISSED_LOCAL)
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), done.nextFire!!.atMs)
+    }
 }

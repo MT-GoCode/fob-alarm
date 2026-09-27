@@ -171,6 +171,20 @@ object Engine {
             if (reasonFor == LatchReason.MISSED) events += PendingEvent("missed", mapOf("occurrence" to id.toString()))
         }
 
+        // A moved alarm whose new instant has passed with nothing ringing for it was
+        // missed too. The loop above cannot see it: it walks the ORIGINAL instants, and
+        // one older than lastAliveMs is skipped as already handled.
+        st.override?.let { ov ->
+            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null && ov.fireAtMs <= now &&
+                st.session?.occurrenceId != ov.boundOccurrenceId &&
+                st.latches.none { it.id == ov.boundOccurrenceId }) {
+                fireNow = OccurrenceSource.SCHEDULED
+                st = st.copy(latches = st.latches + Latch(ov.boundOccurrenceId, LatchReason.MISSED, now))
+                events += PendingEvent("latch", mapOf("occurrence" to ov.boundOccurrenceId.toString(), "reason" to "MISSED"))
+                events += PendingEvent("missed", mapOf("occurrence" to ov.boundOccurrenceId.toString()))
+            }
+        }
+
         // 3. An override clears when its bound occurrence acquires ANY latch.
         st.override?.let { ov ->
             if (st.latches.any { it.id == ov.boundOccurrenceId }) {

@@ -319,3 +319,13 @@ its cap. The ring service honours an engine "this trigger is for nothing" and on
 a session when the engine throws.
 
 `core tests=44 failures=0`. What remains is §12: hardware.
+
+Verification of round 6 found six more, all fixed: resuming a NAP session after a
+process death went through the engine as a SCHEDULED trigger, superseded the nap and
+then dropped it as stale (watchdog and boot now resume with an explicit action that
+never consults the engine); `tryLoadRoom` could run twice at once and persist the
+backlog twice (serialized); Nearby devices now blocks Setup on the controller, which
+cannot join without it; a moved alarm whose new time passed while the phone was dead
+was latched as superseded and never rang (now MISSED, rings on return, test written
+failing first); the receiver held its wake lock for 60 s on the after-cap path; the
+sync window skipped when there was no next fire. `core tests=45 failures=0`.

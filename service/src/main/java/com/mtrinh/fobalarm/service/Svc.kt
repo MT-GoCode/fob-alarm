@@ -118,7 +118,8 @@ object Svc : AlarmHost {
      * Opened lazily and only marked ready once a real read SUCCEEDS. Retried on
      * ACTION_USER_UNLOCKED, because before first unlock this always fails.
      */
-    fun tryLoadRoom(reason: String) {
+    private val loadLock = Any()
+    fun tryLoadRoom(reason: String): Unit = synchronized(loadLock) {
         if (roomLoaded) return
         runCatching {
             val d = Db.open(app)

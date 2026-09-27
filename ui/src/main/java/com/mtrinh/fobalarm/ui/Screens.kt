@@ -350,10 +350,18 @@ private fun SetupScreen(
 /** Permissions the CONTROLLER genuinely needs; the rest are alarm-phone concerns. */
 private val CONTROLLER_PERMISSIONS = setOf("foregroundService", "localNetworkPermission", "notHibernating")
 
-/** The permission rows THIS phone's Setup shows. Also decides when Setup is done. */
+/**
+ * The permission rows THIS phone's Setup shows. Also decides when Setup is done.
+ * Nearby devices cannot stop the alarm phone ringing, so it does not block there; the
+ * controller cannot join the link without it, so there it does.
+ */
 private fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
     g.entries().filter { it.first.kind == GateKind.PERMISSION }
         .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
+        .map { (info, ok) ->
+            if (!isAlarmRole && info.key == "localNetworkPermission") info.copy(blocking = true) to ok
+            else info to ok
+        }
 
 @Composable
 private fun PermissionRow(info: GateInfo, ok: Boolean, required: Boolean, onFix: (String) -> Unit) {
