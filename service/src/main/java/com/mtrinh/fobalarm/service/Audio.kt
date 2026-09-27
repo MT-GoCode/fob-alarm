@@ -172,9 +172,16 @@ class Audio(private val ctx: Context) {
             Svc.log("volume_mismatch", "muted" to muted.toString(), "vol" to vol.toString())
             assertVolume(settings); ok = false
         }
-        if (!playing && tone == null) {
-            Svc.log("not_playing_recovering")
-            fallbackToTone(); ok = false
+        if (!playing) {
+            if (tone == null) {
+                Svc.log("not_playing_recovering")
+                fallbackToTone()
+            } else {
+                // Re-issue every tick: a finite tone would otherwise be one beep and
+                // then silence, with the heartbeat still reporting healthy.
+                runCatching { tone?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD) }
+            }
+            ok = false
         }
         if (!onSpeaker) {
             Svc.log("routing_off_speaker", "type" to routed.toString())

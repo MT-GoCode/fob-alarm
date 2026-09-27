@@ -548,6 +548,7 @@ object Scheduler {
     const val ACTION_WATCHDOG = "com.mtrinh.fobalarm.WATCHDOG"
     const val ACTION_TICK = "com.mtrinh.fobalarm.TICK"
     const val ACTION_ARMGATE = "com.mtrinh.fobalarm.ARMGATE"
+    const val ACTION_DISMISS = "com.mtrinh.fobalarm.DISMISS"
 
     fun pi(ctx: Context, action: String, rc: Int): PendingIntent = PendingIntent.getBroadcast(
         ctx, rc, Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName),

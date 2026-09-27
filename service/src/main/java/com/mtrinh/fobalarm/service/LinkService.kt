@@ -99,7 +99,9 @@ class LinkService : Service() {
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank() &&
                         P2pJoinBridge.network() == null) {
                         P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!)
-                        backoffMs = (backoffMs * 2).coerceAtMost(120_000)
+                        // 15s, not 120s: a human is standing in front of this phone
+                        // waiting for the dismiss button to work.
+                        backoffMs = (backoffMs * 2).coerceAtMost(15_000)
                     } else backoffMs = 5_000L
                 }
                 null -> {}

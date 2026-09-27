@@ -67,12 +67,22 @@ class RingService : Service(), SensorEventListener {
         // failure here is recoverable rather than terminal.
         serviceAlive = true
         Scheduler.armWatchdog(this)
-        runCatching { startForeground(NOTIF_ID, ringNotification()) }
-            .onFailure {
-                // ForegroundServiceStartNotAllowed / TypeNotAllowed. Keep ringing: the
-                // audio, the wake lock and the watchdog do not depend on the notification.
-                Svc.log("start_foreground_failed", "error" to it.toString())
-            }
+        // Fall through the declared types: if systemExempted is refused, a service that
+        // never reaches foreground is killed and sticky-restarted into the same failure,
+        // forever. Log which type actually took.
+        val types = listOf(
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED to "systemExempted",
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE to "specialUse",
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK to "mediaPlayback",
+        )
+        var fgsOk = false
+        for ((type, name) in types) {
+            val r = runCatching { startForeground(NOTIF_ID, ringNotification(), type) }
+            if (r.isSuccess) { Svc.log("foreground_started", "type" to name); fgsOk = true; break }
+            Svc.log("start_foreground_failed", "type" to name,
+                "error" to (r.exceptionOrNull()?.javaClass?.simpleName ?: "?"))
+        }
+        if (!fgsOk) Svc.log("foreground_all_types_failed")
 
         // A TEST ring has no engine session by design: it must not latch, schedule or
         // consume an occurrence. It caps itself and needs no dismiss to end.
@@ -326,13 +336,22 @@ class RingService : Service(), SensorEventListener {
             Intent().setClassName(packageName, "com.mtrinh.fobalarm.ui.RingActivity")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // A tappable body AND an explicit action: if the ring activity is ever gone
+        // (recreated, or its content null) the notification is the only control surface.
+        val dismiss = PendingIntent.getBroadcast(this, 7,
+            Intent(this, AlarmReceiver::class.java).setAction(Scheduler.ACTION_DISMISS)
+                .setPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL_RING)
             .setContentTitle("Alarm ringing")
             .setContentText("Press to dismiss")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setCategory(Notification.CATEGORY_ALARM)
             .setOngoing(true)
+            .setContentIntent(full)
             .setFullScreenIntent(full, true)
+            .addAction(Notification.Action.Builder(
+                null, "DISMISS", dismiss).build())
             .build()
     }
 }

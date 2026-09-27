@@ -91,7 +91,11 @@ object Group {
         val ch = channel ?: return
         runCatching {
             m.removeGroup(ch, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() { running = false; Svc.log("ap_stop") }
+                override fun onSuccess() {
+                    running = false
+                    Server.closeControl()      // the bound address is going away
+                    Svc.log("ap_stop")
+                }
                 override fun onFailure(reason: Int) { Svc.log("ap_error", "stop" to reason.toString()) }
             })
         }

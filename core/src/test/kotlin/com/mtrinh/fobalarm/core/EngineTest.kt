@@ -403,3 +403,48 @@ class PasswordTest2 {
     }
 
 }
+
+/**
+ * A session that outlived its own cap must never absorb tomorrow's alarm.
+ *
+ * Reachable whenever the process dies more than maxRingMinutes into a ring and the
+ * watchdog PendingIntent goes with it -- force-stop, hibernation, battery pull, an OTA
+ * reboot mid-ring. Android 15+ cancels pending intents on force-stop, so this is not
+ * exotic.
+ */
+class ZombieSessionTest {
+    private fun at(iso: String) = ZonedDateTime.parse(iso).toInstant().toEpochMilli()
+
+    @Test fun `an expired session does not swallow the next alarm`() {
+        val c = FakeClock(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00", maxRingMinutes = 60),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        assertEquals("r1", ringing.session!!.ringId)
+
+        // The process dies. Nothing reaps the session. A day passes.
+        c.set("2026-09-27T04:00:00-07:00[America/Los_Angeles]")
+        val next = Engine.onTrigger(ringing, c, OccurrenceSource.SCHEDULED, "r2")
+
+        assertNotNull(next.state.session, "tomorrow must have a session")
+        assertEquals("r2", next.state.session!!.ringId,
+            "the stale session absorbed the trigger: the alarm rings for a fraction of a " +
+            "second and stops, every morning, forever")
+        assertTrue(next.events.none { it.type == "trigger_absorbed" })
+    }
+
+    @Test fun `recompute closes a session that outlived its cap`() {
+        val c = FakeClock(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00", maxRingMinutes = 60),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+
+        c.set("2026-09-26T06:00:00-07:00[America/Los_Angeles]")   // two hours later
+        val r = Engine.recompute(ringing, c, "tick")
+
+        assertNull(r.state.session, "an expired session must be reaped")
+        assertEquals(Outcome.CAPPED, r.state.lastOutcome?.kind)
+        assertNotNull(r.nextFire)
+    }
+}

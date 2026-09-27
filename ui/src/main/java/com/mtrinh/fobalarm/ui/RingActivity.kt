@@ -3,21 +3,33 @@ package com.mtrinh.fobalarm.ui
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 /**
- * The full-screen ring UI. It must turn the screen on BY ITSELF, from locked and from
- * fully asleep -- neither phone keeps its screen lit while idle, so it can no longer
- * inherit an already-awake screen. SPEC.md section 6.
- *
- * Hosted here so :ui owns every screen; the app module supplies the content.
+ * The full-screen ring UI. It turns the screen on by itself, from locked and from fully
+ * asleep -- neither phone keeps its screen lit while idle, so it cannot inherit an
+ * already-awake screen.
  */
 open class RingActivity : ComponentActivity() {
 
     companion object {
         /** Set by the app module at startup so this class stays free of service deps. */
-        @Volatile var content: (@androidx.compose.runtime.Composable (RingActivity) -> Unit)? = null
+        @Volatile var content: (@Composable (RingActivity) -> Unit)? = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,10 +44,35 @@ open class RingActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         window.attributes = window.attributes.apply { screenBrightness = 1f }
 
-        setContent { FobTheme { content?.invoke(this) } }
-    }
+        // The box is the lock: back must never dismiss. The deprecated onBackPressed
+        // override is not reliably invoked under predictive back at targetSdk 36.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() { /* deliberately nothing */ }
+        })
 
-    /** The box is the lock: back must never dismiss. */
-    @Deprecated("Deliberate: back must not dismiss the alarm")
-    override fun onBackPressed() { /* no-op */ }
+        setContent {
+            FobTheme {
+                val c = content
+                // Never a black screen with no control: if the content was never wired,
+                // the ring must still be stoppable from here.
+                if (c != null) c(this) else FallbackDismiss { finish() }
+            }
+        }
+    }
+}
+
+/** Last-resort stop button, shown only if the ring UI was never supplied. */
+@Composable
+private fun FallbackDismiss(onStop: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Alarm ringing", fontSize = T.title)
+        Spacer(Modifier.height(S.lg))
+        Button(onClick = onStop, modifier = Modifier.fillMaxWidth().height(160.dp)) {
+            Text("PRESS TO DISMISS", fontSize = T.headline)
+        }
+    }
 }

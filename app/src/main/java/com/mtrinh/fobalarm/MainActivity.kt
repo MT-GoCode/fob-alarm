@@ -121,7 +121,6 @@ class MainActivity : ComponentActivity() {
                 }
                 Surface(Modifier.fillMaxSize()) {
                     when {
-                        Crash.pending != null -> CrashScreen()
                         role == null -> RolePicker { chosen -> Svc.setRole(chosen); role = chosen }
                         // CONTROLLER INIT: its own thinner gates -- nearby-devices
                         // permission, credentials entered, AP reachable once. Without

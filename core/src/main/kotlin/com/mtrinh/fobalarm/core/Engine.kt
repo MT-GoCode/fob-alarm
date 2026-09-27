@@ -109,6 +109,25 @@ object Engine {
         }
         st = st.copy(lastTimeZone = zoneId)
 
+        // 0. Reap a session that outlived its own cap. Without this, a process death
+        //    more than maxRingMinutes into a ring leaves a zombie that onTrigger then
+        //    absorbs every future trigger into -- silently, with every gate green.
+        st.session?.let { open ->
+            if (open.endsByMs <= now) {
+                events += PendingEvent("capped", mapOf("ringId" to open.ringId,
+                    "reason" to "expired_while_gone"))
+                st = st.copy(
+                    session = null,
+                    lastOutcome = LastOutcome(Outcome.CAPPED, open.endsByMs,
+                        open.occurrenceId.toString(), open.ringId, open.snoozeCount),
+                    latches = if (st.latches.none { it.id == open.occurrenceId } &&
+                                  open.trigger != OccurrenceSource.NAP)
+                        st.latches + Latch(open.occurrenceId, LatchReason.MISSED, open.endsByMs)
+                    else st.latches,
+                )
+            }
+        }
+
         // 1. Discard future-dated latches. A forward clock excursion must not silently
         //    eat an alarm a year later.
         val futureLatches = st.latches.filter { LocalDate.parse(it.id.localDate).isAfter(today) }
@@ -290,10 +309,17 @@ object Engine {
                 lastOutcome = LastOutcome(Outcome.SUPERSEDED, now, open.occurrenceId.toString(), open.ringId, open.snoozeCount),
                 latches = st1.latches + Latch(open.occurrenceId, LatchReason.SUPERSEDED, now),
             )
-        } else if (open != null) {
+        } else if (open != null && open.endsByMs > now) {
             // Only one session at a time, ever. Absorb a duplicate.
             events += PendingEvent("trigger_absorbed", mapOf("ringId" to open.ringId))
             return recompute(st1, ts, "trigger_absorbed").let { it.copy(events = events + it.events) }
+        }
+
+        // An expired session is not a session: drop it and open a fresh one.
+        if (st1.session?.let { it.endsByMs <= now } == true) {
+            events += PendingEvent("capped", mapOf("ringId" to st1.session!!.ringId,
+                "reason" to "expired_at_trigger"))
+            st1 = st1.copy(session = null)
         }
 
         val occId = when (source) {

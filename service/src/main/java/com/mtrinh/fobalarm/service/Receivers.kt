@@ -44,6 +44,16 @@ class AlarmReceiver : BroadcastReceiver() {
                     SyncWindow.run(ctx)
                 }
                 Scheduler.ACTION_ARMGATE -> ArmGateRunner.run(ctx)
+                // From the notification action: works even with no activity on screen.
+                Scheduler.ACTION_DISMISS -> {
+                    val open = Svc.session
+                    if (open != null) {
+                        runCatching {
+                            Svc.dismiss(open.ringId, java.util.UUID.randomUUID().toString(),
+                                Actor.ALARM)
+                        }
+                    } else RingService.stop(ctx)
+                }
             }
         } finally {
             // Deliberately NOT released: startForegroundService only posts to the main

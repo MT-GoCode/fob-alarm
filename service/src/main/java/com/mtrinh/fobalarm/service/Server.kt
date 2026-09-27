@@ -30,6 +30,15 @@ object Server {
     @Volatile var controlStatus = "stopped"
     @Volatile var logStatus = "stopped"
     @Volatile private var started = false
+    /** Held so the group teardown can force a rebind rather than leave a dead listener. */
+    @Volatile private var controlSocket: ServerSocket? = null
+
+    /** Called when the P2P interface goes away; the socket bound to it is now useless. */
+    fun closeControl() {
+        runCatching { controlSocket?.close() }
+        controlSocket = null
+        controlStatus = "rebinding"
+    }
 
     fun start(ctx: Context) {
         if (started) return
@@ -58,6 +67,7 @@ object Server {
             runCatching {
                 val server = if (control)
                     ServerSocket(port, 50, runCatching { InetAddress.getByName("192.168.49.1") }.getOrNull())
+                        .also { controlSocket = it }
                 else ServerSocket(port)
                 if (control) controlStatus = "listening" else logStatus = "listening"
                 Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())

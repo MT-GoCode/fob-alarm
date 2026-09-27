@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -61,11 +62,12 @@
         <!-- directBootAware: the ring path must work after a reboot nobody unlocks. -->
         <activity
             android:name="com.mtrinh.fobalarm.ui.RingActivity"
+            android:configChanges="orientation|screenSize|screenLayout|uiMode|fontScale|locale|keyboardHidden"
             android:directBootAware="true"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/FobTheme" />
 
@@ -73,7 +75,7 @@
             android:name="com.mtrinh.fobalarm.service.RingService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="systemExempted">
+            android:foregroundServiceType="systemExempted|specialUse|mediaPlayback">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="alarm_clock_ringing" />
