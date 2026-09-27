@@ -102,7 +102,7 @@ object GateEval {
             // Whether we are ALLOWED to run the ring service, not whether it is running
             // right now -- it only runs during a ring, so the old check was a permanent X.
             foregroundService = probe("foregroundService", false) {
-                nm.areNotificationsEnabled()
+                nm.areNotificationsEnabled() && LinkService.alive
             },
             p2pSupported = probe("p2pSupported", false) {
                 ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)

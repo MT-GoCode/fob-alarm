@@ -197,34 +197,37 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
         }
         StatusBlock(s, app.nowMs)
 
-        HorizontalDivider(color = Color(0xFF1A2026))
-        Text("next alarm only", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Section("Tomorrow only", "Applies to the next alarm, then clears itself.")
+        var pickTime by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(15, 30, 60, 120).forEach { m ->
-                OutlinedButton(onClick = { app.overrideShift(m) }, contentPadding = PaddingValues(8.dp)) {
-                    Text(if (m < 60) "+${m}m" else "+${m / 60}h", fontSize = 12.sp)
-                }
+            listOf("+15m" to 15, "+30m" to 30, "+1h" to 60, "+2h" to 120).forEach { (t, m) ->
+                OutlinedButton(onClick = { app.overrideShift(m) },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.height(36.dp)) { Text(t, fontSize = 12.sp) }
             }
         }
+        Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { pickTime = true }) { Text("Set a time", fontSize = 12.sp) }
             OutlinedButton(onClick = { app.overrideSkip() }) { Text("Skip next", fontSize = 12.sp) }
             if (s.tomorrow.kind != "NONE") {
                 Button(onClick = { app.clearOverride() }) { Text("Clear", fontSize = 12.sp) }
             }
         }
+        if (pickTime) {
+            TimePickerDialog("Wake me at", s.settings.defaultAlarmTime) { v ->
+                app.overrideTime(v); pickTime = false
+            }
+        }
 
-        HorizontalDivider(color = Color(0xFF1A2026))
-        Text("nap", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-        var napMin by remember(s.settings.napMinutes) { mutableIntStateOf(s.settings.napMinutes) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Slider(value = napMin.toFloat(), onValueChange = { napMin = it.toInt() },
-                valueRange = 1f..300f, modifier = Modifier.weight(1f))
-            Text("${napMin}m", fontSize = 13.sp, modifier = Modifier.width(48.dp))
+        Section("Nap", "A one-off timer. Touches nothing else.")
+        ChoiceSetting("Wake me in", null,
+            listOf("10m" to 10, "20m" to 20, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
+            s.settings.napMinutes) { v -> app.nap(v) }
+        if (s.nap.armed) {
+            OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap", fontSize = 12.sp) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Button(onClick = { app.nap(napMin) }) { Text("Start nap", fontSize = 12.sp) }
-            if (s.nap.armed) OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel", fontSize = 12.sp) }
-        }
+
         app.lastError?.let { Text(it, color = Bad, fontSize = 12.sp) }
         Spacer(Modifier.height(30.dp))
     }

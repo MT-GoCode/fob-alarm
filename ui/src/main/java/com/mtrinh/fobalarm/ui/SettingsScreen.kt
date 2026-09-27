@@ -42,35 +42,41 @@ fun SettingsScreen(
 
         // --- gated -----------------------------------------------------------
         Section("Alarm")
-        TimeField("Default alarm time", s.settings.defaultAlarmTime) { v ->
+        TimeSetting("Alarm time", s.settings.defaultAlarmTime,
+            help = "Every day, unless you set a one-off change.") { v ->
             app.patch { it.copy(defaultAlarmTime = v) }
         }
-        IntSlider("Volume", s.settings.alarmVolumePercent, Settings.VOLUME_FLOOR, 100, "%") { v ->
+        SliderSetting("Volume", s.settings.alarmVolumePercent,
+            min = Settings.VOLUME_FLOOR, max = 100, step = 5, suffix = "%",
+            help = "Cannot go below ${Settings.VOLUME_FLOOR}%.") { v ->
             app.patch { it.copy(alarmVolumePercent = v) }
         }
-        Text("floor ${Settings.VOLUME_FLOOR}% — enforced server-side", fontSize = 10.sp, color = Muted)
-        IntSlider("Max ring", s.settings.maxRingMinutes, Settings.MAX_RING_FLOOR_M, 120, " min") { v ->
-            app.patch { it.copy(maxRingMinutes = v) }
-        }
-        TimeField("Arm gate time", s.settings.armGateTime) { v ->
+        ChoiceSetting("Give up after", "Emergency stop. The siren runs this long, then stops.",
+            listOf("15m" to 15, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
+            s.settings.maxRingMinutes) { v -> app.patch { it.copy(maxRingMinutes = v) } }
+        TimeSetting("Nightly check", s.settings.armGateTime,
+            help = "Three chirps if something would stop tomorrow's alarm. Silence means healthy.") { v ->
             app.patch { it.copy(armGateTime = v) }
         }
 
         Section("Snooze")
-        IntSlider("Snooze length", s.settings.snoozeSeconds, 5, Settings.SNOOZE_CEILING_S, " s") { v ->
-            app.patch { it.copy(snoozeSeconds = v) }
-        }
-        Text("hard ceiling ${Settings.SNOOZE_CEILING_S}s regardless of password",
-            fontSize = 10.sp, color = Muted)
-        IntSlider("Rotation threshold", s.settings.snoozeThresholdDegrees, 60, 720, "°") { v ->
+        ChoiceSetting("Snooze length", null,
+            listOf("30s" to 30, "1m" to 60, "2m" to 120, "5m" to 300, "10m" to 600),
+            s.settings.snoozeSeconds) { v -> app.patch { it.copy(snoozeSeconds = v) } }
+        ChoiceSetting("Rotation needed", "How far you must turn the box to snooze.",
+            listOf("90°" to 90, "120°" to 120, "180°" to 180, "360°" to 360, "720°" to 720),
+            s.settings.snoozeThresholdDegrees) { v ->
             app.patch { it.copy(snoozeThresholdDegrees = v) }
         }
 
-        Section("Scheduling")
-        IntSlider("Missed grace", s.settings.missedGraceMinutes, 0, 120, " min") { v ->
+        Section("Missed alarms")
+        SliderSetting("Ring anyway if late by under", s.settings.missedGraceMinutes,
+            min = 0, max = 60, step = 5, suffix = " min",
+            help = "If the phone was off and comes back within this window, ring immediately.") { v ->
             app.patch { it.copy(missedGraceMinutes = v) }
         }
-        TimeField("Still worth waking before", s.settings.stillWorthWakingBefore) { v ->
+        TimeSetting("Still worth waking me before", s.settings.stillWorthWakingBefore,
+            help = "Later than this, a missed alarm chirps instead of ringing.") { v ->
             app.patch { it.copy(stillWorthWakingBefore = v) }
         }
 
@@ -110,36 +116,5 @@ fun SettingsScreen(
             },
             onDismiss = { showUnlock = false },
         )
-    }
-}
-
-@Composable
-fun TimeField(label: String, value: String, onSet: (String) -> Unit) {
-    var text by remember(value) { mutableStateOf(value) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(text, { text = it }, label = { Text(label, fontSize = 12.sp) },
-            singleLine = true, modifier = Modifier.weight(1f),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        Spacer(Modifier.width(8.dp))
-        Button(onClick = { onSet(text) }, enabled = text != value) { Text("Set", fontSize = 12.sp) }
-    }
-}
-
-@Composable
-fun IntSlider(label: String, value: Int, min: Int, max: Int, suffix: String, onSet: (Int) -> Unit) {
-    var v by remember(value) { mutableIntStateOf(value) }
-    Column {
-        Row {
-            Text(label, fontSize = 13.sp)
-            Spacer(Modifier.weight(1f))
-            Text("$v$suffix", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Slider(value = v.toFloat(), onValueChange = { v = it.toInt() },
-                valueRange = min.toFloat()..max.toFloat(), modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { onSet(v) }, enabled = v != value,
-                contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Set", fontSize = 12.sp) }
-        }
     }
 }
