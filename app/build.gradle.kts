@@ -21,8 +21,15 @@ android {
         // Do NOT raise targetSdk past 36 without re-running the Phase-3 transport spike:
         // Local Network Protection is triggered by targetSdk 37, not by an OTA.
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        // Monotonic and automatic. A hand-maintained constant meant every build
+        // carried the same versionCode, so the update channel never saw a new one and
+        // Android would refuse the install as a same-version downgrade.
+        versionCode = providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+        }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
+        versionName = "0.2." + (providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+        }.standardOutput.asText.get().trim())
     }
 
     signingConfigs {
