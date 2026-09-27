@@ -595,7 +595,11 @@ override = { boundOccurrenceId,        // identity of the occurrence it replaces
              fireAtMs }                // absolute epoch ms; null when SKIP
 ```
 
-Two ways to enter it, **one stored shape** — no new state:
+**Entry is a single absolute time, or SKIP.** (An earlier draft also offered
+`+15m/+30m/+1h/+2h` shift buttons; the user removed them as a redundant second way to
+do the same thing, and the engine transaction went with them.)
+
+One stored shape, no new state:
 
 - **Set a time** → `fireAtMs` = the first instant ≥ now matching that wall time.
 - **Snooze tomorrow** → one tap per step (`+15m`, `+30m`, `+1h`, `+2h`), `fireAtMs` = the bound occurrence's instant

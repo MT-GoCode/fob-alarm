@@ -235,23 +235,6 @@ object Engine {
         }
     }
 
-    /**
-     * Snooze tomorrow. An INPUT METHOD, not a state: resolves to an absolute instant
-     * immediately and is thereafter indistinguishable from a time you typed. Repeated
-     * taps accumulate onto the existing override rather than re-basing on the default.
-     */
-    fun shiftOverride(st: EngineState, ts: TimeSource, deltaMinutes: Int): RecomputeResult {
-        val (boundId, boundAt) = nextUnlatchedScheduled(st, ts)
-        val existing = st.override?.takeIf { it.boundOccurrenceId == boundId && it.kind == OverrideKind.TIME }
-        val base = existing?.fireAtMs ?: boundAt
-        val at = base + deltaMinutes * 60_000L
-        val next = st.copy(override = Override(boundId, OverrideKind.TIME, at))
-        return recompute(next, ts, "override_shift").let {
-            it.copy(events = it.events + PendingEvent("override_set",
-                mapOf("kind" to "SHIFT", "deltaMinutes" to deltaMinutes.toString(), "fireAtMs" to at.toString())))
-        }
-    }
-
     fun setSkip(st: EngineState, ts: TimeSource): RecomputeResult {
         val (boundId, _) = nextUnlatchedScheduled(st, ts)
         val next = st.copy(override = Override(boundId, OverrideKind.SKIP, null))

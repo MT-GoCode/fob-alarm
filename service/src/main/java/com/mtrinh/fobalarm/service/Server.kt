@@ -183,7 +183,6 @@ object Server {
                     200 to Wire.snapshotToJson(Svc.setOverride(
                         o.optString("kind", "NONE"),
                         o.optString("time").takeIf { it.isNotEmpty() && it != "null" },
-                        if (o.isNull("shiftMinutes")) null else o.optInt("shiftMinutes"),
                         rid, Actor.CONTROLLER)).toString()
 
                 path.startsWith("/v1/settings") && method == "POST" -> {

@@ -103,10 +103,9 @@ class HttpStateClient(
             JSONObject().put("clear", true).put("requestId", requestId)))))
     }
 
-    override suspend fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String) = runCatching {
+    override suspend fun setOverride(kind: String, time: String?, requestId: String) = runCatching {
         withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/tomorrow",
             JSONObject().put("kind", kind).put("time", time ?: JSONObject.NULL)
-                .put("shiftMinutes", shiftMinutes ?: JSONObject.NULL)
                 .put("requestId", requestId)))))
     }
 

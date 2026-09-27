@@ -88,18 +88,6 @@ class EngineTest {
             r.state.override!!.boundOccurrenceId)
     }
 
-    @Test fun `snooze-tomorrow accumulates instead of re-basing`() {
-        val (c, s0) = fresh("2026-09-25T23:00:00-07:00[America/Los_Angeles]")
-        val base = at("2026-09-26T04:00:00-07:00[America/Los_Angeles]")
-        val once = Engine.shiftOverride(s0, c, 30)
-        assertEquals(base + 30 * 60_000L, once.state.override!!.fireAtMs)
-        val twice = Engine.shiftOverride(once.state, c, 30)
-        assertEquals(base + 60 * 60_000L, twice.state.override!!.fireAtMs,
-            "two +30m taps must be +1h, not +30m")
-    }
-
-    // --- DST --------------------------------------------------------------
-
     @Test fun `spring forward into a non-existent local time still fires`() {
         // US DST 2027-03-14: 02:00 -> 03:00. An 02:30 alarm does not exist that day.
         val c = FakeClock(at("2027-03-13T12:00:00-08:00[America/Los_Angeles]"))
@@ -240,20 +228,6 @@ class RegressionTest {
         assertEquals(at("2026-09-26T07:00:00-07:00[America/Los_Angeles]"), after.nextFire!!.atMs)
     }
 
-    @Test fun `snooze-tomorrow survives recompute too`() {
-        val c = FakeClock(at("2026-09-25T23:00:00-07:00[America/Los_Angeles]"))
-        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = established)
-        val shifted = Engine.shiftOverride(st, c, 120)             // 04:00 -> 06:00
-        c.set("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
-        val after = Engine.recompute(shifted.state, c, "tick")
-        assertEquals(at("2026-09-26T06:00:00-07:00[America/Los_Angeles]"), after.nextFire!!.atMs)
-    }
-
-    /**
-     * Alarms are delivered at or after the instant. Resolving the occurrence with
-     * `at > now` bound every fire to TOMORROW and latched TODAY as MISSED -- a bogus
-     * `missed` event every single morning, on a device whose only diagnostic is its log.
-     */
     @Test fun `a fire delivered slightly late binds to today, not tomorrow`() {
         val c = FakeClock(at("2026-09-26T04:00:00.120-07:00[America/Los_Angeles]"))
         val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = alive)

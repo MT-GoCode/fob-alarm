@@ -156,6 +156,33 @@ boundary and it has not moved all session.
 - The hourly sync window.
 - Whether `LinkService` survives days.
 
+## Verification round 1 — findings fixed
+
+A reviewer checked every `DONE` claim. Nine were wrong. All fixed:
+
+1. **Two manifest receivers had no class.** `UnlockReceiver` and `TimeChangeReceiver`
+   were declared and their classes deleted, so `TIME_SET` / `USER_UNLOCKED` would throw
+   `ClassNotFoundException` and kill the process. On the alarm phone that is the
+   foreground service dying exactly when the clock changes. Restored.
+2. `Fact` was still the hand-rolled row; the edit had silently no-matched. Now `ListItem`.
+3. `localBlockers` was declared and never passed, so peer permission reporting was dead.
+4. Vibrate was stored, gated, mirrored, rendered, and never read by the audio path.
+5. The CONTROLLER was permanently trapped on Setup: `scheduleExists` is blocking and can
+   never be true on a phone that never arms. Now a non-blocking condition.
+6. Controller permission rows did not refresh after granting (async evaluation read back
+   the stale cache). Now polled, and `GateEval.refresh` coalesces instead of dropping.
+7. `isLocal` was never passed, so the alarm phone measured its own in-process call and
+   always showed the peer as connected with the controller powered off.
+8. Password removal never stuck: the next cold start could not tell "never set" from
+   "removed" and re-seeded the default.
+9. The alarm phone's own Pairing/Ringtone controls threw `ForbiddenException` into a
+   bare `runCatching` and did nothing, silently, once a password existed.
+
+Plus: default-password hashing moved off the fire path (20,000 SHA-256 rounds ran in
+`AlarmReceiver`), three different nap ceilings unified, read-only status fields no longer
+echoed back from a controller patch, `clearOverride` brought under the lock, and ~90
+lines of dead code removed.
+
 ## Priority order
 
 1. Controller permission rows are dead controls (§5).

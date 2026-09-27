@@ -358,13 +358,12 @@ object Svc : AlarmHost {
         return synchronized(lock) { apply(Engine.clearNap(state, ts)) }
     }
 
-    override fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String, actor: Actor): Snapshot {
+    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
         return synchronized(lock) {
             when {
                 kind == "SKIP" -> apply(Engine.setSkip(state, ts))
                 kind == "NONE" -> apply(Engine.clearOverride(state, ts))
-                shiftMinutes != null -> apply(Engine.shiftOverride(state, ts, shiftMinutes))
                 time != null -> apply(Engine.setOverrideTime(state, ts, time))
                 else -> snapshot()
             }

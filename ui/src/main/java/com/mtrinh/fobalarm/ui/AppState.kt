@@ -156,9 +156,8 @@ class AppState(
 
     fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
     fun clearNap() = act("Nap") { client.clearNap(UUID.randomUUID().toString()) }
-    fun overrideTime(hhmm: String) = act("Tomorrow") { client.setOverride("TIME", hhmm, null, UUID.randomUUID().toString()) }
-    fun overrideShift(minutes: Int) = act("Tomorrow") { client.setOverride("TIME", null, minutes, UUID.randomUUID().toString()) }
-    fun overrideSkip() = act("Skip tomorrow") { client.setOverride("SKIP", null, null, UUID.randomUUID().toString()) }
+    fun overrideTime(hhmm: String) = act("Tomorrow") { client.setOverride("TIME", hhmm, UUID.randomUUID().toString()) }
+    fun overrideSkip() = act("Skip tomorrow") { client.setOverride("SKIP", null, UUID.randomUUID().toString()) }
     fun clearOverride() = act("Tomorrow") { client.clearOverride(UUID.randomUUID().toString()) }
 
     fun patch(label: String = "Setting", edit: (Settings) -> Settings) {

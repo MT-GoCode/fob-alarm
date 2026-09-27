@@ -15,7 +15,7 @@ interface StateClient {
     suspend fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?): Result<Snapshot>
     suspend fun nap(minutes: Int, requestId: String): Result<Snapshot>
     suspend fun clearNap(requestId: String): Result<Snapshot>
-    suspend fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String): Result<Snapshot>
+    suspend fun setOverride(kind: String, time: String?, requestId: String): Result<Snapshot>
     suspend fun clearOverride(requestId: String): Result<Snapshot>
     suspend fun history(sinceSeq: Long, limit: Int): Result<List<Event>>
     suspend fun export(): Result<Backup>
@@ -43,7 +43,7 @@ interface AlarmHost {
     fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor): Snapshot
     fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot
     fun clearNap(requestId: String, actor: Actor): Snapshot
-    fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String, actor: Actor): Snapshot
+    fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot
     fun clearOverride(requestId: String, actor: Actor): Snapshot
     fun history(sinceSeq: Long, limit: Int): List<Event>
     fun export(): Backup
@@ -62,8 +62,8 @@ class LocalStateClient(private val host: AlarmHost) : StateClient {
         runCatching { host.nap(minutes, requestId, Actor.ALARM) }
     override suspend fun clearNap(requestId: String) =
         runCatching { host.clearNap(requestId, Actor.ALARM) }
-    override suspend fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String) =
-        runCatching { host.setOverride(kind, time, shiftMinutes, requestId, Actor.ALARM) }
+    override suspend fun setOverride(kind: String, time: String?, requestId: String) =
+        runCatching { host.setOverride(kind, time, requestId, Actor.ALARM) }
     override suspend fun clearOverride(requestId: String) =
         runCatching { host.clearOverride(requestId, Actor.ALARM) }
     override suspend fun history(sinceSeq: Long, limit: Int) = runCatching { host.history(sinceSeq, limit) }

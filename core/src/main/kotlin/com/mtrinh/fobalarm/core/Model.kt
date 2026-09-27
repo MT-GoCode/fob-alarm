@@ -177,10 +177,6 @@ data class Gates(
 
 data class ArmGate(val lastRunAtMs: Long, val result: String, val failingGates: List<String>)
 
-/** Everything that would stop a ring, in one place, for the status screen. */
-data class Blockers(val keys: List<String>) {
-    val canRing: Boolean get() = keys.isEmpty()
-}
 data class NextFire(val atMs: Long, val source: OccurrenceSource, val label: String)
 data class RingView(
     val ringId: String, val startedAtMs: Long, val trigger: OccurrenceSource,
