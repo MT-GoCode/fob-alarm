@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import android.view.WindowManager
 import android.provider.Settings as ASettings
 import androidx.activity.ComponentActivity
@@ -32,7 +33,18 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private lateinit var app: AppState
-    private val perms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    private val perms = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()) { refreshGates() }
+
+    private fun refreshGates() {
+        GateEval.invalidateSlowChecks()
+        GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshGates()
+    }
     private val pickAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { copyRingtone(it) }
     }
@@ -134,25 +146,66 @@ class MainActivity : ComponentActivity() {
         perms.launch(want.toTypedArray())
     }
 
-    /** Each INIT row deep-links to the page that actually fixes it. */
+    /**
+     * Runtime permissions are REQUESTED so Android shows its own dialog. Only the
+     * special-access items (exact alarms, full-screen intent, hibernation, DND policy)
+     * have no request API and genuinely require a Settings page -- and each of those
+     * deep-links to the exact page, never to the generic app-info screen.
+     */
     private fun fix(gate: String) {
-        runCatching {
+        val ok = runCatching {
             when (gate) {
-                "notHibernating" -> startActivityForResult(
-                    IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName), 99)
-                "exactAlarm" -> startActivity(Intent(ASettings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
-                "fullScreenIntent" -> startActivity(Intent(ASettings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                // --- real runtime permissions: Android prompts ---
+                "foregroundService" -> {
+                    if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) ||
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        perms.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                    } else openNotificationSettings()
+                }
+                "localNetworkPermission" -> perms.launch(arrayOf(
+                    Manifest.permission.NEARBY_WIFI_DEVICES,
+                    Manifest.permission.ACCESS_FINE_LOCATION))
+
+                // --- special access: no request API exists, so deep-link precisely ---
+                "exactAlarm" -> startActivity(Intent(
+                    ASettings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                     Uri.parse("package:$packageName")))
-                "notificationPolicyAccess" -> startActivity(Intent(ASettings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-                "dndAllowsAlarms" -> startActivity(Intent(ASettings.ACTION_ZEN_MODE_PRIORITY_SETTINGS))
+                "fullScreenIntent" -> startActivity(Intent(
+                    ASettings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.parse("package:$packageName")))
+                "notificationPolicyAccess" -> startActivity(
+                    Intent(ASettings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                "notHibernating" -> startActivity(
+                    IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
+                "powerOk" -> startActivity(Intent(
+                    ASettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName")))
+
+                // --- device settings we cannot change for you ---
+                "dndAllowsAlarms" -> startActivity(Intent("android.settings.ZEN_MODE_SETTINGS"))
                 "volumeNotFixed", "vibrationEnabled" -> startActivity(Intent(ASettings.ACTION_SOUND_SETTINGS))
-                "powerOk" -> startActivity(Intent(ASettings.ACTION_BATTERY_SAVER_SETTINGS))
+                "noBluetoothAudio" -> startActivity(Intent(ASettings.ACTION_BLUETOOTH_SETTINGS))
+
                 "audioPlayable" -> pickAudio.launch(arrayOf("audio/*"))
-                "localNetworkPermission" -> requestRuntimePermissions()
-                "groupCredentialsSet" -> { /* handled inline in DeviceSettings */ }
-                else -> startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:$packageName")))
+                else -> return
             }
+            true
+        }.getOrDefault(false)
+
+        // A deep link can be unsupported on a given OEM build. Say so instead of
+        // silently doing nothing or dumping the user on a generic page.
+        if (!ok) {
+            Toast.makeText(this,
+                "This phone has no direct page for that — open Settings and search for it",
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openNotificationSettings() {
+        runCatching {
+            startActivity(Intent(ASettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(ASettings.EXTRA_APP_PACKAGE, packageName))
         }
     }
 

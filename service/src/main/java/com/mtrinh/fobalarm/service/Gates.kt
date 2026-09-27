@@ -55,7 +55,11 @@ object GateEval {
         }
     }
 
-    /** Before the first evaluation completes, unknown renders as a problem -- never as OK. */
+    /**
+     * Only ever seen in the fraction of a second before the first evaluation lands.
+     * evaluatedAtMs == 0 marks it as NOT MEASURED, and the UI must say so rather than
+     * drawing nineteen red crosses for checks that have never run.
+     */
     private fun unknownGates(nextFireExists: Boolean) = Gates(
         evaluatedAtMs = 0, scheduleExists = nextFireExists, exactAlarm = false,
         foregroundService = false, p2pSupported = false, gyroscopePresent = false,
@@ -64,6 +68,16 @@ object GateEval {
         fullScreenIntent = false, notHibernating = false, thermalOk = false,
         audioPlayable = false, powerOk = false, vibrationEnabled = false,
         freeDiskOk = false, noBluetoothAudio = false)
+
+    @Volatile var lastError: String? = null
+
+    /** One gate must never be able to take the other eighteen down with it. */
+    private inline fun probe(name: String, default: Boolean, block: () -> Boolean): Boolean =
+        try { block() } catch (t: Throwable) {
+            Svc.log("gate_probe_failed", "gate" to name, "error" to t.toString())
+            lastError = "$name: ${t.javaClass.simpleName}"
+            default
+        }
 
     /** Blocking. Worker thread and the arm gate only. */
     fun evaluate(ctx: Context, settings: Settings, nextFireExists: Boolean): Gates {
@@ -83,30 +97,44 @@ object GateEval {
         return Gates(
             evaluatedAtMs = System.currentTimeMillis(),
             scheduleExists = nextFireExists,
-            exactAlarm = am.canScheduleExactAlarms(),
-            foregroundService = RingService.serviceAlive,
-            p2pSupported = ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT),
-            // TYPE_ROTATION_VECTOR exists on gyro-less devices and proves nothing --
-            // probe TYPE_GYROSCOPE directly, or a 2029 replacement phone silently
-            // ships a snooze gesture that cannot work.
-            gyroscopePresent = sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null,
-            staApConcurrent = runCatching { wm.isStaApConcurrencySupported }.getOrDefault(false),
+            exactAlarm = probe("exactAlarm", false) { am.canScheduleExactAlarms() },
+            // Whether we are ALLOWED to run the ring service, not whether it is running
+            // right now -- it only runs during a ring, so the old check was a permanent X.
+            foregroundService = probe("foregroundService", false) {
+                nm.areNotificationsEnabled()
+            },
+            p2pSupported = probe("p2pSupported", false) {
+                ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)
+            },
+            gyroscopePresent = probe("gyroscopePresent", false) {
+                sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
+            },
+            staApConcurrent = probe("staApConcurrent", false) { wm.isStaApConcurrencySupported },
             groupCredentialsSet = !settings.ssid.isNullOrBlank() && !settings.passphrase.isNullOrBlank(),
-            localNetworkPermission = hasLocalNetwork(ctx),
-            notificationPolicyAccess = nm.isNotificationPolicyAccessGranted,
-            dndAllowsAlarms = dndAllowsAlarms(ctx, nm),
-            volumeNotFixed = !audio.isVolumeFixed && !audio.isStreamMute(AudioManager.STREAM_ALARM),
-            fullScreenIntent = nm.canUseFullScreenIntent(),
-            notHibernating = hibernationOk ?: notHibernating(ctx).also { hibernationOk = it },
-            thermalOk = pm.currentThermalStatus < PowerManager.THERMAL_STATUS_SEVERE,
+            localNetworkPermission = probe("localNetworkPermission", false) { hasLocalNetwork(ctx) },
+            notificationPolicyAccess = probe("notificationPolicyAccess", false) {
+                nm.isNotificationPolicyAccessGranted
+            },
+            dndAllowsAlarms = probe("dndAllowsAlarms", true) { dndAllowsAlarms(ctx, nm) },
+            volumeNotFixed = probe("volumeNotFixed", true) {
+                !audio.isVolumeFixed && !audio.isStreamMute(AudioManager.STREAM_ALARM)
+            },
+            fullScreenIntent = probe("fullScreenIntent", false) { nm.canUseFullScreenIntent() },
+            notHibernating = probe("notHibernating", true) {
+                hibernationOk ?: notHibernating(ctx).also { hibernationOk = it }
+            },
+            thermalOk = probe("thermalOk", true) {
+                pm.currentThermalStatus < PowerManager.THERMAL_STATUS_SEVERE
+            },
             // Readability is checked at the nightly arm gate, never at 04:00.
-            audioPlayable = audioOk ?: audioPlayable(ctx, settings).also { audioOk = it },
+            audioPlayable = probe("audioPlayable", false) {
+                audioOk ?: audioPlayable(ctx, settings).also { audioOk = it }
+            },
             // NEVER isCharging(), and never expect 100%: Motorola's Overcharge protection
-            // caps at 80% and may report not-charging at the plateau. Checking isCharging
-            // would chirp every night forever -- the worst-shaped bug available.
-            powerOk = plugged && pct > 50,
-            vibrationEnabled = vibrationEnabled(ctx),
-            freeDiskOk = freeBytes(ctx) > 50L * 1024 * 1024,
+            // caps at 80% and may report not-charging at the plateau.
+            powerOk = probe("powerOk", true) { plugged && pct > 50 },
+            vibrationEnabled = probe("vibrationEnabled", true) { vibrationEnabled(ctx) },
+            freeDiskOk = probe("freeDiskOk", true) { freeBytes(ctx) > 50L * 1024 * 1024 },
             // A bathroom speaker auto-connecting at 03:00 routes the alarm out of the box.
             noBluetoothAudio = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).none {
                 it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
