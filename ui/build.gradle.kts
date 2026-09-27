@@ -27,5 +27,6 @@ dependencies {
     implementation(libs.compose.graphics)
     implementation(libs.compose.tooling)
     implementation(libs.compose.material3)
+    implementation(libs.compose.icons)
     implementation(libs.coroutines.android)
 }

@@ -130,15 +130,21 @@ class AppState(
     }
 
     var testMessage by mutableStateOf<String?>(null); private set
+    var testOk by mutableStateOf(true); private set
 
     /** Same path as every other command, so a remote test proves the link too. */
     fun testRing(silent: Boolean) {
         scope.launch {
-            testMessage = "Ringing in 10s — lock the phone now"
+            testOk = true
+            testMessage = "Ringing in 10 seconds"
             client.testRing(silent, UUID.randomUUID().toString())
                 .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
-                .onFailure { testMessage = "Test failed: ${it.message}" }
-            delay(6000); testMessage = null
+                .onFailure {
+                    testOk = false
+                    testMessage = if (it is ClientError.Transport)
+                        "Could not reach the alarm phone" else "Already ringing"
+                }
+            delay(11_000); testMessage = null
         }
     }
 
@@ -155,12 +161,6 @@ class AppState(
     fun patch(edit: (Settings) -> Settings) {
         val s = snapshot ?: return
         act { client.patchSettings(s.stateVersion, edit(s.settings), UUID.randomUUID().toString(), token) }
-    }
-
-    /** Optimistic: returns true and clears the dialog; a failure shows as still locked. */
-    fun unlockBlocking(secret: String): Boolean {
-        unlock(secret) { }
-        return true
     }
 
     fun unlock(secret: String, onResult: (Boolean) -> Unit) {

@@ -1,6 +1,8 @@
 package com.mtrinh.fobalarm.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,7 +46,7 @@ fun SettingsScreen(
         }
 
         // --- alarm ---
-        Section("Alarm", "When it rings and how loud. Locked once a password is set.")
+        Section("Alarm")
         LockedRow(locked) {
             TimeSetting("Alarm time", s.settings.defaultAlarmTime) { v ->
                 app.patch { it.copy(defaultAlarmTime = v) }
@@ -60,18 +62,18 @@ fun SettingsScreen(
             ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch { it.copy(vibrate = v) } }
         }
         LockedRow(locked) {
-            DurationSetting("Give up after", s.settings.maxRingMinutes,
-                minMinutes = 5, maxMinutes = 120) { v -> app.patch { it.copy(maxRingMinutes = v) } }
+            ChoiceSetting("Give up after", null,
+                listOf("15m" to 15, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
+                s.settings.maxRingMinutes) { v -> app.patch { it.copy(maxRingMinutes = v) } }
         }
 
         // --- snooze ---
-        Section("Snooze", "Rotate the phone this far to snooze. It rings again after the delay.")
+        Section("Snooze", "Turn the phone this far to snooze it.")
         LockedRow(locked) {
-            DurationSetting("Snooze for", s.settings.snoozeSeconds / 60,
-                minMinutes = 1, maxMinutes = 10,
-                secondsValue = s.settings.snoozeSeconds) { v ->
-                app.patch { it.copy(snoozeSeconds = v * 60) }
-            }
+            // Seconds, not minutes: the 30s default cannot survive a minutes-only control.
+            ChoiceSetting("Snooze for", null,
+                listOf("30s" to 30, "1m" to 60, "2m" to 120, "5m" to 300, "10m" to 600),
+                s.settings.snoozeSeconds) { v -> app.patch { it.copy(snoozeSeconds = v) } }
         }
         LockedRow(locked) {
             ChoiceSetting("Rotation needed", null,
@@ -82,7 +84,10 @@ fun SettingsScreen(
         }
 
         // --- test ---
-        Section("Test", "Rings this phone now so you can check it wakes the screen and makes noise.")
+        Section("Test",
+            if (s.self.role?.name == "CONTROLLER")
+                "Rings the alarm phone in 10 seconds. Stop it from that phone."
+            else "Rings this phone in 10 seconds. Lock it and put it down first.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) {
                 Text("Test ring")
@@ -93,7 +98,8 @@ fun SettingsScreen(
         }
         app.testMessage?.let {
             Spacer(Modifier.height(6.dp))
-            Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+            Text(it, fontSize = 13.sp,
+                color = if (app.testOk) MaterialTheme.colorScheme.primary else Bad)
         }
 
         deviceSettings?.invoke()
@@ -102,7 +108,7 @@ fun SettingsScreen(
     if (showUnlock) {
         PasswordDialog(
             title = "Unlock settings",
-            onSubmit = { secret -> app.unlockBlocking(secret) },
+            onSubmit = { secret, result -> app.unlock(secret, result) },
             onDismiss = { showUnlock = false },
         )
     }
@@ -116,13 +122,12 @@ fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
         content()
         if (locked) {
             Box(Modifier.matchParentSize()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.72f),
-                    modifier = Modifier.matchParentSize()
-                        .clickableNoRipple { explain = true }
-                ) {}
-                Text("🔒", fontSize = 14.sp,
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 4.dp))
+                // Intercept taps, but stay readable: you must be able to check the
+                // alarm time without unlocking.
+                Box(Modifier.matchParentSize().clickableNoRipple { explain = true })
+                Icon(Icons.Default.Lock, contentDescription = "Locked",
+                    tint = Muted, modifier = Modifier.size(16.dp)
+                        .align(Alignment.CenterEnd))
             }
         }
     }

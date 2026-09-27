@@ -18,41 +18,22 @@ import com.mtrinh.fobalarm.core.*
 @Composable
 fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onArm: (Boolean) -> Unit) {
     val armed = s.settings.armed
-    val blockers = s.gates.failing().filter { GateInfo.of(it)?.blocking == true }
-    val willRing = armed && blockers.isEmpty() && s.nextFire != null
 
     // --- headline: armed, and when ---------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(
-                when {
-                    !armed -> "DISARMED"
-                    !willRing -> "WILL NOT RING"
-                    else -> "ARMED"
-                },
+            Text(if (armed) "Armed" else "Disarmed",
                 fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                color = if (willRing) Good else Bad)
+                color = if (armed) Good else Bad)
             Text(
-                if (s.nextFire != null) "${Fmt.absolute(s.nextFire!!.atMs)}  ·  ${Fmt.until(s.nextFire!!.atMs, nowMs)}"
+                if (!armed) "will not ring"
+                else if (s.nextFire != null)
+                    "${Fmt.absolute(s.nextFire!!.atMs)} · ${Fmt.until(s.nextFire!!.atMs, nowMs)}"
                 else "no alarm scheduled",
                 fontSize = 14.sp,
-                color = if (s.nextFire != null) MaterialTheme.colorScheme.onSurface else Bad)
+                color = if (armed && s.nextFire != null) MaterialTheme.colorScheme.onSurface else Bad)
         }
         Switch(checked = armed, onCheckedChange = onArm)
-    }
-
-    if (blockers.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
-            Column(Modifier.padding(12.dp)) {
-                Text("Cannot ring", fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                    color = Color.Black)
-                blockers.forEach {
-                    Text("· " + (GateInfo.of(it)?.label ?: it), fontSize = 13.sp, color = Color.Black)
-                }
-                Text("Fix these in Setup.", fontSize = 11.sp, color = Color.Black)
-            }
-        }
     }
 
     // --- one-off changes --------------------------------------------------
@@ -69,9 +50,9 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onArm: (Boolean) -
 
     Section("This phone", null)
     Fact("role", s.self.role?.name ?: "not set", s.self.role != null)
-    Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.plugged)
-    Fact("build", "${s.self.variant.name.lowercase()} ${s.self.appVersion}")
-
+    Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
+    Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
+    Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.batteryPct >= 20)
     Section("Other phone", null)
     if (s.peer == null) {
         Fact("status", "never connected", false)
@@ -79,12 +60,8 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onArm: (Boolean) -
         Fact("status", if (connected) "connected" else "last seen ${Fmt.age(s.peer!!.lastSeenMs, nowMs)}",
             connected)
         Fact("role", s.peer!!.role?.name ?: "unknown", s.peer!!.role != null)
-        Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged), s.peer!!.plugged)
-        Fact("build", "${s.peer!!.variant.name.lowercase()} ${s.peer!!.appVersion}",
-            s.peer!!.appVersion == s.self.appVersion)
+        Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged), s.peer!!.batteryPct >= 20)
     }
-    Fact("group", if (s.ap.running) "on, ${s.ap.clientCount} connected" else "off", s.ap.running)
-    Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
 
     Section("Alarm health", null)
     Fact("last result", s.lastOutcome?.let {
@@ -95,5 +72,4 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onArm: (Boolean) -
             if (!s.gates.volumeNotFixed) ", MUTED" else "", s.gates.volumeNotFixed)
     Fact("clock synced", if (s.clock.lastSyncOkMs == 0L) "never" else Fmt.age(s.clock.lastSyncOkMs, nowMs),
         s.clock.lastSyncOkMs != 0L)
-    Fact("checked", if (s.gates.evaluatedAtMs == 0L) "never" else Fmt.age(s.gates.evaluatedAtMs, nowMs))
 }

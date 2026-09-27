@@ -289,7 +289,7 @@ class MainActivity : ComponentActivity() {
         var confirm by remember { mutableStateOf(false) }
         var pw by remember { mutableStateOf("") }
 
-        Text("Group credentials", fontSize = 12.sp, color = Muted)
+        Section("Pairing", "Both phones must use the same name and passphrase.")
         OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID (DIRECT-xy…)", fontSize = 12.sp) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8–63)", fontSize = 12.sp) },
@@ -316,13 +316,12 @@ class MainActivity : ComponentActivity() {
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("Ringtone", fontSize = 12.sp, color = Muted)
+        Section("Ringtone", "A built-in tone is used unless you choose a file.")
         OutlinedButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
             Text(if (Svc.settings.ringtoneUri != null) "Change audio file" else "Pick audio file", fontSize = 12.sp)
         }
 
-        Section("Password",
-            "Optional. Locks the settings that could stop the alarm. Never needed to dismiss.")
+        Section("Password", "Optional. Locks the settings that could stop the alarm.")
         var current by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
         val hasPw = Svc.settings.hasPassword
@@ -381,7 +380,7 @@ class MainActivity : ComponentActivity() {
         var typed by remember { mutableStateOf("") }
         var rolePw by remember { mutableStateOf("") }
         var roleErr by remember { mutableStateOf<String?>(null) }
-        Text("Role", fontSize = 12.sp, color = Muted)
+        Section("Role")
         Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = 12.sp)
         OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = 12.sp) }
         if (asking) {
@@ -430,7 +429,7 @@ class MainActivity : ComponentActivity() {
     private fun DevChannel() {
         var ip by remember { mutableStateOf(Updater.host ?: "") }
         var msg by remember { mutableStateOf(Updater.status) }
-        Text("Dev channel", fontSize = 12.sp, color = Muted)
+        Section("Dev channel", "Lets this phone fetch new builds from the Mac.")
         Text(if (Updater.devModeOn) "ON — expires in " +
                 Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
              else "OFF — the phone does not listen for builds", fontSize = 11.sp,
@@ -485,7 +484,8 @@ class MainActivity : ComponentActivity() {
                 android.content.pm.PackageManager.PERMISSION_GRANTED
         Page(
             title = "Pair with the alarm phone",
-            subtitle = "Enter exactly the group name and passphrase set on the alarm phone.",
+            subtitle = "Enter the same group name and passphrase set on the alarm phone.",
+            applyInsets = true,
         ) {
             Spacer(Modifier.height(10.dp))
             Fact("nearby devices", if (hasPerm) "granted" else "required", hasPerm)
@@ -503,7 +503,6 @@ class MainActivity : ComponentActivity() {
                 enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()) { Text("Join group") }
             Fact("status", P2pJoin.status)
-            Fact("this build", BuildConfig.VERSION_NAME + " " + BuildConfig.VARIANT.lowercase())
             Spacer(Modifier.height(20.dp))
             OutlinedButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
                 Text("This is actually the alarm phone", fontSize = 12.sp)
@@ -528,8 +527,6 @@ class MainActivity : ComponentActivity() {
                 Text("CONTROLLER — the other room", fontSize = 16.sp)
             }
             Spacer(Modifier.height(16.dp))
-            Text("Changeable later in settings, behind the password.",
-                fontSize = 12.sp, color = Muted)
             Spacer(Modifier.height(10.dp))
             Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
                 fontSize = 11.sp, color = Muted,
@@ -539,8 +536,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun CrashScreen() {
-        Page(title = "The app crashed",
-            subtitle = "There is no logcat on this phone, so the trace is kept here.") {
+        Page(title = "The app crashed", applyInsets = true) {
             Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
                 fontSize = 11.sp, color = Muted)
             Spacer(Modifier.height(12.dp))

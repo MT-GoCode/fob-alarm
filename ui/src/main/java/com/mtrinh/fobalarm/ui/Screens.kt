@@ -8,6 +8,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,7 +39,7 @@ fun RootScreen(
     onRepair: (() -> Unit)? = null,
 ) {
     val s = app.snapshot
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
 
     if (s == null) {
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
@@ -57,18 +63,34 @@ fun RootScreen(
         // INIT keeps the nav bar: an unfixable blocking gate (a replacement phone with
         // no gyroscope, say) must not trap the user on a screen with no way to reach
         // Settings and change anything.
-        else -> Scaffold(
+        else -> {
+        val snackbar = remember { SnackbarHostState() }
+        LaunchedEffect(app.syncMessage) {
+            app.syncMessage?.let { snackbar.showSnackbar(it) }
+        }
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    listOf(if (tab == 0 && s.mode == Mode.INIT) "Setup" else "Status",
+                    listOf(if (s.mode == Mode.INIT) "Setup" else "Status",
                         "Settings", "History").forEachIndexed { i, label ->
-                        NavigationBarItem(selected = tab == i, onClick = { tab = i },
-                            icon = {}, label = { Text(label, fontSize = 12.sp) })
+                        NavigationBarItem(
+                            selected = tab == i, onClick = { tab = i },
+                            icon = {
+                                Icon(
+                                    when (i) {
+                                        0 -> Icons.Default.Alarm
+                                        1 -> Icons.Default.Settings
+                                        else -> Icons.Default.List
+                                    },
+                                    contentDescription = label)
+                            },
+                            label = { Text(label) })
                     }
                 }
             }
         ) { pad ->
-            Box(Modifier.padding(pad)) {
+            Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
                 when (tab) {
                     0 -> if (s.mode == Mode.INIT) InitScreen(app, s, isAlarmRole, onFixGate)
                          else WaitingScreen(app, s)
@@ -76,6 +98,7 @@ fun RootScreen(
                     else -> HistoryScreen(app)
                 }
             }
+        }
         }
     }
 }
@@ -127,9 +150,9 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Text("SNOOZED", fontSize = 18.sp, color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold)
             Text("rings again in ${Fmt.duration(left)}", fontSize = 15.sp, color = Muted)
-            Text("snooze #${ring.snoozeCount}", fontSize = 13.sp, color = Muted)
         } else {
-            Text("ends ${Fmt.until(ring.endsByMs, now)}", fontSize = 13.sp, color = Muted)
+            if (!isAlarmRole) Text("ends ${Fmt.until(ring.endsByMs, now)}",
+                fontSize = 13.sp, color = Muted)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -138,7 +161,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         Button(
             onClick = { app.dismiss() },
             enabled = !locked && app.dismissUi !is DismissUi.Waiting,
-            modifier = Modifier.fillMaxWidth().height(if (isAlarmRole) 130.dp else 150.dp),
+            modifier = Modifier.fillMaxWidth().height(170.dp),
         ) {
             Text(
                 when {
@@ -146,7 +169,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
                     isAlarmRole -> "PRESS TO DISMISS"
                     else -> "PRESS TO DISMISS REMOTE ALARM"
                 },
-                fontSize = 21.sp, fontWeight = FontWeight.Bold
+                fontSize = 26.sp, fontWeight = FontWeight.Bold
             )
         }
 
@@ -169,8 +192,11 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         Spacer(Modifier.height(12.dp))
         // The instrument is alarm-only: it is sensor-driven, and snooze is deliberately
         // not remotable -- a bathroom snooze button would defeat the mechanism.
-        if (!snoozed) {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+        if (!snoozed && isAlarmRole) {
+            Spacer(Modifier.weight(1f))
+            // #39: a naked dial means nothing at 4 AM.
+            Text("or turn the phone over to snooze", fontSize = 13.sp, color = Muted)
+            Box(Modifier.fillMaxWidth().height(170.dp)) {
                 RotationInstrument(ring.rotationDeg, ring.thresholdDeg, null,
                     ring.rvStale, Modifier.fillMaxSize())
             }
@@ -178,14 +204,8 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Spacer(Modifier.weight(1f))
         }
         val muted = ring.audible.contains("muted=true")
-        Text(if (muted) "SOUND IS MUTED — vibration only" else "sound confirmed",
-            fontSize = 12.sp, color = if (muted) Bad else Muted)
+        if (muted) Text("SOUND IS MUTED, vibration only", fontSize = 13.sp, color = Bad)
 
-        // Gate regressions during a session are shown, never acted on: INIT is entered
-        // only from WAITING, so a gate can never preempt audio.
-        if (!s.gates.allPass) {
-            Text("also wrong: ${s.gates.failing().joinToString(", ")}", fontSize = 11.sp, color = Bad)
-        }
     }
 
     if (app.dismissUi is DismissUi.Dismissed) {
@@ -222,7 +242,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
             app.patch { it.copy(armed = armed) }
         }
 
-        Section("Tomorrow only", "Applies to the next alarm, then clears itself.")
+        Section("Tomorrow only")
         var pickTime by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("+15m" to 15, "+30m" to 30, "+1h" to 60, "+2h" to 120).forEach { (t, m) ->
@@ -240,13 +260,14 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
             }
         }
         if (pickTime) {
-            TimePickerDialog("Wake me at", s.settings.defaultAlarmTime,
+            TimePickerDialog("Wake me at",
+                s.tomorrow.timeMs?.let { Fmt.clock(it) } ?: s.settings.defaultAlarmTime,
                 onCancel = { pickTime = false }) { v ->
                 app.overrideTime(v); pickTime = false
             }
         }
 
-        Section("Nap", "A one-off timer. Touches nothing else.")
+        Section("Nap")
         ChoiceSetting("Wake me in", null,
             listOf("10m" to 10, "20m" to 20, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
             s.settings.napMinutes) { v -> app.nap(v) }
@@ -284,6 +305,7 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
     val blocking = perms.count { !it.second && it.first.blocking }
 
     Page(
+        applyInsets = false,
         title = "Setup",
         subtitle = when {
             !isAlarmRole -> "These are the alarm phone's permissions. Grant them on that phone."
@@ -336,7 +358,7 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
 @Composable
 private fun HistoryScreen(app: AppState) {
     LaunchedEffect(Unit) { app.loadHistory() }
-    Page(title = "History", subtitle = "what happened, when, and which device did it") {
+    Page(title = "History") {
         if (app.history.isEmpty()) Text("no events yet", color = Muted, fontSize = 13.sp)
         app.history.forEach { e ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {

@@ -83,9 +83,11 @@ fun ChoiceSetting(
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (text, v) ->
-                val selected = v == value
-                if (selected) {
-                    Button(onClick = { }, contentPadding = PaddingValues(horizontal = 14.dp),
+                // Selected is still tappable: for actions like "nap 20m" the selected
+                // value is exactly the one you want to press again.
+                if (v == value) {
+                    Button(onClick = { onSet(v) },
+                        contentPadding = PaddingValues(horizontal = 14.dp),
                         modifier = Modifier.height(36.dp)) { Text(text, fontSize = 12.sp) }
                 } else {
                     OutlinedButton(onClick = { onSet(v) },
@@ -113,7 +115,10 @@ fun SliderSetting(
     help: String? = null,
     onSet: (Int) -> Unit,
 ) {
-    var live by remember(value) { mutableIntStateOf(value) }
+    var live by remember { mutableIntStateOf(value) }
+    // Snap back whenever the authoritative value changes -- including a failed save,
+    // where it never changed at all.
+    LaunchedEffect(value) { live = value }
     val steps = ((max - min) / step - 1).coerceAtLeast(0)
     Column(Modifier.padding(vertical = 8.dp)) {
         Row {
@@ -158,67 +163,6 @@ fun TimePickerDialog(
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
-}
-
-/**
- * Hours and minutes, the way every other Android app asks for a duration. Bounded at
- * the widget, with the limit stated rather than silently clamped afterwards.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DurationSetting(
-    label: String,
-    minutes: Int,
-    minMinutes: Int,
-    maxMinutes: Int,
-    secondsValue: Int? = null,
-    onSet: (Int) -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    val shown = secondsValue?.let { if (it < 60) "${it}s" else fmtDuration(it / 60) }
-        ?: fmtDuration(minutes)
-
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        TextButton(onClick = { open = true }) {
-            Text(shown, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        }
-    }
-
-    if (open) {
-        val state = rememberTimePickerState(
-            initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
-        var err by remember { mutableStateOf<String?>(null) }
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text(label) },
-            text = {
-                Column {
-                    Text("Hours and minutes", fontSize = 12.sp, color = Muted)
-                    TimePicker(state = state)
-                    err?.let { Text(it, color = Bad, fontSize = 12.sp) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val total = state.hour * 60 + state.minute
-                    when {
-                        total < minMinutes -> err = "Minimum is ${fmtDuration(minMinutes)}"
-                        total > maxMinutes -> err = "Maximum is ${fmtDuration(maxMinutes)}"
-                        else -> { onSet(total); open = false }
-                    }
-                }) { Text("Set") }
-            },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-fun fmtDuration(min: Int): String = when {
-    min < 60 -> "${min}m"
-    min % 60 == 0 -> "${min / 60}h"
-    else -> "${min / 60}h ${min % 60}m"
 }
 
 /** Tap target with no ripple, for overlays that only exist to explain themselves. */

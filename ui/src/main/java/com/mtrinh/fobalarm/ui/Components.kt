@@ -30,12 +30,13 @@ fun Page(
     subtitleColor: Color = Muted,
     scroll: Boolean = true,
     snapshot: Snapshot? = null,
+    /** False when hosted in a Scaffold, which has already applied them. */
+    applyInsets: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val base = Modifier
         .fillMaxSize()
-        // safeDrawing covers the status bar, the navigation bar AND the display cutout.
-        .windowInsetsPadding(WindowInsets.safeDrawing)
+        .then(if (applyInsets) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
         .padding(horizontal = 18.dp)
 
     Column(if (scroll) base.verticalScroll(rememberScrollState()) else base) {
@@ -70,17 +71,14 @@ fun VersionBar(s: Snapshot) {
     val peer = s.peer
     val mismatch = peer != null && peer.appVersion != self.appVersion
     Column {
-        Text(
-            "this phone  ${self.variant.name.lowercase()} ${self.appVersion}  ·  ${self.deviceId.take(8)}",
+        Text("THIS PHONE · ${self.role?.name ?: "NO ROLE"} · ${self.appVersion}",
             fontSize = 11.sp, color = Muted, fontFamily = FontFamily.Monospace)
         Text(
-            if (peer == null) "other phone  never seen"
-            else "other phone  ${peer.variant.name.lowercase()} ${peer.appVersion}  ·  ${peer.deviceId.take(8)}",
+            if (peer == null) "OTHER PHONE · not connected"
+            else "OTHER PHONE · ${peer.role?.name ?: "?"} · ${peer.appVersion}",
             fontSize = 11.sp, color = if (mismatch) Bad else Muted,
             fontFamily = FontFamily.Monospace)
-        if (mismatch) {
-            Text("versions differ — update the older phone", fontSize = 11.sp, color = Bad)
-        }
+        if (mismatch) Text("versions differ, update the older phone", fontSize = 11.sp, color = Bad)
     }
 }
 
@@ -107,11 +105,13 @@ fun PasswordDialog(
     title: String,
     body: String? = null,
     confirmText: String = "Unlock",
-    onSubmit: (String) -> Boolean,
+    /** Reports the real result asynchronously; the dialog stays open on failure. */
+    onSubmit: (String, (Boolean) -> Unit) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var secret by remember { mutableStateOf("") }
     var failed by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -121,13 +121,19 @@ fun PasswordDialog(
                 OutlinedTextField(secret, { secret = it; failed = false },
                     label = { Text("Password or recovery code", fontSize = 12.sp) },
                     visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                if (failed) Text("Rejected", color = Bad, fontSize = 12.sp)
+                if (failed) Text("Wrong password", color = Bad, fontSize = 12.sp)
             }
         },
         confirmButton = {
-            TextButton(onClick = { if (onSubmit(secret)) onDismiss() else failed = true }) {
-                Text(confirmText)
-            }
+            TextButton(
+                enabled = !busy && secret.isNotBlank(),
+                onClick = {
+                    busy = true
+                    onSubmit(secret) { ok ->
+                        busy = false
+                        if (ok) onDismiss() else failed = true
+                    }
+                }) { Text(if (busy) "Checking…" else confirmText) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

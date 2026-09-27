@@ -110,9 +110,9 @@ fun RotationInstrument(
 
         // The numeral is the primary element.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("${degrees.toInt()}", fontSize = 52.sp, fontWeight = FontWeight.Bold,
+            Text("${degrees.toInt()}", fontSize = 28.sp, fontWeight = FontWeight.Bold,
                 color = if (crossed) Good else Color(0xFFE3E6E8))
-            Text("/ $threshold°", fontSize = 16.sp, color = Muted)
+            Text("/ $threshold°", fontSize = 13.sp, color = Muted)
             if (stale) Text("SENSOR STALE", fontSize = 11.sp, color = Bad)
         }
     }
