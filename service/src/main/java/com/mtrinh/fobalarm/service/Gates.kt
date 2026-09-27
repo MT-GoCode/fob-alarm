@@ -21,6 +21,51 @@ import java.io.File
 
 object GateEval {
 
+    // ---------------------------------------------------------------------
+    // Gate evaluation is EXPENSIVE and must never run on the main thread:
+    //   - getUnusedAppRestrictionsStatus() returns a future backed by a service
+    //     binding; blocking on it from the main thread deadlocks into an ANR.
+    //   - audioPlayable prepares a MediaPlayer, which is synchronous decode setup.
+    // snapshot() is called from Application.onCreate and again every 500ms while
+    // ringing, so both were being hit constantly. Evaluate on a worker and let
+    // snapshot() read the last cached result. SPEC.md section 4 also requires audio
+    // readability to be checked at the nightly arm gate, not on the ring path.
+    // ---------------------------------------------------------------------
+
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var cached: Gates? = null
+    @Volatile private var refreshing = false
+    @Volatile private var audioOk: Boolean? = null
+    @Volatile private var hibernationOk: Boolean? = null
+
+    /** Cheap, main-thread safe, never blocks. Kicks a refresh if the cache is stale. */
+    fun current(ctx: Context, settings: Settings, nextFireExists: Boolean): Gates {
+        val c = cached
+        if (c == null || System.currentTimeMillis() - c.evaluatedAtMs > 15_000) refresh(ctx, settings, nextFireExists)
+        return c ?: unknownGates(nextFireExists)
+    }
+
+    fun refresh(ctx: Context, settings: Settings, nextFireExists: Boolean) {
+        if (refreshing) return
+        refreshing = true
+        worker.execute {
+            runCatching { cached = evaluate(ctx, settings, nextFireExists) }
+                .onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
+            refreshing = false
+        }
+    }
+
+    /** Before the first evaluation completes, unknown renders as a problem -- never as OK. */
+    private fun unknownGates(nextFireExists: Boolean) = Gates(
+        evaluatedAtMs = 0, scheduleExists = nextFireExists, exactAlarm = false,
+        foregroundService = false, p2pSupported = false, gyroscopePresent = false,
+        staApConcurrent = false, groupCredentialsSet = false, localNetworkPermission = false,
+        notificationPolicyAccess = false, dndAllowsAlarms = false, volumeNotFixed = false,
+        fullScreenIntent = false, notHibernating = false, thermalOk = false,
+        audioPlayable = false, powerOk = false, vibrationEnabled = false,
+        freeDiskOk = false, noBluetoothAudio = false)
+
+    /** Blocking. Worker thread and the arm gate only. */
     fun evaluate(ctx: Context, settings: Settings, nextFireExists: Boolean): Gates {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         val am = ctx.getSystemService(AlarmManager::class.java)
@@ -52,9 +97,10 @@ object GateEval {
             dndAllowsAlarms = dndAllowsAlarms(ctx, nm),
             volumeNotFixed = !audio.isVolumeFixed && !audio.isStreamMute(AudioManager.STREAM_ALARM),
             fullScreenIntent = nm.canUseFullScreenIntent(),
-            notHibernating = notHibernating(ctx),
+            notHibernating = hibernationOk ?: notHibernating(ctx).also { hibernationOk = it },
             thermalOk = pm.currentThermalStatus < PowerManager.THERMAL_STATUS_SEVERE,
-            audioPlayable = audioPlayable(ctx, settings),
+            // Readability is checked at the nightly arm gate, never at 04:00.
+            audioPlayable = audioOk ?: audioPlayable(ctx, settings).also { audioOk = it },
             // NEVER isCharging(), and never expect 100%: Motorola's Overcharge protection
             // caps at 80% and may report not-charging at the plateau. Checking isCharging
             // would chirp every night forever -- the worst-shaped bug available.
@@ -108,14 +154,17 @@ object GateEval {
     }
 
     private fun notHibernating(ctx: Context): Boolean = runCatching {
-        when (PackageManagerCompat.getUnusedAppRestrictionsStatus(ctx).get()) {
+        when (PackageManagerCompat.getUnusedAppRestrictionsStatus(ctx)
+            .get(3, java.util.concurrent.TimeUnit.SECONDS)) {
             UnusedAppRestrictionsConstants.DISABLED,
             UnusedAppRestrictionsConstants.FEATURE_NOT_AVAILABLE -> true
             else -> false
         }
     }.getOrDefault(false)
 
-    /** Readability is checked at the arm gate, never at 04:00. */
+    /** Called by the arm gate to force a fresh read of the slow checks. */
+    fun invalidateSlowChecks() { audioOk = null; hibernationOk = null }
+
     fun audioPlayable(ctx: Context, settings: Settings): Boolean = runCatching {
         val uri = Audio.resolveUri(ctx, settings.ringtoneUri) ?: return false
         val mp = MediaPlayer()

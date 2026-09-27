@@ -54,17 +54,34 @@ object Svc : AlarmHost {
         de = DeMirror(app)
         if (de.deviceId == null) de.deviceId = UUID.randomUUID().toString()
 
-        // Room is CE storage and expendable. If it cannot be opened, the ring path
-        // still works off the DE mirror -- that is the whole point of the split.
-        runCatching {
-            db = Db.open(app)
-            state = Persist.load(db.dao())
-        }.onFailure {
-            log("db_open_failed", "error" to it.toString())
-        }
-        // Resume an open session from the DE mirror (survives first-boot lock).
+        // Seed from the DE mirror FIRST. Room is credential-encrypted, may be locked,
+        // and reading it here would be disk IO on whatever thread woke the process --
+        // including a broadcast receiver. The mirror is exactly the subset the ring path
+        // needs, so the alarm is armed correctly before Room is even opened.
+        state = state.copy(settings = state.settings.copy(
+            defaultAlarmTime = de.defaultAlarmTime,
+            alarmVolumePercent = de.alarmVolumePercent,
+            maxRingMinutes = de.maxRingMinutes,
+            snoozeSeconds = de.snoozeSeconds,
+            snoozeThresholdDegrees = de.snoozeThresholdDegrees,
+            ringtoneUri = de.ringtoneUri,
+            role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
+        ))
         de.session()?.let { state = state.copy(session = it) }
-        recompute("init")
+        recompute("init:de")
+
+        // Then bring up Room off-thread and recompute again once latches, the override
+        // and the nap are known. Room is expendable; the schedule is not.
+        io.execute {
+            runCatching {
+                db = Db.open(app)
+                val loaded = Persist.load(db.dao())
+                synchronized(lock) {
+                    state = loaded.copy(session = state.session)
+                }
+                recompute("init:db")
+            }.onFailure { log("db_open_failed", "error" to it.toString()) }
+        }
     }
 
     val dbReady: Boolean get() = this::db.isInitialized
@@ -136,7 +153,7 @@ object Svc : AlarmHost {
     // -----------------------------------------------------------------------
 
     override fun snapshot(): Snapshot {
-        val gates = GateEval.evaluate(app, state.settings, lastNextFire != null)
+        val gates = GateEval.current(app, state.settings, lastNextFire != null)
         val s = state.session
         val ovFire = state.override?.fireAtMs
         val boundAt = state.override?.let {

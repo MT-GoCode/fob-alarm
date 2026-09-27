@@ -35,16 +35,25 @@ class App : Application() {
 
         Boot.configure(BuildConfig.VERSION_NAME,
             if (BuildConfig.VARIANT == "DEV") Variant.DEV else Variant.LIVE)
-        Boot.ensure(this)
 
-        ForceStopDetector.check(this)
+        // Up first and cheap, so that if anything below fails the trace is still
+        // readable over http://<phone>:8766/v1/logs -- there is no logcat here.
         Crash.reportPending(this)
-        Audio.ensureBundled(this)
-        ClockObserver.poll()
+        Boot.ensure(this)
         Server.start(this)
-        Svc.log("app_start", "version" to BuildConfig.VERSION_NAME, "variant" to BuildConfig.VARIANT)
-
         wireRingScreen()
+
+        // Everything that touches disk, sensors, audio or a service binding goes to a
+        // worker. Application.onCreate is on the main thread and blocking it is an ANR.
+        Thread({
+            runCatching { ForceStopDetector.check(this) }
+            runCatching { Audio.ensureBundled(this) }
+            runCatching { ClockObserver.poll() }
+            runCatching { GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null) }
+            Svc.log("app_start", "version" to BuildConfig.VERSION_NAME,
+                "variant" to BuildConfig.VARIANT)
+        }, "fobalarm-init").start()
+
         startRoleLoop()
     }
 

@@ -72,7 +72,7 @@
             android:name="com.mtrinh.fobalarm.service.RingService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="systemExempted|specialUse">
+            android:foregroundServiceType="systemExempted">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="alarm_clock_ringing" />

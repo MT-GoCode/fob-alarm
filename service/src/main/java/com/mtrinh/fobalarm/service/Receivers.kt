@@ -81,6 +81,7 @@ class BootReceiver : BroadcastReceiver() {
 object ArmGateRunner {
     fun run(ctx: Context) {
         Boot.ensure(ctx)
+        GateEval.invalidateSlowChecks()
         val gates = GateEval.evaluate(ctx, Svc.settings, Svc.lastNextFire != null)
         val clockOk = ClockObserver.healthy()
         val failing = gates.failing().toMutableList()
