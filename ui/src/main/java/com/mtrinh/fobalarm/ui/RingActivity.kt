@@ -3,6 +3,7 @@ package com.mtrinh.fobalarm.ui
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 
 /**
@@ -21,6 +22,7 @@ open class RingActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         // KEEP_SCREEN_ON applies ONLY during a ring session.

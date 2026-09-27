@@ -30,11 +30,9 @@ fun SettingsScreen(
     var showUnlock by remember { mutableStateOf(false) }
     val unlocked = app.token != null
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
+    Page(snapshot = s) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             if (!unlocked) TextButton(onClick = { showUnlock = true }) { Text("Unlock") }
             else Text("unlocked", fontSize = 12.sp, color = Good)
@@ -102,34 +100,17 @@ fun SettingsScreen(
     }
 
     if (showUnlock) {
-        var secret by remember { mutableStateOf("") }
-        var failed by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { showUnlock = false },
-            title = { Text("Unlock settings") },
-            text = {
-                Column {
-                    OutlinedTextField(secret, { secret = it; failed = false },
-                        label = { Text("Password or recovery code") },
-                        visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                    if (failed) Text("Rejected", color = Bad, fontSize = 12.sp)
-                    Text("Expires after ~2 minutes idle.", fontSize = 11.sp, color = Muted)
-                }
+        PasswordDialog(
+            title = "Unlock settings",
+            body = "Expires after about two minutes idle.",
+            onSubmit = { secret ->
+                var ok = false
+                app.unlock(secret) { ok = it }
+                true                       // result surfaces via app.token
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    app.unlock(secret) { ok -> if (ok) showUnlock = false else failed = true }
-                }) { Text("Unlock") }
-            },
-            dismissButton = { TextButton(onClick = { showUnlock = false }) { Text("Cancel") } },
+            onDismiss = { showUnlock = false },
         )
     }
-}
-
-@Composable
-fun Section(title: String) {
-    HorizontalDivider(color = Color(0xFF1A2026))
-    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
 }
 
 @Composable

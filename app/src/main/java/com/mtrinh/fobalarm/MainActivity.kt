@@ -8,9 +8,13 @@ import android.widget.Toast
 import android.view.WindowManager
 import android.provider.Settings as ASettings
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -60,6 +64,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Draw edge to edge; Page() then insets every screen once, centrally.
+        enableEdgeToEdge()
         Boot.ensure(this)
         requestRuntimePermissions()
 
@@ -483,23 +489,27 @@ class MainActivity : ComponentActivity() {
         var pass by remember { mutableStateOf("") }
         val hasPerm = checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Pair with the alarm phone", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text("Enter exactly the group name and passphrase set on the alarm phone.",
-                fontSize = 12.sp, color = Muted)
-            Fact("nearby devices", if (hasPerm) "granted" else "REQUIRED", hasPerm)
+        Page(
+            title = "Pair with the alarm phone",
+            subtitle = "Enter exactly the group name and passphrase set on the alarm phone.",
+        ) {
+            Spacer(Modifier.height(10.dp))
+            Fact("nearby devices", if (hasPerm) "granted" else "required", hasPerm)
             if (!hasPerm) {
+                Spacer(Modifier.height(6.dp))
                 Button(onClick = { requestRuntimePermissions() }) { Text("Grant") }
             }
+            Spacer(Modifier.height(10.dp))
             OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID", fontSize = 12.sp) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = 12.sp) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(10.dp))
             Button(onClick = { onSet(ssid.trim(), pass) },
                 enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()) { Text("Join group") }
-            Text("Status: ${P2pJoin.status}", fontSize = 11.sp, color = Muted)
+            Fact("status", P2pJoin.status)
+            Fact("this build", BuildConfig.VERSION_NAME + " " + BuildConfig.VARIANT.lowercase())
             Spacer(Modifier.height(20.dp))
             OutlinedButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
                 Text("This is actually the alarm phone", fontSize = 12.sp)
@@ -509,8 +519,11 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun RolePicker(onPick: (Role) -> Unit) {
-        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Text("Which phone is this?", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(24.dp))
             Button(onClick = { onPick(Role.ALARM) }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
@@ -523,15 +536,19 @@ class MainActivity : ComponentActivity() {
             Spacer(Modifier.height(16.dp))
             Text("Changeable later in settings, behind the password.",
                 fontSize = 12.sp, color = Muted)
+            Spacer(Modifier.height(10.dp))
+            Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
+                fontSize = 11.sp, color = Muted,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
     }
 
     @Composable
     private fun CrashScreen() {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text("The app crashed", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Bad)
-            Text("There is no logcat on this phone, so the trace is kept here.",
-                fontSize = 12.sp, color = Muted)
+        Page(title = "The app crashed",
+            subtitle = "There is no logcat on this phone, so the trace is kept here.") {
+            Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
+                fontSize = 11.sp, color = Muted)
             Spacer(Modifier.height(12.dp))
             Text(Crash.pending ?: "", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             Spacer(Modifier.height(16.dp))

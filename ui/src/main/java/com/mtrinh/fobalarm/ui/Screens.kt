@@ -1,6 +1,9 @@
 package com.mtrinh.fobalarm.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -32,7 +35,8 @@ fun RootScreen(
     var tab by remember { mutableIntStateOf(0) }
 
     if (s == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
@@ -86,7 +90,8 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val snoozed = ring.phase == RingPhase.SNOOZED
     val now = app.nowMs
 
-    Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
         LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
 
         Spacer(Modifier.height(8.dp))
@@ -176,8 +181,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
     val nag = Nag.evaluate(s, app.lastOkMs, now)
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Page(snapshot = s) {
         LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
 
         // The only cover for "the alarm phone died silently at 03:00", which the arm
@@ -234,7 +238,8 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
 private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: (String) -> Unit) {
     val g = s.gates
     if (g.evaluatedAtMs == 0L) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
@@ -259,16 +264,15 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
     )
     val pending = perms.count { !it.second }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-        Text("Setup", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (!isAlarmRole) "These are the alarm phone's permissions. Grant them on that phone."
-            else if (pending == 0) "All set."
-            else "$pending permission${if (pending == 1) "" else "s"} still needed.",
-            fontSize = 14.sp, color = if (pending == 0) Good else Muted)
-
-        Spacer(Modifier.height(20.dp))
+    Page(
+        title = "Setup",
+        subtitle = if (!isAlarmRole) "These are the alarm phone's permissions. Grant them on that phone."
+                   else if (pending == 0) "All set."
+                   else "$pending permission${if (pending == 1) "" else "s"} still needed.",
+        subtitleColor = if (pending == 0) Good else Muted,
+        snapshot = s,
+    ) {
+        Spacer(Modifier.height(10.dp))
 
         perms.forEach { (k, ok) ->
             Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
@@ -358,10 +362,7 @@ private fun explain(k: String) = when (k) {
 @Composable
 private fun HistoryScreen(app: AppState) {
     LaunchedEffect(Unit) { app.loadHistory() }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("History", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text("what happened, when, and which device did it", fontSize = 11.sp, color = Muted)
-        Spacer(Modifier.height(8.dp))
+    Page(title = "History", subtitle = "what happened, when, and which device did it") {
         if (app.history.isEmpty()) Text("no events yet", color = Muted, fontSize = 13.sp)
         app.history.forEach { e ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {

@@ -75,8 +75,6 @@ fun StatusBlock(s: Snapshot, nowMs: Long, modifier: Modifier = Modifier) {
         if (!s.gates.allPass) {
             Text("failing: ${s.gates.failing().joinToString(", ")}", fontSize = 12.sp, color = Bad)
         }
-        Text("${s.self.variant.name.lowercase()} ${s.appVersion} · ${s.self.deviceId.take(8)}",
-            fontSize = 11.sp, color = Muted)
     }
 }
 
@@ -90,15 +88,6 @@ private fun DeviceLine(label: String, d: DeviceView, now: Long) {
         Spacer(Modifier.weight(1f))
         Text(if (d.lastSeenMs > 0 && label == "peer") Fmt.age(d.lastSeenMs, now) else "",
             fontSize = 12.sp, color = Muted)
-    }
-}
-
-@Composable
-fun Fact(key: String, value: String, ok: Boolean?) {
-    Row(Modifier.fillMaxWidth()) {
-        Text(key.padEnd(12), fontSize = 12.sp, color = Muted)
-        Text(value, fontSize = 12.sp,
-            color = when (ok) { true -> Good; false -> Bad; null -> MaterialTheme.colorScheme.onSurface })
     }
 }
 
