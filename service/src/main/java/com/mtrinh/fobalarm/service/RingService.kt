@@ -25,6 +25,8 @@ class RingService : Service(), SensorEventListener {
         @Volatile var rvStale = false
         @Volatile var audible: String = "-"
         @Volatile var quaternion: DoubleArray? = null
+        /** Non-zero while ringing without an engine session. */
+        @Volatile var sessionlessUntilMs = 0L
 
         fun start(ctx: Context) {
             runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
@@ -39,6 +41,7 @@ class RingService : Service(), SensorEventListener {
         }
 
         fun stop(ctx: Context) {
+            sessionlessUntilMs = 0L
             ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_STOP))
         }
     }
@@ -115,15 +118,14 @@ class RingService : Service(), SensorEventListener {
             val s = Svc.session
             if (s == null) {
                 // The engine refused to open a session but an alarm was genuinely due.
-                // Ring anyway; the schedule is repaired on the next recompute.
+                // Ring anyway, for a bounded window, and let the normal path below take
+                // the wake lock and start the heartbeat.
                 Svc.log("ring_without_session")
-                beginAudio()
-                handler.removeCallbacks(heartbeat); handler.post(heartbeat)
-                showRingUi()
-                return START_STICKY
+                sessionlessUntilMs = System.currentTimeMillis() +
+                    Svc.settings.maxRingMinutes * 60_000L
             }
             // A supersede replaces the session under us: restart audio on the new one.
-            if (prev != null && prev != s.ringId) beginAudio()   // beginAudio stops first
+            if (s != null && prev != null && prev != s.ringId) beginAudio()
         }
 
         val pm = getSystemService(PowerManager::class.java)
@@ -135,7 +137,7 @@ class RingService : Service(), SensorEventListener {
         Scheduler.armWatchdog(this)
         startGesture()
 
-        if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
+        if (Svc.session?.phase == RingPhase.RINGING || sessionlessUntilMs > 0L) beginAudio()
         else if (Svc.session == null) {
             // Test ring: no engine session. Read silence from DE, which survives the
             // process hop -- the in-memory flag does not.
@@ -232,6 +234,19 @@ class RingService : Service(), SensorEventListener {
                 return
             }
 
+            if (sessionlessUntilMs > 0L) {
+                if (now >= sessionlessUntilMs) {
+                    Svc.log("sessionless_ring_capped")
+                    sessionlessUntilMs = 0L
+                    teardown(); return
+                }
+                audio.heartbeat(Svc.settings)
+                audible = audio.audible
+                Scheduler.armWatchdog(this@RingService)
+                handler.postDelayed(this, 5_000)
+                return
+            }
+
             val s = Svc.session
             if (s == null) { teardown(); return }
 
@@ -263,6 +278,7 @@ class RingService : Service(), SensorEventListener {
     @Volatile private var lastStartId = 0
 
     private fun teardown() {
+        sessionlessUntilMs = 0L
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
         audio.stop()
