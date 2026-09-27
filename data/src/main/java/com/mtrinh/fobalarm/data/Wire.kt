@@ -78,6 +78,8 @@ object Wire {
         put("lastEvents", JSONArray().apply { s.lastEvents.forEach { put(eventToJson(it)) } })
         put("peerBlockers", JSONArray(s.peerBlockers))
         put("lastHeartbeatMs", s.lastHeartbeatMs)
+        put("testUntilMs", s.testUntilMs)
+        put("ringEndMessage", s.ringEndMessage ?: JSONObject.NULL)
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -232,6 +234,8 @@ object Wire {
                 (0 until a.length()).map { a.getString(it) }
             } ?: emptyList(),
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
+            testUntilMs = o.optLong("testUntilMs", 0),
+            ringEndMessage = o.optString("ringEndMessage").takeIf { it.isNotEmpty() && it != "null" },
         )
     }
 

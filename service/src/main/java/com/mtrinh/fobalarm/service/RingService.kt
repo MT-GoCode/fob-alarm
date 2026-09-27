@@ -196,7 +196,10 @@ class RingService : Service(), SensorEventListener {
             }
             Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
                 // Only accumulate while actually RINGING: never while snoozed or idle.
-                if (Svc.session?.phase != RingPhase.RINGING) return
+                val engineRinging = Svc.session?.phase == RingPhase.RINGING
+                val testRinging = (Svc.testActive || sessionlessUntilMs > 0L) &&
+                        testSnoozedUntilMs == 0L
+                if (!engineRinging && !testRinging) return
                 val q = RotationAccumulator.quatFromSensor(e.values)
                 quaternion = q
                 val crossed = a.onRotationVector(q, now)
@@ -208,8 +211,20 @@ class RingService : Service(), SensorEventListener {
 
     override fun onAccuracyChanged(s: Sensor?, a: Int) {}
 
+    @Volatile private var testSnoozedUntilMs = 0L
+
     private fun doSnooze() {
-        val s = Svc.session ?: return
+        val s = Svc.session
+        if (s == null) {
+            // Test ring: snooze it the same way, so the gesture is genuinely testable.
+            if (!Svc.testActive && sessionlessUntilMs == 0L) return
+            if (testSnoozedUntilMs > System.currentTimeMillis()) return
+            testSnoozedUntilMs = System.currentTimeMillis() + Svc.settings.snoozeSeconds * 1000L
+            Svc.log("test_snooze")
+            audio.stop()
+            acc?.reset(); rotationDeg = 0.0
+            return
+        }
         if (s.phase != RingPhase.RINGING) return
         Svc.onSnooze()
         audio.stop()                       // SNOOZED is fully silent: no hum, no pulse
@@ -228,7 +243,11 @@ class RingService : Service(), SensorEventListener {
                     Svc.testUntilMs = 0L
                     teardown(); return
                 }
-                if (!Svc.de.testSilent) audio.heartbeat(Svc.settings)
+                if (testSnoozedUntilMs > 0L && now >= testSnoozedUntilMs) {
+                    testSnoozedUntilMs = 0L
+                    audio.start(Svc.settings, silent = Svc.de.testSilent)
+                }
+                if (!Svc.de.testSilent && testSnoozedUntilMs == 0L) audio.heartbeat(Svc.settings)
                 audible = audio.audible
                 handler.postDelayed(this, 5_000)
                 return
@@ -279,6 +298,7 @@ class RingService : Service(), SensorEventListener {
 
     private fun teardown() {
         sessionlessUntilMs = 0L
+        testSnoozedUntilMs = 0L
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
         audio.stop()

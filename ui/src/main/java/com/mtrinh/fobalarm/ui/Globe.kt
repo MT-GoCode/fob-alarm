@@ -12,7 +12,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.lerp
 import kotlin.math.*
 
 /**
@@ -29,20 +31,28 @@ fun RotationInstrument(
     threshold: Int,
     quaternion: DoubleArray?,
     stale: Boolean,
+    snoozed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val trail = remember { mutableStateListOf<Offset>() }
     val progress = (degrees / threshold).coerceIn(0.0, 1.0)
     val crossed = degrees >= threshold
 
-    // Project the current orientation's "north pole" onto the screen plane.
+    // Colour tracks progress continuously, so the widget is informative the whole way
+    // rather than only at the end: grey while still, blue as it accumulates, green once
+    // the threshold is crossed.
+    val live = MaterialTheme.colorScheme.primary
+    val active = when {
+        snoozed -> Good
+        crossed -> Good
+        progress > 0.02 -> lerp(Muted, live, (progress * 1.4).coerceAtMost(1.0).toFloat())
+        else -> Muted
+    }
+
     val marker = remember(quaternion) {
         quaternion?.let { q ->
-            val (w, x, y, z) = listOf(q[0], q[1], q[2], q[3])
-            // Rotate (0,0,1) by q.
-            val vx = 2 * (x * z + w * y)
-            val vy = 2 * (y * z - w * x)
-            Offset(vx.toFloat(), vy.toFloat())
+            val w = q[0]; val x = q[1]; val y = q[2]; val z = q[3]
+            Offset((2 * (x * z + w * y)).toFloat(), (2 * (y * z - w * x)).toFloat())
         }
     }
     LaunchedEffect(marker) {
@@ -51,6 +61,8 @@ fun RotationInstrument(
             while (trail.size > 48) trail.removeAt(0)
         }
     }
+    // Clear the traced path whenever the count resets, so the globe agrees with the number.
+    LaunchedEffect(degrees < 1.0) { if (degrees < 1.0) trail.clear() }
 
     Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
@@ -58,64 +70,57 @@ fun RotationInstrument(
             val c = Offset(size.width / 2f, size.height / 2f)
             val wire = Color(0xFF243039)
 
-            // Latitude rings (ellipses, orthographic projection).
             for (i in 1..4) {
                 val lat = (i / 5f) * (PI / 2).toFloat()
-                val ry = r * sin(lat)
-                val rx = r * cos(lat)
-                for (s in listOf(1f, -1f)) {
+                val ry = r * sin(lat); val rx = r * cos(lat)
+                for (sgn in listOf(1f, -1f)) {
                     drawOval(color = wire,
-                        topLeft = Offset(c.x - rx, c.y + s * ry - r * 0.12f),
+                        topLeft = Offset(c.x - rx, c.y + sgn * ry - r * 0.12f),
                         size = androidx.compose.ui.geometry.Size(rx * 2, r * 0.24f),
                         style = Stroke(width = 1f))
                 }
             }
-            // Longitude arcs.
             for (i in 0 until 6) {
                 val a = i * PI.toFloat() / 6f
                 val rx = abs(r * cos(a))
-                drawOval(color = wire,
-                    topLeft = Offset(c.x - rx, c.y - r),
+                drawOval(color = wire, topLeft = Offset(c.x - rx, c.y - r),
                     size = androidx.compose.ui.geometry.Size(rx * 2, r * 2),
                     style = Stroke(width = 1f))
             }
             drawCircle(color = wire, radius = r, center = c, style = Stroke(width = 1.5f))
 
-            // Progress arc: how far round the threshold you are.
+            // How far round the threshold you are.
             drawArc(
-                color = if (crossed) Good else Color(0xFF8FD6FF),
+                color = active,
                 startAngle = -90f,
                 sweepAngle = (360 * progress).toFloat(),
                 useCenter = false,
                 topLeft = Offset(c.x - r * 1.1f, c.y - r * 1.1f),
                 size = androidx.compose.ui.geometry.Size(r * 2.2f, r * 2.2f),
-                style = Stroke(width = 8f),
+                style = Stroke(width = 9f),
             )
 
-            // Fading breadcrumb of the path actually traced.
+            // The path actually traced, fading behind the marker.
             if (trail.size > 1) {
                 val path = Path()
                 trail.forEachIndexed { i, p ->
-                    val px = c.x + p.x * r
-                    val py = c.y + p.y * r
+                    val px = c.x + p.x * r; val py = c.y + p.y * r
                     if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
                 }
-                drawPath(path, color = Color(0xFF8FD6FF).copy(alpha = 0.45f), style = Stroke(width = 2f))
+                drawPath(path, color = active.copy(alpha = 0.45f), style = Stroke(width = 2f))
             }
             marker?.let {
-                drawCircle(color = if (crossed) Good else Color(0xFF8FD6FF),
-                    radius = 7f, center = Offset(c.x + it.x * r, c.y + it.y * r))
+                drawCircle(color = active, radius = 8f,
+                    center = Offset(c.x + it.x * r, c.y + it.y * r))
             }
         }
 
-        // The numeral is the primary element.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${degrees.toInt()}", fontSize = T.title, fontWeight = FontWeight.Bold,
-                color = if (crossed) Good else Color(0xFFE3E6E8))
-            Text("/ $threshold°", fontSize = T.label, color = Muted)
+                color = active)
+            Text("of $threshold", fontSize = T.caption, color = Muted)
             if (stale) Text("SENSOR STALE", fontSize = T.caption, color = Bad)
         }
     }
 }
 
-private operator fun <T> List<T>.component4(): T = this[3]

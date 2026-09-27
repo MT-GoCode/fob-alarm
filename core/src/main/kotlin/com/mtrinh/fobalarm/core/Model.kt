@@ -223,6 +223,8 @@ data class Snapshot(
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */
     val testUntilMs: Long = 0,
+    /** Set once when a ring ends, so the next screen can announce it. */
+    val ringEndMessage: String? = null,
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

@@ -71,6 +71,10 @@ fun RootScreen(
         LaunchedEffect(app.syncMessage) {
             app.syncMessage?.let { snackbar.showSnackbar(it) }
         }
+        // "Alarm dismissed" / "Test stopped" on the screen you are returned to.
+        LaunchedEffect(s.ringEndMessage) {
+            s.ringEndMessage?.let { snackbar.showSnackbar(it); app.clearRingEndMessage() }
+        }
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
@@ -120,34 +124,22 @@ fun RootScreen(
 @Composable
 fun RingOnlyScreen(app: AppState, s: Snapshot) = RingingScreen(app, s, isAlarmRole = true)
 
-/** A test ring is visibly a test. */
-@Composable
-fun TestRingScreen(app: AppState) {
-    Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("TEST", fontSize = T.button, color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold)
-        Text(Fmt.clock(app.nowMs), fontSize = T.hero, fontWeight = FontWeight.Light)
-        Text("This is a test. It stops by itself.", fontSize = T.label, color = Muted)
-        Spacer(Modifier.height(S.lg))
-        Button(onClick = { app.stopTest() },
-            modifier = Modifier.fillMaxWidth().height(110.dp)) {
-            Text("STOP TEST", fontSize = T.headline, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
 @Composable
 private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
-    val ring = s.ring!!
-    val snoozed = ring.phase == RingPhase.SNOOZED
+    val ring = s.ring
+    val isTest = ring == null
+    val snoozed = ring?.phase == RingPhase.SNOOZED
     val now = app.nowMs
+    val deg = ring?.rotationDeg ?: app.testRotationDeg
+    val threshold = ring?.thresholdDeg ?: s.settings.snoozeThresholdDegrees
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
+
+        if (isTest) {
+            Text("TEST", fontSize = T.label, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary)
+        }
 
         Spacer(Modifier.height(S.sm))
         Text(Fmt.clock(now), fontSize = T.title, fontWeight = FontWeight.Light, color = Muted)
@@ -159,7 +151,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
                 fontWeight = FontWeight.Bold)
             Text("rings again in ${Fmt.duration(left)}", fontSize = T.body, color = Muted)
         } else {
-            if (!isAlarmRole) Text("ends ${Fmt.until(ring.endsByMs, now)}",
+            if (!isAlarmRole && ring != null) Text("ends ${Fmt.until(ring.endsByMs, now)}",
                 fontSize = T.label, color = Muted)
         }
 
@@ -167,12 +159,13 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
         val locked = now < app.buttonLockedUntilMs
         Button(
-            onClick = { app.dismiss() },
+            onClick = { if (isTest) app.stopTest() else app.dismiss() },
             enabled = !locked && app.dismissUi !is DismissUi.Waiting,
             modifier = Modifier.fillMaxWidth().height(170.dp),
         ) {
             Text(
                 when {
+                    isTest -> "STOP TEST"
                     app.dismissUi is DismissUi.Waiting -> "Waiting…"
                     isAlarmRole -> "PRESS TO DISMISS"
                     else -> "PRESS TO DISMISS REMOTE ALARM"
@@ -200,18 +193,24 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         Spacer(Modifier.height(S.sm))
         // The instrument is alarm-only: it is sensor-driven, and snooze is deliberately
         // not remotable -- a bathroom snooze button would defeat the mechanism.
-        if (!snoozed && isAlarmRole) {
+        if (isAlarmRole) {
             Spacer(Modifier.weight(1f))
-            // #39: a naked dial means nothing at 4 AM.
-            Text("or turn the phone over to snooze", fontSize = T.label, color = Muted)
+            Text(
+                if (snoozed) "snoozed" else "or turn the phone over to snooze",
+                fontSize = T.label, color = Muted)
             Box(Modifier.fillMaxWidth().height(170.dp)) {
-                RotationInstrument(ring.rotationDeg, ring.thresholdDeg, ring.quaternion,
-                    ring.rvStale, Modifier.fillMaxSize())
+                RotationInstrument(
+                    degrees = deg,
+                    threshold = threshold,
+                    quaternion = ring?.quaternion ?: app.testQuaternion,
+                    stale = ring?.rvStale ?: false,
+                    snoozed = snoozed,
+                    modifier = Modifier.fillMaxSize())
             }
         } else {
             Spacer(Modifier.weight(1f))
         }
-        val muted = ring.audible.contains("muted=true")
+        val muted = ring?.audible?.contains("muted=true") == true
         if (muted) Text("SOUND IS MUTED, vibration only", fontSize = T.label, color = Bad)
 
     }

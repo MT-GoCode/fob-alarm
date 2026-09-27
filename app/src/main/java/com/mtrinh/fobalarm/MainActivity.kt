@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                     }) else null,
                                 ).also {
                                     it.startPolling()
+                                    it.onClearRingEnd = { Svc.lastRingEndMessage = null }
                                     it.localGates = GateEval.current(
                                         this@MainActivity, Svc.settings, Svc.lastNextFire != null)
                                 }

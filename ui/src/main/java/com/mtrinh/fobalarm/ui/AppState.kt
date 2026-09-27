@@ -39,6 +39,9 @@ class AppState(
     var history by mutableStateOf<List<Event>>(emptyList()); private set
     /** This phone's own gates, even when the snapshot describes the other phone. */
     var localGates by mutableStateOf<Gates?>(null)
+    /** Live sensor values during a TEST ring, which has no engine session. */
+    var testRotationDeg by mutableStateOf(0.0)
+    var testQuaternion by mutableStateOf<DoubleArray?>(null)
 
     /** Ring changes disable the button briefly so a reflexive second tap cannot kill the new alarm. */
     var buttonLockedUntilMs by mutableLongStateOf(0L); private set
@@ -70,8 +73,10 @@ class AppState(
                 if (onExport != null && System.currentTimeMillis() - sinceBackup > 6 * 3600_000L) {
                     client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
                 }
-                val ringing = snapshot?.ring != null
-                delay(if (ringing) fastMs else idleMs)
+                val s = snapshot
+                val live = s?.ring != null ||
+                        (s != null && s.testUntilMs > 0 && System.currentTimeMillis() < s.testUntilMs)
+                delay(if (live) fastMs else idleMs)
             }
         }
     }
@@ -217,7 +222,10 @@ class AppState(
 
     fun reload() { scope.launch { refresh() } }
 
+    var onClearRingEnd: (() -> Unit)? = null
+    fun clearRingEndMessage() { onClearRingEnd?.invoke() }
+
     /** Supplied by :app, which owns the service handle. */
     var onStopTest: (() -> Unit)? = null
-    fun stopTest() { onStopTest?.invoke() }
+    fun stopTest() { onStopTest?.invoke(); reload() }
 }

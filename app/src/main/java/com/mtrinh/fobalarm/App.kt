@@ -87,9 +87,17 @@ class App : Application() {
             val ringing = snap == null || snap.ring != null ||
                     (snap.testUntilMs > 0 && System.currentTimeMillis() < snap.testUntilMs)
             LaunchedEffect(ringing) { if (!ringing) activity.finish() }
+            // Feed live sensor values so the instrument works during a TEST, which has
+            // no engine session and therefore no RingView.
+            LaunchedEffect(Unit) {
+                while (true) {
+                    app.testRotationDeg = RingService.rotationDeg
+                    app.testQuaternion = RingService.quaternion
+                    delay(80)
+                }
+            }
             Surface(Modifier.fillMaxSize()) {
-                if (snap?.ring != null) RingOnlyScreen(app, snap)
-                else TestRingScreen(app)
+                snap?.let { RingOnlyScreen(app, it) }
             }
         }
     }

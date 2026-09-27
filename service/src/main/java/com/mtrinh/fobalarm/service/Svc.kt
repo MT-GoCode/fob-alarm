@@ -275,6 +275,7 @@ object Svc : AlarmHost {
                     System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
+            ringEndMessage = lastRingEndMessage,
         )
     }
 
@@ -333,6 +334,8 @@ object Svc : AlarmHost {
                 alsoFire = false)
         }
         runCatching { RingService.stop(app) }
+        lastRingEndMessage = if (actor == Actor.CONTROLLER) "Dismissed from the other phone"
+                             else "Alarm dismissed"
         return snap
     }
 
@@ -493,14 +496,20 @@ object Svc : AlarmHost {
         // Short window: long enough to reach the fire, far too short to survive to 04:00.
         de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString())
-        Scheduler.armTestFire(app, 1)
+        // Immediately. The delay existed for "lock the phone first", which you do not
+        // need when you are standing there watching it.
+        urgent.execute { RingService.start(app) }
         return snapshot()
     }
+
+    /** Set when a ring ends, so the screen that follows can say what happened. */
+    @Volatile var lastRingEndMessage: String? = null
 
     fun stopTest() {
         testUntilMs = 0L
         de.pendingTestUntilMs = 0L
         RingService.stop(app)
+        lastRingEndMessage = "Test stopped"
         log("test_ring_stopped")
     }
 
