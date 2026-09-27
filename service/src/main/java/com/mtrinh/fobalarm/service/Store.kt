@@ -75,6 +75,11 @@ class DeMirror(ctx: Context) {
         get() = p.getString("passwordSalt", null)
         set(v) = p.edit().putString("passwordSalt", v).apply()
 
+    /** Distinguishes "never set" from "deliberately removed", so removal sticks. */
+    var passwordSeeded: Boolean
+        get() = p.getBoolean("passwordSeeded", false)
+        set(v) = p.edit().putBoolean("passwordSeeded", v).apply()
+
     var vibrate: Boolean
         get() = p.getBoolean("vibrate", true)
         set(v) = p.edit().putBoolean("vibrate", v).apply()

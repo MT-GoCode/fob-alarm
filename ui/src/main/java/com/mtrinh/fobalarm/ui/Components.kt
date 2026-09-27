@@ -32,12 +32,14 @@ fun Page(
     snapshot: Snapshot? = null,
     /** False when hosted in a Scaffold, which has already applied them. */
     applyInsets: Boolean = false,
+    /** Role + build, shown on every screen. */
+    identity: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val base = Modifier
         .fillMaxSize()
         .then(if (applyInsets) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
-        .padding(horizontal = 18.dp)
+        .padding(horizontal = S.page)
 
     Column(if (scroll) base.verticalScroll(rememberScrollState()) else base) {
         Spacer(Modifier.height(S.md))
@@ -50,7 +52,7 @@ fun Page(
             Spacer(Modifier.height(S.xs))
         }
         content()
-        if (snapshot != null) {
+        if (identity && snapshot != null) {
             Spacer(Modifier.height(S.lg))
             VersionBar(snapshot)
         }
@@ -82,21 +84,20 @@ fun VersionBar(s: Snapshot) {
     }
 }
 
-/**
- * A label/value row. The previous version aligned with `padEnd()`, which only works in
- * a monospaced font -- in the app's proportional font the label and value ran together,
- * which is why rows like "nearby devices granted" read as one word.
- */
+/** One label/value row, used for every status fact. */
 @Composable
 fun Fact(key: String, value: String, ok: Boolean? = null) {
-    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.Top) {
-        Text(key, fontSize = T.caption, color = Muted, modifier = Modifier.width(118.dp))
-        Spacer(Modifier.width(S.sm))
-        Text(value, fontSize = T.caption, modifier = Modifier.weight(1f),
-            color = when (ok) {
-                true -> Good; false -> Bad; null -> MaterialTheme.colorScheme.onSurface
+    ListItem(
+        overlineContent = { Text(key, color = Muted) },
+        headlineContent = {
+            Text(value, color = when (ok) {
+                true -> Good
+                false -> Bad
+                null -> MaterialTheme.colorScheme.onSurface
             })
-    }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
 }
 
 /** One password prompt, used by unlock, role change and anything else that gates. */
@@ -119,7 +120,7 @@ fun PasswordDialog(
             Column {
                 body?.let { Text(it, fontSize = T.label); Spacer(Modifier.height(S.sm)) }
                 OutlinedTextField(secret, { secret = it; failed = false },
-                    label = { Text("Password or recovery code", fontSize = T.caption) },
+                    label = { Text("Password", fontSize = T.caption) },
                     visualTransformation = PasswordVisualTransformation(), singleLine = true)
                 if (failed) Text("Wrong password", color = Bad, fontSize = T.caption)
             }

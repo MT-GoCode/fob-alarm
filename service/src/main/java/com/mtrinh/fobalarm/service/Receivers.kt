@@ -99,6 +99,31 @@ object ArmGateRunner {
 }
 
 /**
+ * Before first unlock Room is unreadable, so this is the only moment the settings that
+ * live there can be loaded.
+ */
+class UnlockReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        Boot.ensure(ctx)
+        Svc.tryLoadRoom("user_unlocked")
+        LinkService.start(ctx)
+    }
+}
+
+/**
+ * A clock correction was otherwise noticed up to an hour late, via the tick. A backwards
+ * jump can invent missed alarms; a forward one can hide real ones.
+ */
+class TimeChangeReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        Boot.ensure(ctx)
+        ClockObserver.poll()
+        Svc.log("time_changed", "action" to (intent.action ?: "?"))
+        Svc.recompute("time_changed")
+    }
+}
+
+/**
  * Hourly clock sync. This phone cannot host the Wi-Fi Direct group and stay on home
  * Wi-Fi simultaneously, so syncing means dropping the group for a moment. Never while
  * ringing, and never for long.

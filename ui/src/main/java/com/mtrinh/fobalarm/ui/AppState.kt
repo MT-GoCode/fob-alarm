@@ -210,7 +210,6 @@ class AppState(
                         is ClientError.Conflict -> "$label not saved, changed elsewhere"
                         else -> "$label not saved, other phone unreachable"
                     }
-                    lastError = syncMessage
                     if (e is ClientError.Conflict) snapshot = e.snapshot
                     delay(5000); syncMessage = null
                 }

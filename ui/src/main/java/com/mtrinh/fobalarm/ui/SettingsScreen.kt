@@ -23,7 +23,7 @@ fun SettingsScreen(
     val locked = hasPassword && app.token == null
 
     // No status fields here: Status is its own screen.
-    Page(title = "Settings") {
+    Page(title = "Settings", snapshot = s) {
 
         // One explanation for the whole screen, instead of a caption under every row.
         Card(colors = CardDefaults.cardColors(
@@ -41,7 +41,7 @@ fun SettingsScreen(
             Column(Modifier.weight(1f)) {
                 Text(
                     if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
-                    fontSize = T.button, fontWeight = FontWeight1, color = if (locked) Bad else Good)
+                    fontSize = T.button, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = if (locked) Bad else Good)
                 Text(
                     if (!hasPassword) "Anything below can be changed by anyone."
                     else if (locked) "Unlock to change the locked settings."
@@ -151,5 +151,3 @@ fun ToggleSetting(label: String, value: Boolean, onSet: (Boolean) -> Unit) {
         Switch(checked = value, onCheckedChange = onSet)
     }
 }
-
-private val FontWeight1 = androidx.compose.ui.text.font.FontWeight.SemiBold

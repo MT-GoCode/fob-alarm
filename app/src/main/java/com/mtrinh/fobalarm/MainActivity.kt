@@ -47,7 +47,15 @@ class MainActivity : ComponentActivity() {
         // The controller renders the ALARM phone's snapshot, so its own permission
         // state has to be supplied separately or its rows describe the wrong device.
         if (::app.isInitialized) {
-            app.localGates = GateEval.current(this, Svc.settings, Svc.lastNextFire != null)
+            lifecycleScope.launch {
+                // The evaluation runs on a worker; poll briefly for the fresh result
+                // rather than reading the cache we just invalidated.
+                repeat(8) {
+                    kotlinx.coroutines.delay(250)
+                    app.localGates = GateEval.current(
+                        this@MainActivity, Svc.settings, Svc.lastNextFire != null)
+                }
+            }
         }
         // Re-evaluating the gates is not enough: the screen renders the SNAPSHOT, which
         // only re-polls every 20s while idle. Pull a fresh one so a permission you just
@@ -133,6 +141,7 @@ class MainActivity : ComponentActivity() {
                             app = remember(client) {
                                 AppState(
                                     client, lifecycleScope,
+                                    isLocal = role == Role.ALARM,
                                     // Controller keeps its own copy: the alarm phone is
                                     // the sole source of truth and it will eventually die.
                                     onExport = if (role == Role.CONTROLLER) ({ b ->
@@ -184,6 +193,11 @@ class MainActivity : ComponentActivity() {
             hostProvider = { Group.ownerAddress ?: "192.168.49.1" },
             networkProvider = { P2pJoin.network },
             selfProvider = { Svc.selfDevice() },
+            // Report our own failing gates so the alarm phone can show them.
+            localBlockers = {
+                GateEval.current(this, Svc.settings, Svc.lastNextFire != null)
+                    .failing().filter { com.mtrinh.fobalarm.core.GateInfo.of(it)?.blocking == true }
+            },
         )
     }
 
@@ -293,6 +307,8 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun DeviceSettings() {
+        // Same lock treatment as every other gated control, or these read as broken.
+        val locked = Svc.settings.hasPassword && Svc.unlockToken == null
         var ssid by remember { mutableStateOf(Svc.settings.ssid ?: "DIRECT-fa-alarm") }
         var pass by remember { mutableStateOf(Svc.settings.passphrase ?: "") }
         var confirm by remember { mutableStateOf(false) }
@@ -307,7 +323,9 @@ class MainActivity : ComponentActivity() {
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(S.sm))
         Button(onClick = { confirm = true },
-            enabled = pass.length in 8..63 && ssid.isNotBlank()) { Text("Apply credentials") }
+            enabled = !locked && pass.length in 8..63 && ssid.isNotBlank()) {
+            Text(if (locked) "Unlock to change" else "Apply credentials")
+        }
 
         if (confirm) {
             AlertDialog(
@@ -332,7 +350,8 @@ class MainActivity : ComponentActivity() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (Svc.settings.ringtoneUri != null) "Your file" else "Built-in tone",
                 fontSize = T.body, modifier = Modifier.weight(1f))
-            TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
+            TextButton(enabled = !locked,
+                onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
             if (Svc.settings.ringtoneUri != null) {
                 TextButton(onClick = {
                     runCatching {

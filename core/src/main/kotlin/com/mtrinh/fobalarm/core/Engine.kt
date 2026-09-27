@@ -266,7 +266,7 @@ object Engine {
         }
 
     fun setNap(st: EngineState, ts: TimeSource, minutes: Int): RecomputeResult {
-        val m = minutes.coerceIn(1, 300)
+        val m = minutes.coerceIn(1, 720)
         val at = ts.nowMs() + m * 60_000L
         val next = st.copy(nap = Nap(at), settings = st.settings.copy(napMinutes = m))
         return recompute(next, ts, "nap_set").let {

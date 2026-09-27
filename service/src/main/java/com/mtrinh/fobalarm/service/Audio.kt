@@ -67,10 +67,14 @@ class Audio(private val ctx: Context) {
     fun start(settings: Settings, silent: Boolean = false) {
         // Silent test: vibration and screen only. Proves the screen wakes and the
         // remote dismiss works, without waking the house at 23:00.
-        if (silent) { chainLink = "silent"; audible = "silent test"; startVibration(); return }
+        if (silent) {
+            chainLink = "silent"; audible = "silent test"
+            if (settings.vibrate) startVibration()
+            return
+        }
         assertVolume(settings)
         startPlayer(settings)
-        startVibration()
+        if (settings.vibrate) startVibration()
     }
 
     private fun attrs() = AudioAttributes.Builder()
@@ -178,7 +182,7 @@ class Audio(private val ctx: Context) {
         }
         // Re-issue vibration: a power-button press cancels non-system vibrations, and
         // with the screen on during a ring that is the likeliest act mid-session.
-        startVibration()
+        if (settings.vibrate) startVibration()
         return ok
     }
 
@@ -187,18 +191,5 @@ class Audio(private val ctx: Context) {
         runCatching { tone?.stopTone(); tone?.release() }; tone = null
         runCatching { vm.defaultVibrator.cancel() }
         audible = "stopped"; chainLink = "none"
-    }
-
-    /** The arm-gate failure signal. Audible because a silent banner never reaches you. */
-    fun chirp(times: Int = 3) {
-        runCatching {
-            val tg = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-            Thread {
-                repeat(times) {
-                    tg.startTone(ToneGenerator.TONE_PROP_BEEP); Thread.sleep(400)
-                }
-                Thread.sleep(300); tg.release()
-            }.start()
-        }
     }
 }

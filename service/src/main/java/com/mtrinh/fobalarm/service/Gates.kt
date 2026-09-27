@@ -45,12 +45,19 @@ object GateEval {
         return c ?: unknownGates(nextFireExists)
     }
 
+    @Volatile private var pending = false
+
     fun refresh(ctx: Context, settings: Settings, nextFireExists: Boolean) {
-        if (refreshing) return
+        // Coalesce rather than drop: a request arriving mid-evaluation used to be lost,
+        // so a just-granted permission stayed stale.
+        if (refreshing) { pending = true; return }
         refreshing = true
         worker.execute {
-            runCatching { cached = evaluate(ctx, settings, nextFireExists) }
-                .onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
+            do {
+                pending = false
+                runCatching { cached = evaluate(ctx, settings, nextFireExists) }
+                    .onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
+            } while (pending)
             refreshing = false
         }
     }
@@ -133,7 +140,7 @@ object GateEval {
             },
             // NEVER isCharging(), and never expect 100%: Motorola's Overcharge protection
             // caps at 80% and may report not-charging at the plateau.
-            powerOk = probe("powerOk", true) { plugged && pct > 50 },
+            powerOk = probe("powerOk", true) { plugged || pct >= 20 },
             vibrationEnabled = probe("vibrationEnabled", true) { vibrationEnabled(ctx) },
             freeDiskOk = probe("freeDiskOk", true) { freeBytes(ctx) > 50L * 1024 * 1024 },
             // A bathroom speaker auto-connecting at 03:00 routes the alarm out of the box.

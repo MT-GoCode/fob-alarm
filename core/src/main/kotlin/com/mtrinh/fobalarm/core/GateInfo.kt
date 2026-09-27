@@ -42,8 +42,8 @@ data class GateInfo(
                 "Needed to show the alarm screen and keep the link running.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.REQUEST),
             GateInfo("exactAlarm", "Exact alarms",
-                "Without this Android can delay the alarm by minutes or hours.",
-                GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
+                "Granted at install. Without it Android could delay the alarm.",
+                GateKind.PERMISSION, blocking = true, fix = FixAction.NONE),
             GateInfo("fullScreenIntent", "Show over the lock screen",
                 "Lets the ring screen appear without unlocking the phone.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
@@ -73,9 +73,11 @@ data class GateInfo(
                 GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
 
             // ---- conditions: tonight's state, never a setup step ----
+            // A CONDITION, not a setup step, and meaningless on the controller, which
+            // never arms anything. Reported on Status, never a gate to the UI.
             GateInfo("scheduleExists", "An alarm is scheduled",
                 "No alarm is registered with Android at all.",
-                GateKind.CONDITION, blocking = true, fix = FixAction.NONE),
+                GateKind.CONDITION, blocking = false, fix = FixAction.NONE),
             GateInfo("groupCredentialsSet", "Phones paired",
                 "Set a group name and passphrase to link the two phones.",
                 GateKind.CONDITION, blocking = false, fix = FixAction.NONE),

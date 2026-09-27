@@ -127,8 +127,10 @@ object Wire {
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),
-        hasPasswordRemote = o.optBoolean("hasPassword", base.hasPasswordRemote),
-        usingDefaultPassword = o.optBoolean("usingDefaultPassword", base.usingDefaultPassword),
+        // NOT read back from a patch: these are read-only status computed by the alarm
+        // phone. Echoing a controller's copy would latch them on permanently.
+        hasPasswordRemote = base.hasPasswordRemote,
+        usingDefaultPassword = base.usingDefaultPassword,
         ssid = if (o.has("ssid") && !o.isNull("ssid")) o.getString("ssid") else base.ssid,
         passphrase = if (o.has("passphrase") && !o.isNull("passphrase")) o.getString("passphrase") else base.passphrase,
     )
@@ -147,6 +149,12 @@ object Wire {
             actor = runCatching { Actor.valueOf(o.optString("actor")) }.getOrDefault(Actor.ALARM),
             stateVersion = o.optLong("stateVersion"), detail = map)
     }
+
+    /** Status fields the controller must read from the snapshot, not from a patch echo. */
+    fun settingsFromSnapshot(o: JSONObject): Settings =
+        settingsFrom(o, Settings()).copy(
+            hasPasswordRemote = o.optBoolean("hasPassword", false),
+            usingDefaultPassword = o.optBoolean("usingDefaultPassword", false))
 
     fun snapshotFrom(o: JSONObject): Snapshot {
         val g = o.getJSONObject("gates")
@@ -217,7 +225,7 @@ object Wire {
                 if (t.isNull("timeMs")) null else t.optLong("timeMs"),
                 if (t.isNull("replacesMs")) null else t.optLong("replacesMs")),
             nap = NapView(n.optBoolean("armed"), if (n.isNull("atMs")) null else n.optLong("atMs")),
-            settings = settingsFrom(o.getJSONObject("settings"), Settings()),
+            settings = settingsFromSnapshot(o.getJSONObject("settings")),
             lastEvents = o.optJSONArray("lastEvents")?.let { a ->
                 (0 until a.length()).map { eventFrom(a.getJSONObject(it)) }
             } ?: emptyList(),

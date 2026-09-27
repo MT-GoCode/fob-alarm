@@ -266,7 +266,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
 
         Section("Nap", "A one-off timer from now. Does not change the alarm.")
         DurationSetting("Wake me in", s.settings.napMinutes * 60,
-            minSeconds = 60, maxSeconds = 12 * 3600) { secs -> app.nap(secs / 60) }
+            minSeconds = 60, maxSeconds = 720 * 60) { secs -> app.nap(secs / 60) }
         if (s.nap.armed) {
             OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap") }
         }
@@ -300,7 +300,7 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
     val missing = required.filter { !it.second }
     val compat = rows.filter { it.first.kind == GateKind.COMPAT }
 
-    Page(title = "Setup") {
+    Page(title = "Setup", snapshot = s) {
         if (missing.isEmpty()) {
             Card(colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
@@ -378,7 +378,7 @@ private fun PermissionRow(
 @Composable
 private fun HistoryScreen(app: AppState) {
     LaunchedEffect(Unit) { app.loadHistory() }
-    Page(title = "History") {
+    Page(title = "History", snapshot = app.snapshot) {
         if (app.history.isEmpty()) Text("no events yet", color = Muted, fontSize = T.label)
         app.history.forEach { e ->
             Row(Modifier.fillMaxWidth().padding(vertical = S.xs)) {

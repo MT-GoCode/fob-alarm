@@ -87,15 +87,23 @@ object Svc : AlarmHost {
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
 
-        // Gated from the very first run. Changeable in Settings; never gates dismiss.
-        if (state.settings.passwordHash == null) {
-            val salt = Auth.newSalt()
-            state = state.copy(settings = state.settings.copy(
-                passwordHash = Auth.hash(DEFAULT_PASSWORD, salt), passwordSalt = salt))
-            log("default_password_set")
-        }
-
         recompute("init:de")
+
+        // Gated from the very first run only. Seeding happens off the fire path -- it is
+        // 20,000 SHA-256 rounds and this method runs on whatever thread woke the process,
+        // including AlarmReceiver at 04:00.
+        if (!de.passwordSeeded) {
+            io.execute {
+                val salt = Auth.newSalt()
+                synchronized(lock) {
+                    state = state.copy(settings = state.settings.copy(
+                        passwordHash = Auth.hash(DEFAULT_PASSWORD, salt), passwordSalt = salt))
+                }
+                de.passwordSeeded = true
+                log("default_password_set")
+                recompute("password_seeded")
+            }
+        }
 
         // Then bring up Room off-thread and recompute again once latches, the override
         // and the nap are known. Room is expendable; the schedule is not.
@@ -365,7 +373,7 @@ object Svc : AlarmHost {
 
     override fun clearOverride(requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return apply(Engine.clearOverride(state, ts))
+        return synchronized(lock) { apply(Engine.clearOverride(state, ts)) }
     }
 
     override fun history(sinceSeq: Long, limit: Int): List<Event> {
@@ -451,7 +459,7 @@ object Svc : AlarmHost {
         }
         testSilent = silent
         de.testSilent = silent
-        // 30s window: long enough for the 10s delay, far too short to survive to 04:00.
+        // Short window: long enough to reach the fire, far too short to survive to 04:00.
         de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString())
         Scheduler.armTestFire(app, 1)
@@ -490,7 +498,7 @@ object Scheduler {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     /** True only if the real scheduled fire was accepted by AlarmManager. */
-    @Volatile var fireArmed = false; private set
+    @Volatile var fireArmed = false
 
     private fun set(ctx: Context, action: String, rc: Int, atMs: Long) {
         val am = ctx.getSystemService(AlarmManager::class.java)
@@ -502,7 +510,7 @@ object Scheduler {
     }
 
     fun arm(ctx: Context, next: NextFire?) {
-        if (next != null) set(ctx, ACTION_FIRE, 1001, next.atMs)
+        if (next != null) set(ctx, ACTION_FIRE, 1001, next.atMs) else fireArmed = false
         armHourlyTick(ctx)
         armGateAlarm(ctx)
     }

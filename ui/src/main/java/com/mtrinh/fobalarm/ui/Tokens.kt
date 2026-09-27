@@ -25,16 +25,6 @@ object T {
     val title = 24.sp      // screen title
     val hero = 44.sp       // the ring clock, and nothing else
 
-    // Type. Six roles, no more.
-    val Huge = TextStyle(fontSize = 44.sp, fontWeight = FontWeight.Light)      // ring clock
-    val Title = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold)      // screen title
-    val Headline = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold) // key figure
-    val Body = TextStyle(fontSize = 15.sp)                                     // default
-    val Label = TextStyle(fontSize = 13.sp)                                    // secondary
-    val Caption = TextStyle(fontSize = 12.sp)                                  // explanations
-    val Mono = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace)  // identity
-    val Button = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-    val RingButton = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold)
 }
 
 /** Spacing. Four steps. */
@@ -45,19 +35,17 @@ object S {
     val lg = 28.dp
     /** Page gutter. */
     val page = 18.dp
-    /** Minimum comfortable tap target. */
-    val tap = 48.dp
 }
 
 /** Feeds MaterialTheme.typography so stock components inherit the same scale. */
 val FobTypography = Typography(
-    headlineLarge = T.Title,
-    headlineMedium = T.Headline,
-    titleMedium = T.Body,
-    bodyLarge = T.Body,
-    bodyMedium = T.Label,
-    bodySmall = T.Caption,
-    labelLarge = T.Button,
-    labelMedium = T.Label,
-    labelSmall = T.Caption,
+    headlineLarge = TextStyle(fontSize = T.title, fontWeight = FontWeight.Bold),
+    headlineMedium = TextStyle(fontSize = T.headline, fontWeight = FontWeight.SemiBold),
+    titleMedium = TextStyle(fontSize = T.body),
+    bodyLarge = TextStyle(fontSize = T.body),
+    bodyMedium = TextStyle(fontSize = T.label),
+    bodySmall = TextStyle(fontSize = T.caption),
+    labelLarge = TextStyle(fontSize = T.button, fontWeight = FontWeight.SemiBold),
+    labelMedium = TextStyle(fontSize = T.label),
+    labelSmall = TextStyle(fontSize = T.caption),
 )

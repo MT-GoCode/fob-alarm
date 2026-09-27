@@ -45,11 +45,11 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
                 Text("The alarm will not ring", fontSize = T.body,
                     fontWeight = FontWeight.Bold, color = Color.Black)
                 myBlockers.forEach {
-                    Text("This phone: " + (GateInfo.of(it)?.label ?: it),
+                    Text("Alarm phone: " + (GateInfo.of(it)?.label ?: it),
                         fontSize = T.label, color = Color.Black)
                 }
                 peerBlockers.forEach {
-                    Text("Other phone: " + (GateInfo.of(it)?.label ?: it),
+                    Text("Controller: " + (GateInfo.of(it)?.label ?: it),
                         fontSize = T.label, color = Color.Black)
                 }
                 Text("Open Setup to fix.", fontSize = T.caption, color = Color.Black)
