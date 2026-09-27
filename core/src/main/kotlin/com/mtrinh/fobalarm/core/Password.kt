@@ -36,9 +36,13 @@ object Auth {
     /** True when no password is set: the gate is optional and declining is supported. */
     fun gateOpen(s: Settings): Boolean = s.passwordHash == null
 
+    /** Recovery codes are displayed grouped; accept them however they are typed. */
+    fun normalizeRecovery(raw: String): String =
+        raw.uppercase().filter { it.isLetterOrDigit() }.chunked(4).joinToString("-")
+
     fun accepts(s: Settings, secret: String): Boolean =
         gateOpen(s) || verifies(secret, s.passwordHash, s.passwordSalt) ||
-                verifies(secret.uppercase(), s.recoveryHash, s.recoverySalt)
+                verifies(normalizeRecovery(secret), s.recoveryHash, s.recoverySalt)
 
     private fun constantTimeEquals(a: String, b: String): Boolean {
         if (a.length != b.length) return false

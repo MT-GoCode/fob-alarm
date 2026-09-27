@@ -70,36 +70,65 @@ object Svc : AlarmHost {
             snoozeThresholdDegrees = de.snoozeThresholdDegrees,
             ringtoneUri = de.ringtoneUri,
             role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
+            ssid = de.ssid,
+            passphrase = de.passphrase,
+            passwordHash = de.passwordHash,
+            passwordSalt = de.passwordSalt,
+            recoveryHash = de.recoveryHash,
+            recoverySalt = de.recoverySalt,
+            armGateTime = de.armGateTime,
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         recompute("init:de")
 
         // Then bring up Room off-thread and recompute again once latches, the override
         // and the nap are known. Room is expendable; the schedule is not.
-        io.execute {
-            var attempt = 0
-            while (attempt < 5 && !dbReady) {
-                attempt++
-                runCatching { db = Db.open(app); Persist.load(db.dao()) }
-                    .onFailure {
-                        log("db_open_retry", "attempt" to attempt.toString(), "error" to it.toString())
-                        Thread.sleep(500L * attempt)
-                    }
-            }
-            runCatching {
-                val loaded = Persist.load(db.dao())
-                synchronized(lock) {
-                    // Keep the live session and the newer liveness threshold.
-                    state = loaded.copy(
-                        session = state.session,
-                        lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs))
-                }
-                recompute("init:db")
-            }.onFailure { log("db_open_failed", "error" to it.toString()) }
-        }
+        io.execute { tryLoadRoom("init") }
     }
 
-    val dbReady: Boolean get() = this::db.isInitialized
+    @Volatile private var roomLoaded = false
+    val dbReady: Boolean get() = roomLoaded
+
+    /**
+     * Opened lazily and only marked ready once a real read SUCCEEDS. Retried on
+     * ACTION_USER_UNLOCKED, because before first unlock this always fails.
+     */
+    fun tryLoadRoom(reason: String) {
+        if (roomLoaded) return
+        runCatching {
+            val d = Db.open(app)
+            val loaded = Persist.load(d.dao())          // the read is the real test
+            db = d
+            roomLoaded = true
+            synchronized(lock) {
+                // MERGE, never replace. An empty or wiped kv table returns a default
+                // EngineState whose role is null -- assigning it wholesale would throw
+                // away the DE-seeded role and silently un-arm the alarm forever.
+                val hasRoomSettings = loaded.settings.role != null || loaded.latches.isNotEmpty()
+                state = state.copy(
+                    settings = if (hasRoomSettings) loaded.settings.copy(
+                        role = loaded.settings.role ?: state.settings.role,
+                        ssid = loaded.settings.ssid ?: state.settings.ssid,
+                        passphrase = loaded.settings.passphrase ?: state.settings.passphrase,
+                        passwordHash = loaded.settings.passwordHash ?: state.settings.passwordHash,
+                        passwordSalt = loaded.settings.passwordSalt ?: state.settings.passwordSalt,
+                        recoveryHash = loaded.settings.recoveryHash ?: state.settings.recoveryHash,
+                        recoverySalt = loaded.settings.recoverySalt ?: state.settings.recoverySalt,
+                    ) else state.settings,
+                    latches = loaded.latches,
+                    override = loaded.override,
+                    nap = loaded.nap,
+                    lastOutcome = loaded.lastOutcome ?: state.lastOutcome,
+                    stateVersion = maxOf(loaded.stateVersion, state.stateVersion),
+                    lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs),
+                )
+            }
+            log("db_loaded", "reason" to reason)
+            recompute("db_loaded")
+        }.onFailure {
+            log("db_unavailable", "reason" to reason, "error" to it.javaClass.simpleName)
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Logging -> Room, with the recent tail also kept in memory so a dead DB
@@ -351,29 +380,6 @@ object Svc : AlarmHost {
         }.getOrDefault(emptyList()) else emptyList(),
         exportedAtMs = System.currentTimeMillis())
 
-    override fun import(backup: Backup, token: String?): Snapshot {
-        if (!Auth.gateOpen(state.settings)) {
-            val fresh = unlockToken != null && token == unlockToken &&
-                    System.currentTimeMillis() - unlockedAtMs < 120_000
-            if (!fresh) throw ForbiddenException()
-        }
-        val candidate = SettingsValidator.normalize(backup.settings)
-        val invalid = SettingsValidator.validate(candidate)
-        if (invalid.isNotEmpty()) throw IllegalArgumentException(invalid.joinToString { it.reason })
-        synchronized(lock) { state = state.copy(settings = candidate) }
-        if (dbReady) io.execute {
-            runCatching {
-                db.dao().clearEvents()
-                backup.events.forEach {
-                    db.dao().insertBlocking(EventRow(0, it.atMs, it.type, it.actor.name,
-                        it.stateVersion, JSONObject(it.detail as Map<*, *>).toString()))
-                }
-            }
-        }
-        log("import", "events" to backup.events.size.toString())
-        return recompute("import")
-    }
-
     override fun unlock(secret: String): String {
         if (!Auth.accepts(state.settings, secret)) throw ForbiddenException()
         val t = UUID.randomUUID().toString()
@@ -382,24 +388,39 @@ object Svc : AlarmHost {
         return t
     }
 
-    fun setPassword(password: String?): Pair<Snapshot, String?> {
+    /**
+     * Changing or removing the password requires the CURRENT password (or the recovery
+     * code). Otherwise the gate protects every setting except itself, and "Remove
+     * password" is a two-tap bypass of the whole mechanism.
+     */
+    fun setPassword(password: String?, current: String?): Pair<Snapshot, String?> {
+        if (!Auth.gateOpen(state.settings) && !Auth.accepts(state.settings, current ?: "")) {
+            log("password_change_rejected")
+            throw ForbiddenException()
+        }
         if (password == null) {
-            state = state.copy(settings = state.settings.copy(
-                passwordHash = null, passwordSalt = null, recoveryHash = null, recoverySalt = null))
+            log("password_removed")
+            synchronized(lock) {
+                state = state.copy(settings = state.settings.copy(
+                    passwordHash = null, passwordSalt = null,
+                    recoveryHash = null, recoverySalt = null))
+            }
             return recompute("password_cleared") to null
         }
         val ps = Auth.newSalt()
         val rs = Auth.newSalt()
         val code = Auth.newRecoveryCode()
-        state = state.copy(settings = state.settings.copy(
-            passwordHash = Auth.hash(password, ps), passwordSalt = ps,
-            recoveryHash = Auth.hash(code, rs), recoverySalt = rs))
+        synchronized(lock) {
+            state = state.copy(settings = state.settings.copy(
+                passwordHash = Auth.hash(password, ps), passwordSalt = ps,
+                recoveryHash = Auth.hash(code, rs), recoverySalt = rs))
+        }
         log("password_set")
         return recompute("password_set") to code
     }
 
     fun setRole(role: Role): Snapshot {
-        state = state.copy(settings = state.settings.copy(role = role))
+        synchronized(lock) { state = state.copy(settings = state.settings.copy(role = role)) }
         de.role = role.name
         log("role_changed", "to" to role.name)
         return recompute("role_changed")
@@ -416,8 +437,15 @@ object Svc : AlarmHost {
 
     override fun testRing(silent: Boolean, requestId: String): Snapshot {
         if (seen(requestId)) return snapshot()
+        // Never while a real alarm is live: the test branch would be skipped and the
+        // flag left armed for the next genuine fire.
+        if (state.session != null || testActive) {
+            throw IllegalStateException("already ringing")
+        }
         testSilent = silent
-        de.pendingTest = true
+        de.testSilent = silent
+        // 30s window: long enough for the 10s delay, far too short to survive to 04:00.
+        de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString())
         // 10s so the phone can be locked and put down first -- testing from a
         // foregrounded app proves nothing about 04:00.
@@ -449,11 +477,16 @@ object Scheduler {
         ctx, rc, Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
+    /** True only if the real scheduled fire was accepted by AlarmManager. */
+    @Volatile var fireArmed = false; private set
+
     private fun set(ctx: Context, action: String, rc: Int, atMs: Long) {
         val am = ctx.getSystemService(AlarmManager::class.java)
         val p = pi(ctx, action, rc)
-        runCatching { am.setAlarmClock(AlarmManager.AlarmClockInfo(atMs, p), p) }
+        val ok = runCatching { am.setAlarmClock(AlarmManager.AlarmClockInfo(atMs, p), p) }
             .onFailure { Svc.log("alarm_set_failed", "action" to action, "error" to it.toString()) }
+            .isSuccess
+        if (action == ACTION_FIRE && rc == 1001) fireArmed = ok
     }
 
     fun arm(ctx: Context, next: NextFire?) {

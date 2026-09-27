@@ -56,6 +56,43 @@ class DeMirror(ctx: Context) {
         get() = p.getString("role", null)
         set(v) = p.edit().putString("role", v).apply()
 
+    // The link credentials and the password MUST be readable before first unlock, or a
+    // reboot leaves the phone unpairable and ungated until someone physically unlocks
+    // it -- which, by design, nobody ever does.
+    var ssid: String?
+        get() = p.getString("ssid", null)
+        set(v) = p.edit().putString("ssid", v).apply()
+
+    var passphrase: String?
+        get() = p.getString("passphrase", null)
+        set(v) = p.edit().putString("passphrase", v).apply()
+
+    var passwordHash: String?
+        get() = p.getString("passwordHash", null)
+        set(v) = p.edit().putString("passwordHash", v).apply()
+
+    var passwordSalt: String?
+        get() = p.getString("passwordSalt", null)
+        set(v) = p.edit().putString("passwordSalt", v).apply()
+
+    var recoveryHash: String?
+        get() = p.getString("recoveryHash", null)
+        set(v) = p.edit().putString("recoveryHash", v).apply()
+
+    var recoverySalt: String?
+        get() = p.getString("recoverySalt", null)
+        set(v) = p.edit().putString("recoverySalt", v).apply()
+
+    var armGateTime: String
+        get() = p.getString("armGateTime", "22:00")!!
+        set(v) = p.edit().putString("armGateTime", v).apply()
+
+    /** Without this, process death between the tap and the fire turns a SILENT test
+     *  into a full-volume siren. */
+    var testSilent: Boolean
+        get() = p.getBoolean("testSilent", false)
+        set(v) = p.edit().putBoolean("testSilent", v).apply()
+
     /** The open ring session, serialized. Survives process death and first-boot lock. */
     var sessionJson: String?
         get() = p.getString("session", null)
@@ -69,13 +106,27 @@ class DeMirror(ctx: Context) {
         get() = p.getLong("lastAliveMs", 0)
         set(v) = p.edit().putLong("lastAliveMs", v).apply()
 
-    /** A test ring was requested; survives the process hop to the alarm delivery. */
-    var pendingTest: Boolean
-        get() = p.getBoolean("pendingTest", false)
-        set(v) = p.edit().putBoolean("pendingTest", v).apply()
+    /**
+     * A test ring was requested; survives the process hop to the alarm delivery.
+     * Stamped with an expiry so a flag that is never consumed cannot be picked up by a
+     * real alarm hours later and turned into a 60-second no-op.
+     */
+    var pendingTestUntilMs: Long
+        get() = p.getLong("pendingTestUntilMs", 0)
+        set(v) = p.edit().putLong("pendingTestUntilMs", v).apply()
+
+    val pendingTest: Boolean get() = System.currentTimeMillis() < pendingTestUntilMs
 
     fun mirror(s: Settings, next: NextFire?, session: RingSession?) {
         p.edit()
+            .putString("role", s.role?.name)
+            .putString("ssid", s.ssid)
+            .putString("passphrase", s.passphrase)
+            .putString("passwordHash", s.passwordHash)
+            .putString("passwordSalt", s.passwordSalt)
+            .putString("recoveryHash", s.recoveryHash)
+            .putString("recoverySalt", s.recoverySalt)
+            .putString("armGateTime", s.armGateTime)
             .putLong("nextFireAtMs", next?.atMs ?: 0)
             .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
             .putString("defaultAlarmTime", s.defaultAlarmTime)
@@ -127,12 +178,12 @@ data class KvRow(@PrimaryKey val k: String, val v: String)
 
 @Dao
 interface Dao_ {
-    @Insert suspend fun insert(e: EventRow): Long
+    @Transaction
+    fun putAll(rows: List<KvRow>) = rows.forEach { put(it) }
+
     @Insert fun insertBlocking(e: EventRow): Long
     @Query("SELECT * FROM events WHERE seq > :since ORDER BY seq ASC LIMIT :limit")
     fun since(since: Long, limit: Int): List<EventRow>
-    @Query("SELECT * FROM events ORDER BY seq DESC LIMIT :n")
-    fun recent(n: Int): List<EventRow>
     @Query("SELECT * FROM events ORDER BY seq ASC")
     fun all(): List<EventRow>
     @Query("DELETE FROM events WHERE atMs < :before")
@@ -149,10 +200,13 @@ abstract class Db : RoomDatabase() {
     abstract fun dao(): Dao_
     companion object {
         fun open(ctx: Context): Db = Room.databaseBuilder(ctx, Db::class.java, "fobalarm.db")
-            // An older build opening a newer schema throws at open -- on the alarm phone
-            // that is a crash loop with no ring. History is expendable; the schedule is not.
+            // Downgrade only. An older build opening a NEWER schema throws at open,
+            // which on the alarm phone is a crash loop with no ring, so that case must
+            // degrade. But a forward migration must NEVER destroy: the kv table holds
+            // the settings, the password hash, the role and the latches, and wiping it
+            // would drop the user back at the role picker with no password and no
+            // pairing. Every future schema bump ships a real Migration.
             .fallbackToDestructiveMigrationOnDowngrade()
-            .fallbackToDestructiveMigration()
             .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
             .build()
     }
@@ -162,32 +216,32 @@ abstract class Db : RoomDatabase() {
 object Persist {
     const val SCHEMA_VERSION = 1
 
-    fun save(dao: Dao_, st: EngineState) {
-        dao.put(KvRow("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(st.settings)
+    fun save(dao: Dao_, st: EngineState) = dao.putAll(buildList {
+        add(KvRow("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(st.settings)
             .put("passwordHash", st.settings.passwordHash ?: JSONObject.NULL)
             .put("passwordSalt", st.settings.passwordSalt ?: JSONObject.NULL)
             .put("recoveryHash", st.settings.recoveryHash ?: JSONObject.NULL)
             .put("recoverySalt", st.settings.recoverySalt ?: JSONObject.NULL)
             .toString()))
-        dao.put(KvRow("latches", JSONArray().apply {
+        add(KvRow("latches", JSONArray().apply {
             st.latches.forEach { put(JSONObject().put("id", it.id.toString())
                 .put("reason", it.reason.name).put("atMs", it.atMs)) }
         }.toString()))
-        dao.put(KvRow("override", st.override?.let {
+        add(KvRow("override", st.override?.let {
             JSONObject().put("bound", it.boundOccurrenceId.toString()).put("kind", it.kind.name)
                 .put("fireAtMs", it.fireAtMs ?: JSONObject.NULL).toString()
         } ?: ""))
-        dao.put(KvRow("nap", st.nap?.fireAtMs?.toString() ?: ""))
-        dao.put(KvRow("lastOutcome", st.lastOutcome?.let {
+        add(KvRow("nap", st.nap?.fireAtMs?.toString() ?: ""))
+        add(KvRow("lastOutcome", st.lastOutcome?.let {
             JSONObject().put("kind", it.kind.name).put("atMs", it.atMs)
                 .put("occurrenceId", it.occurrenceId).put("ringId", it.ringId ?: JSONObject.NULL)
                 .put("snoozeCount", it.snoozeCount).toString()
         } ?: ""))
-        dao.put(KvRow("stateVersion", st.stateVersion.toString()))
-        dao.put(KvRow("lastTimeZone", st.lastTimeZone ?: ""))
-        dao.put(KvRow("lastAliveMs", st.lastAliveMs.toString()))
-        dao.put(KvRow("schemaVersion", SCHEMA_VERSION.toString()))
-    }
+        add(KvRow("stateVersion", st.stateVersion.toString()))
+        add(KvRow("lastTimeZone", st.lastTimeZone ?: ""))
+        add(KvRow("lastAliveMs", st.lastAliveMs.toString()))
+        add(KvRow("schemaVersion", SCHEMA_VERSION.toString()))
+        })
 
     fun load(dao: Dao_): EngineState {
         val settings = dao.get("settings")?.let {

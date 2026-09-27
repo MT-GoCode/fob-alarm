@@ -227,11 +227,24 @@ object Wire {
         .put("schemaVersion", b.schemaVersion)
         .put("exportedAtMs", b.exportedAtMs)
         .put("settings", settingsToJson(b.settings))
+        // Credentials travel in the backup, or a restored phone cannot be re-gated and
+        // the recovery code is lost with the device it was protecting.
+        .put("auth", JSONObject()
+            .put("passwordHash", b.settings.passwordHash ?: JSONObject.NULL)
+            .put("passwordSalt", b.settings.passwordSalt ?: JSONObject.NULL)
+            .put("recoveryHash", b.settings.recoveryHash ?: JSONObject.NULL)
+            .put("recoverySalt", b.settings.recoverySalt ?: JSONObject.NULL))
         .put("events", JSONArray().apply { b.events.forEach { put(eventToJson(it)) } })
 
     fun backupFrom(o: JSONObject) = Backup(
         schemaVersion = o.optInt("schemaVersion"),
-        settings = settingsFrom(o.getJSONObject("settings"), Settings()),
+        settings = settingsFrom(o.getJSONObject("settings"), Settings()).let { base ->
+            val a = o.optJSONObject("auth") ?: return@let base
+            fun str(k: String) = a.optString(k).takeIf { it.isNotEmpty() && it != "null" }
+            base.copy(
+                passwordHash = str("passwordHash"), passwordSalt = str("passwordSalt"),
+                recoveryHash = str("recoveryHash"), recoverySalt = str("recoverySalt"))
+        },
         events = o.optJSONArray("events")?.let { a -> (0 until a.length()).map { eventFrom(a.getJSONObject(it)) } } ?: emptyList(),
         exportedAtMs = o.optLong("exportedAtMs"))
 }

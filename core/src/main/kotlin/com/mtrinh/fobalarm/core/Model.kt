@@ -179,19 +179,6 @@ data class Gates(
     val allPass: Boolean get() = scheduleExists && exactAlarm && foregroundService &&
             notHibernating && fullScreenIntent
 
-    /** Conditions that do not block setup but should be visible tonight. */
-    fun warnings(): List<String> = buildList {
-        if (!audioPlayable) add("audioPlayable")
-        if (!dndAllowsAlarms) add("dndAllowsAlarms")
-        if (!volumeNotFixed) add("volumeNotFixed")
-        if (!vibrationEnabled) add("vibrationEnabled")
-        if (!noBluetoothAudio) add("noBluetoothAudio")
-        if (!powerOk) add("powerOk")
-        if (!thermalOk) add("thermalOk")
-        if (!freeDiskOk) add("freeDiskOk")
-        if (!gyroscopePresent) add("gyroscopePresent")
-    }
-
     fun failing(): List<String> = buildList {
         if (!scheduleExists) add("scheduleExists")
         if (!exactAlarm) add("exactAlarm")

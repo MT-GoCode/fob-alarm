@@ -77,13 +77,16 @@ class RingService : Service(), SensorEventListener {
         // consume an occurrence. It caps itself and needs no dismiss to end.
         if (intent != null && Svc.session == null && Svc.testUntilMs == 0L &&
             Svc.de.pendingTest) {
-            Svc.de.pendingTest = false
+            Svc.de.pendingTestUntilMs = 0L
             Svc.testUntilMs = System.currentTimeMillis() + 60_000
-            Svc.log("test_ring_start", "silent" to Svc.testSilent.toString())
+            // Read from DE: the in-memory flag does not survive the process hop, and
+            // losing it turns a silent test into a full-volume siren.
+            val silent = Svc.de.testSilent
+            Svc.log("test_ring_start", "silent" to silent.toString())
             val pm0 = getSystemService(PowerManager::class.java)
             wakeLock = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:test")
                 .also { it.acquire(90_000) }
-            audio.stop(); audio.start(Svc.settings, silent = Svc.testSilent)
+            audio.stop(); audio.start(Svc.settings, silent = silent)
             handler.removeCallbacks(heartbeat); handler.post(heartbeat)
             showRingUi()
             return START_STICKY
@@ -206,7 +209,7 @@ class RingService : Service(), SensorEventListener {
                     Svc.testUntilMs = 0L
                     teardown(); return
                 }
-                if (!Svc.testSilent) audio.heartbeat(Svc.settings)
+                if (!Svc.de.testSilent) audio.heartbeat(Svc.settings)
                 audible = audio.audible
                 handler.postDelayed(this, 5_000)
                 return

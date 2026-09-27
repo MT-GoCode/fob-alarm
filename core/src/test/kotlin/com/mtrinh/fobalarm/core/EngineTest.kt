@@ -432,3 +432,33 @@ class NagTest {
         assertEquals(Nag.Reason.NONE, Nag.evaluate(snap(now + 3600_000), now - 1_000, now))
     }
 }
+
+class PasswordFootgunTest {
+    /** The gate must protect itself, or "Remove password" is a two-tap bypass. */
+    @Test fun `recovery code is accepted however it is typed`() {
+        val rs = Auth.newSalt()
+        val code = Auth.newRecoveryCode()               // XXXX-XXXX-XXXX-XXXX
+        val ps = Auth.newSalt()
+        val s = Settings(
+            passwordHash = Auth.hash("pw", ps), passwordSalt = ps,
+            recoveryHash = Auth.hash(code, rs), recoverySalt = rs)
+
+        assertTrue(Auth.accepts(s, code), "as displayed")
+        assertTrue(Auth.accepts(s, code.replace("-", "")), "without dashes")
+        assertTrue(Auth.accepts(s, code.lowercase()), "lowercased")
+        assertTrue(Auth.accepts(s, code.replace("-", " ")), "with spaces")
+        assertFalse(Auth.accepts(s, "WRONGWRONGWRONGWRON"))
+    }
+
+    @Test fun `a set password rejects the empty string`() {
+        val ps = Auth.newSalt()
+        val s = Settings(passwordHash = Auth.hash("pw", ps), passwordSalt = ps)
+        assertFalse(Auth.accepts(s, ""))
+        assertFalse(Auth.gateOpen(s))
+    }
+
+    @Test fun `no password means the gate is open, by design`() {
+        assertTrue(Auth.gateOpen(Settings()))
+        assertTrue(Auth.accepts(Settings(), ""))
+    }
+}

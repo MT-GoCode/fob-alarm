@@ -216,13 +216,26 @@ class MainActivity : ComponentActivity() {
 
     /** Copied at PICK time: no READ_MEDIA at 04:00, no SAF grant to lose, no file that can vanish. */
     private fun copyRingtone(uri: Uri) {
+        // Patch FIRST. ringtoneUri is a gated setting, and writing the bytes before the
+        // gate ran meant a near-silent file went live regardless of the answer.
+        val allowed = runCatching {
+            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = uri.toString()),
+                java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
+        }
+        if (allowed.isFailure) {
+            Svc.log("ringtone_rejected", "error" to allowed.exceptionOrNull().toString())
+            Toast.makeText(this, "Unlock settings first to change the ringtone",
+                Toast.LENGTH_LONG).show()
+            return
+        }
         runCatching {
             contentResolver.openInputStream(uri)?.use { input ->
                 File(filesDir, "ringtone.bin").outputStream().use { input.copyTo(it) }
             }
-            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = uri.toString()),
-                java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
-        }.onFailure { Svc.log("ringtone_copy_failed", "error" to it.toString()) }
+        }.onFailure {
+            Svc.log("ringtone_copy_failed", "error" to it.toString())
+            Toast.makeText(this, "Could not read that file", Toast.LENGTH_LONG).show()
+        }
     }
 
     // ---- role-conditional UI ------------------------------------------------
@@ -234,6 +247,7 @@ class MainActivity : ComponentActivity() {
         var confirm by remember { mutableStateOf(false) }
         var pw by remember { mutableStateOf("") }
         var recovery by remember { mutableStateOf<String?>(null) }
+        var removing by remember { mutableStateOf(false) }
 
         Text("Group credentials", fontSize = 12.sp, color = Muted)
         OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID (DIRECT-xy…)", fontSize = 12.sp) },
@@ -269,36 +283,82 @@ class MainActivity : ComponentActivity() {
 
         Spacer(Modifier.height(8.dp))
         Text("Password", fontSize = 12.sp, color = Muted)
-        Text("Optional. Gates the settings that can silence tomorrow. Never gates dismiss.",
-            fontSize = 11.sp, color = Muted)
-        OutlinedTextField(pw, { pw = it }, label = { Text("New password", fontSize = 12.sp) },
+        val hasPw = Svc.settings.passwordHash != null
+        Text(
+            if (hasPw) "Set. Gates the settings that can silence tomorrow. Never gates dismiss."
+            else "Not set — every setting is editable by anyone holding this phone.",
+            fontSize = 11.sp, color = if (hasPw) Good else Muted)
+
+        var current by remember { mutableStateOf("") }
+        var err by remember { mutableStateOf<String?>(null) }
+        if (hasPw) {
+            OutlinedTextField(current, { current = it; err = null },
+                label = { Text("Current password or recovery code", fontSize = 12.sp) },
+                visualTransformation = PasswordVisualTransformation(), singleLine = true,
+                modifier = Modifier.fillMaxWidth())
+        }
+        OutlinedTextField(pw, { pw = it; err = null },
+            label = { Text(if (hasPw) "New password" else "Set a password", fontSize = 12.sp) },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth())
+        err?.let { Text(it, color = Bad, fontSize = 12.sp) }
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { recovery = Svc.setPassword(pw).second; pw = "" }, enabled = pw.length >= 4) {
-                Text("Set password", fontSize = 12.sp)
-            }
-            OutlinedButton(onClick = { Svc.setPassword(null); recovery = null }) {
-                Text("Remove", fontSize = 12.sp)
+            Button(
+                onClick = {
+                    runCatching { Svc.setPassword(pw, current.ifBlank { null }) }
+                        .onSuccess { recovery = it.second; pw = ""; current = ""; err = null }
+                        .onFailure { err = "Current password is wrong" }
+                },
+                enabled = pw.length >= 4 && (!hasPw || current.isNotBlank())
+            ) { Text(if (hasPw) "Change" else "Set password", fontSize = 12.sp) }
+
+            if (hasPw) {
+                OutlinedButton(onClick = { removing = true }) { Text("Remove", fontSize = 12.sp) }
             }
         }
+
+        if (removing) {
+            AlertDialog(
+                onDismissRequest = { removing = false },
+                title = { Text("Remove the password?") },
+                text = {
+                    Text("Every setting that can silence tomorrow — the alarm time, the " +
+                         "volume, the ringtone, the snooze length — becomes editable by " +
+                         "anyone holding this phone, including you at 4 AM.", fontSize = 13.sp)
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        runCatching { Svc.setPassword(null, current.ifBlank { null }) }
+                            .onSuccess { recovery = null; current = ""; err = null }
+                            .onFailure { err = "Current password is wrong" }
+                        removing = false
+                    }, enabled = current.isNotBlank()) { Text("Remove") }
+                },
+                dismissButton = { TextButton(onClick = { removing = false }) { Text("Keep it") } })
+        }
+
         recovery?.let { code ->
             AlertDialog(
-                onDismissRequest = { recovery = null },
+                onDismissRequest = { },     // must not be dismissible by a stray tap
                 title = { Text("Write this down now") },
                 text = {
                     Column {
                         Text("Recovery code — shown exactly once:", fontSize = 12.sp)
                         Spacer(Modifier.height(8.dp))
-                        Text(code, fontSize = 20.sp, fontFamily = FontFamily.Monospace,
+                        Text(code, fontSize = 22.sp, fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         Text("Put it on the printed runbook with the spare key to the box. " +
-                             "Without it, a forgotten password means a factory reset.",
+                             "It is the only way back in if you forget the password — " +
+                             "without it, recovery means a factory reset and losing " +
+                             "every setting, the pairing and the history.",
                             fontSize = 11.sp, color = Muted)
                     }
                 },
-                confirmButton = { TextButton(onClick = { recovery = null }) { Text("I wrote it down") } })
+                confirmButton = {
+                    TextButton(onClick = { recovery = null }) { Text("I wrote it down") }
+                })
         }
 
         Spacer(Modifier.height(8.dp))
@@ -319,6 +379,8 @@ class MainActivity : ComponentActivity() {
     private fun RoleSwitcher() {
         var asking by remember { mutableStateOf(false) }
         var typed by remember { mutableStateOf("") }
+        var rolePw by remember { mutableStateOf("") }
+        var roleErr by remember { mutableStateOf<String?>(null) }
         Text("Role", fontSize = 12.sp, color = Muted)
         Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = 12.sp)
         OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = 12.sp) }
@@ -334,16 +396,29 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(8.dp))
                         Text("Type ${target.name} to confirm:", fontSize = 12.sp, color = Muted)
                         OutlinedTextField(typed, { typed = it }, singleLine = true)
+                        if (Svc.settings.passwordHash != null) {
+                            OutlinedTextField(rolePw, { rolePw = it; roleErr = null },
+                                label = { Text("Password", fontSize = 12.sp) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true)
+                        }
+                        roleErr?.let { Text(it, color = Bad, fontSize = 12.sp) }
                     }
                 },
                 confirmButton = {
                     TextButton(
-                        enabled = typed.trim().uppercase() == target.name && Svc.session == null,
+                        enabled = typed.trim().uppercase() == target.name && Svc.session == null &&
+                                (Svc.settings.passwordHash == null || rolePw.isNotBlank()),
                         onClick = {
+                            if (Svc.settings.passwordHash != null &&
+                                !com.mtrinh.fobalarm.core.Auth.accepts(Svc.settings, rolePw)) {
+                                roleErr = "Wrong password"
+                                return@TextButton
+                            }
                             P2pJoin.stop()
                             Group.stop(this@MainActivity)
                             Svc.setRole(target)
-                            asking = false; typed = ""
+                            asking = false; typed = ""; rolePw = ""
                             recreate()
                         }) { Text("Change") }
                 },

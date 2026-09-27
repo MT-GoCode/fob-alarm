@@ -110,6 +110,31 @@ object ArmGateRunner {
     }
 }
 
+/**
+ * Before first unlock, Room is unreadable. This is the only moment it becomes readable,
+ * so it is the only chance to load the settings that live there.
+ */
+class UnlockReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        Boot.ensure(ctx)
+        Svc.tryLoadRoom("user_unlocked")
+    }
+}
+
+/**
+ * A clock correction was previously noticed up to an hour late, via the tick. A backwards
+ * jump could then invent a fortnight of missed alarms; a forward one could hide real
+ * misses for years.
+ */
+class TimeChangeReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        Boot.ensure(ctx)
+        ClockObserver.poll()
+        Svc.log("time_changed", "action" to (intent.action ?: "?"))
+        Svc.recompute("time_changed")
+    }
+}
+
 /** Hibernation and force-stop both cancel every PendingIntent. Make it visible. */
 object ForceStopDetector {
     fun check(ctx: Context) {

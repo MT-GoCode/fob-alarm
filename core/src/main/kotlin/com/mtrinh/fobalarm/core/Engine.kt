@@ -216,7 +216,11 @@ object Engine {
         val stale = st.latches.filter { LocalDate.parse(it.id.localDate).isBefore(cutoff) }
         if (stale.isNotEmpty()) st = st.copy(latches = st.latches - stale.toSet())
 
-        st = st.copy(stateVersion = st.stateVersion + 1, lastAliveMs = now)
+        // Monotonic: a bad RTC must never drag the liveness threshold backwards (which
+        // would invent a fortnight of misses) nor leap it forwards (which would hide
+        // real misses until the clock caught up).
+        st = st.copy(stateVersion = st.stateVersion + 1,
+            lastAliveMs = maxOf(st.lastAliveMs, now))
         events += PendingEvent("recompute", mapOf("reason" to reason,
             "nextFireAtMs" to (nextFire?.atMs?.toString() ?: "null")))
 

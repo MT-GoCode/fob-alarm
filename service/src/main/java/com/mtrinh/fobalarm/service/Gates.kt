@@ -96,7 +96,8 @@ object GateEval {
 
         return Gates(
             evaluatedAtMs = System.currentTimeMillis(),
-            scheduleExists = nextFireExists,
+            // Both: the engine computed a time AND AlarmManager accepted it.
+            scheduleExists = nextFireExists && Scheduler.fireArmed,
             exactAlarm = probe("exactAlarm", false) { am.canScheduleExactAlarms() },
             // Whether we are ALLOWED to run the ring service, not whether it is running
             // right now -- it only runs during a ring, so the old check was a permanent X.

@@ -210,10 +210,6 @@ object Server {
                 path.startsWith("/v1/export") ->
                     200 to Wire.backupToJson(Svc.export()).toString()
 
-                path.startsWith("/v1/import") && method == "POST" ->
-                    200 to Wire.snapshotToJson(Svc.import(Wire.backupFrom(o),
-                        o.optString("token").takeIf { it.isNotEmpty() && it != "null" })).toString()
-
                 else -> 404 to """{"error":"no such endpoint"}"""
             }
         } catch (e: StaleRingException) {

@@ -28,7 +28,6 @@ fun SettingsScreen(
     deviceSettings: (@Composable () -> Unit)?,
 ) {
     var showUnlock by remember { mutableStateOf(false) }
-    val gated = s.settings.let { true }   // the alarm phone reports whether a password exists
     val unlocked = app.token != null
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),

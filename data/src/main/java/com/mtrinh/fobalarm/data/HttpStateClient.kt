@@ -121,11 +121,6 @@ class HttpStateClient(
         Wire.backupFrom(JSONObject(request("GET", "/v1/export", timeoutMs = 15000)))
     }
 
-    override suspend fun import(backup: Backup, token: String?) = runCatching {
-        withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/import",
-            Wire.backupToJson(backup).put("token", token ?: JSONObject.NULL), 15000))))
-    }
-
     override suspend fun testRing(silent: Boolean, requestId: String) = runCatching {
         withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/test",
             JSONObject().put("silent", silent).put("requestId", requestId)))))

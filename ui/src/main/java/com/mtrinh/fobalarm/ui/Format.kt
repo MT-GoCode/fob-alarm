@@ -12,7 +12,6 @@ object Fmt {
     private fun f(p: String) = SimpleDateFormat(p, Locale.getDefault())
 
     fun clock(ms: Long): String = f("HH:mm").format(Date(ms))
-    fun clockSec(ms: Long): String = f("HH:mm:ss").format(Date(ms))
     fun absolute(ms: Long): String = f("EEE d MMM HH:mm").format(Date(ms))
 
     /** An unknown timestamp is a problem, so it says so. */
