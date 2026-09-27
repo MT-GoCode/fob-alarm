@@ -24,9 +24,9 @@ import com.mtrinh.fobalarm.core.*
 fun RootScreen(
     app: AppState,
     isAlarmRole: Boolean,
-    instrument: (@Composable () -> Unit)? = null,   // alarm-only: sensor-driven
     deviceSettings: (@Composable () -> Unit)? = null, // alarm-only: credentials + ringtone
     onFixGate: (String) -> Unit = {},
+    onRepair: (() -> Unit)? = null,
 ) {
     val s = app.snapshot
     var tab by remember { mutableIntStateOf(0) }
@@ -36,9 +36,11 @@ fun RootScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text(app.lastError ?: "connecting…", color = Muted, fontSize = 13.sp)
-                app.lastError?.let {
-                    Text("alarm phone unreachable", color = Bad, fontSize = 13.sp)
+                Text("Can't reach the alarm phone", color = Bad, fontSize = 15.sp)
+                Text("Retrying. It rings on its own regardless.", color = Muted, fontSize = 12.sp)
+                if (onRepair != null) {
+                    Spacer(Modifier.height(20.dp))
+                    OutlinedButton(onClick = onRepair) { Text("Re-pair / change role") }
                 }
             }
         }
@@ -46,12 +48,15 @@ fun RootScreen(
     }
 
     when (s.mode) {
-        Mode.RINGING -> RingingScreen(app, s, isAlarmRole, instrument)
-        Mode.INIT -> InitScreen(app, s, onFixGate)
-        Mode.WAITING -> Scaffold(
+        Mode.RINGING -> RingingScreen(app, s, isAlarmRole)
+        // INIT keeps the nav bar: an unfixable blocking gate (a replacement phone with
+        // no gyroscope, say) must not trap the user on a screen with no way to reach
+        // Settings and change anything.
+        else -> Scaffold(
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    listOf("Status", "Settings", "History").forEachIndexed { i, label ->
+                    listOf(if (tab == 0 && s.mode == Mode.INIT) "Setup" else "Status",
+                        "Settings", "History").forEachIndexed { i, label ->
                         NavigationBarItem(selected = tab == i, onClick = { tab = i },
                             icon = {}, label = { Text(label, fontSize = 12.sp) })
                     }
@@ -60,7 +65,8 @@ fun RootScreen(
         ) { pad ->
             Box(Modifier.padding(pad)) {
                 when (tab) {
-                    0 -> WaitingScreen(app, s)
+                    0 -> if (s.mode == Mode.INIT) InitScreen(app, s, isAlarmRole, onFixGate)
+                         else WaitingScreen(app, s)
                     1 -> SettingsScreen(app, s, deviceSettings)
                     else -> HistoryScreen(app)
                 }
@@ -75,18 +81,16 @@ fun RootScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean,
-                          instrument: (@Composable () -> Unit)?) {
+private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val ring = s.ring!!
     val snoozed = ring.phase == RingPhase.SNOOZED
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(250) } }
+    val now = app.nowMs
 
     Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
 
         Spacer(Modifier.height(8.dp))
-        Text(Fmt.clockSec(now), fontSize = 62.sp, fontWeight = FontWeight.Light)
+        Text(Fmt.clock(now), fontSize = 34.sp, fontWeight = FontWeight.Light, color = Muted)
 
         if (snoozed) {
             // SNOOZED is a distinct screen: countdown, count, and a still-live dismiss.
@@ -120,9 +124,15 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean,
         when (val d = app.dismissUi) {
             is DismissUi.RingChanged -> Text(d.message, color = MaterialTheme.colorScheme.primary,
                 fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
-            is DismissUi.Unreachable -> Text(d.message, color = Bad,
-                fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
-            is DismissUi.Waiting -> Text("No reply — retrying (${d.attempt}/∞)", color = Muted,
+            is DismissUi.Unreachable -> Card(
+                colors = CardDefaults.cardColors(containerColor = Bad),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+            ) {
+                Text(d.message, color = Color.Black, fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(14.dp))
+            }
+            is DismissUi.Waiting -> if (d.attempt >= 2) Text(
+                "No reply — retrying (${d.attempt})", color = Muted,
                 fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
             else -> {}
         }
@@ -130,18 +140,22 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean,
         Spacer(Modifier.height(12.dp))
         // The instrument is alarm-only: it is sensor-driven, and snooze is deliberately
         // not remotable -- a bathroom snooze button would defeat the mechanism.
-        if (isAlarmRole && !snoozed && instrument != null) {
-            Box(Modifier.fillMaxWidth().weight(1f)) { instrument() }
+        if (!snoozed) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                RotationInstrument(ring.rotationDeg, ring.thresholdDeg, null,
+                    ring.rvStale, Modifier.fillMaxSize())
+            }
         } else {
             Spacer(Modifier.weight(1f))
         }
-        Text(ring.audible, fontSize = 11.sp, color = if (ring.audible.contains("muted=true")) Bad else Muted,
-            fontFamily = FontFamily.Monospace)
+        val muted = ring.audible.contains("muted=true")
+        Text(if (muted) "SOUND IS MUTED — vibration only" else "sound confirmed",
+            fontSize = 12.sp, color = if (muted) Bad else Muted)
 
         // Gate regressions during a session are shown, never acted on: INIT is entered
         // only from WAITING, so a gate can never preempt audio.
         if (!s.gates.allPass) {
-            Text("health: ${s.gates.failing().joinToString(",")}", fontSize = 11.sp, color = Bad)
+            Text("also wrong: ${s.gates.failing().joinToString(", ")}", fontSize = 11.sp, color = Bad)
         }
     }
 
@@ -177,7 +191,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
                 }
             }
         }
-        StatusBlock(s, app.linkAgeMs)
+        StatusBlock(s, app.nowMs)
 
         HorizontalDivider(color = Color(0xFF1A2026))
         Text("next alarm only", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -217,7 +231,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun InitScreen(app: AppState, s: Snapshot, onFix: (String) -> Unit) {
+private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: (String) -> Unit) {
     val g = s.gates
     val rows = listOf(
         "scheduleExists" to g.scheduleExists,
@@ -240,26 +254,62 @@ private fun InitScreen(app: AppState, s: Snapshot, onFix: (String) -> Unit) {
         "powerOk" to g.powerOk,
         "thermalOk" to g.thermalOk,
     )
+    val blocking = setOf("scheduleExists", "exactAlarm", "foregroundService", "gyroscopePresent",
+        "notHibernating", "fullScreenIntent", "audioPlayable", "dndAllowsAlarms",
+        "volumeNotFixed", "freeDiskOk", "noBluetoothAudio")
+    // Failing-and-blocking first: seven of these rows can never be what is holding you here.
+    val sorted = rows.sortedBy { (k, ok) -> (if (!ok && k in blocking) 0 else if (!ok) 1 else 2) }
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Setup required", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Text("The alarm will not arm until every blocking row is green.",
+        Text(if (isAlarmRole) "The alarm will not arm until every red row above the line is fixed."
+             else "These are the ALARM phone's gates. Fix them on that phone.",
             fontSize = 12.sp, color = Muted)
         Spacer(Modifier.height(8.dp))
-        rows.forEach { (k, ok) ->
+        sorted.forEach { (k, ok) ->
             ListItem(
-                headlineContent = { Text(k, fontSize = 14.sp) },
+                headlineContent = {
+                    Text(label(k) + if (!ok && k !in blocking) "  (advisory)" else "",
+                        fontSize = 14.sp)
+                },
                 supportingContent = { Text(explain(k), fontSize = 11.sp, color = Muted) },
                 leadingContent = { Text(if (ok) "OK" else "✗", color = if (ok) Good else Bad,
                     fontFamily = FontFamily.Monospace) },
                 trailingContent = {
-                    if (!ok) TextButton(onClick = { onFix(k) }) { Text("Fix", fontSize = 12.sp) }
+                    // On the controller these rows describe the OTHER phone, so a Fix
+                    // button here would open local settings and change nothing.
+                    if (!ok && isAlarmRole) TextButton(onClick = { onFix(k) }) { Text("Fix", fontSize = 12.sp) }
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
         }
         Spacer(Modifier.height(30.dp))
     }
+}
+
+/** Row headlines must be language, not variable names. */
+private fun label(k: String) = when (k) {
+    "scheduleExists" -> "An alarm is scheduled"
+    "exactAlarm" -> "Exact alarms allowed"
+    "notHibernating" -> "App hibernation disabled"
+    "fullScreenIntent" -> "Can show over the lock screen"
+    "audioPlayable" -> "Ringtone is readable"
+    "dndAllowsAlarms" -> "Do Not Disturb allows alarms"
+    "volumeNotFixed" -> "Alarm volume is settable"
+    "gyroscopePresent" -> "Gyroscope present"
+    "foregroundService" -> "Background service running"
+    "freeDiskOk" -> "Enough free storage"
+    "notificationPolicyAccess" -> "Can read Do Not Disturb policy"
+    "localNetworkPermission" -> "Nearby devices permission"
+    "groupCredentialsSet" -> "Phones paired"
+    "p2pSupported" -> "Wi-Fi Direct supported"
+    "staApConcurrent" -> "Wi-Fi and group at once"
+    "vibrationEnabled" -> "Vibration enabled"
+    "noBluetoothAudio" -> "No Bluetooth speaker connected"
+    "powerOk" -> "Plugged in and charged"
+    "thermalOk" -> "Not overheating"
+    else -> k
 }
 
 private fun explain(k: String) = when (k) {

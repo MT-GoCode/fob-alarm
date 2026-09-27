@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.provider.Settings as ASettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,6 +44,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FobTheme {
+                // KEEP_SCREEN_ON only while a ring is live -- never at idle.
+                val ringing = runCatching { (::app.isInitialized) && app.snapshot?.ring != null }
+                    .getOrDefault(false)
+                LaunchedEffect(ringing) {
+                    if (ringing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
                 var role by remember { mutableStateOf(Svc.settings.role) }
                 Surface(Modifier.fillMaxSize()) {
                     when {
@@ -76,12 +84,28 @@ class MainActivity : ComponentActivity() {
                                     }) else null,
                                 ).also { it.startPolling() }
                             }
+                            // A ring on the other phone must WAKE this one. Otherwise at
+                            // 04:00 you walk into a dark, locked phone and the only
+                            // control the product promises is two interactions away.
+                            if (role == Role.CONTROLLER) {
+                                LaunchedEffect(app.snapshot?.ring?.ringId) {
+                                    if (app.snapshot?.ring != null) RemoteRingAlert.raise(this@MainActivity)
+                                    else RemoteRingAlert.clear(this@MainActivity)
+                                }
+                            }
                             RootScreen(
                                 app = app,
                                 isAlarmRole = role == Role.ALARM,
-                                instrument = if (role == Role.ALARM) ({ Instrument() }) else null,
                                 deviceSettings = if (role == Role.ALARM) ({ DeviceSettings() }) else null,
                                 onFixGate = { fix(it) },
+                                onRepair = {
+                                    runCatching {
+                                        Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
+                                            java.util.UUID.randomUUID().toString(),
+                                            Svc.unlockToken, Actor.CONTROLLER)
+                                    }
+                                    recreate()
+                                },
                             )
                         }
                     }
@@ -144,20 +168,6 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---- role-conditional UI ------------------------------------------------
-
-    @Composable
-    private fun Instrument() {
-        var deg by remember { mutableDoubleStateOf(0.0) }
-        var stale by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            while (true) {
-                deg = RingService.rotationDeg
-                stale = RingService.rvStale
-                kotlinx.coroutines.delay(60)
-            }
-        }
-        RotationInstrument(deg, Svc.settings.snoozeThresholdDegrees, null, stale, Modifier.fillMaxSize())
-    }
 
     @Composable
     private fun DeviceSettings() {

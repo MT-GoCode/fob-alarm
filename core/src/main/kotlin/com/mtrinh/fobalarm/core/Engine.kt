@@ -23,6 +23,16 @@ data class EngineState(
     val lastOutcome: LastOutcome? = null,
     val stateVersion: Long = 0,
     val lastTimeZone: String? = null,
+    /**
+     * The last moment this install is known to have been running. It is the ONLY
+     * threshold for latching the past: occurrences before it were either already
+     * handled or predate us, and occurrences after it genuinely passed while we were
+     * gone (a power cut, a force-stop) and are real misses.
+     *
+     * Seeded to `now` on first run, so a fresh install -- or a destructive Room
+     * migration -- cannot invent a fortnight of failures and ring on launch.
+     */
+    val lastAliveMs: Long = 0,
 )
 
 /** What recompute() decided the caller must now do. The engine itself performs no side effects. */
@@ -84,7 +94,8 @@ object Engine {
     // -----------------------------------------------------------------------
 
     fun recompute(st0: EngineState, ts: TimeSource, reason: String): RecomputeResult {
-        var st = st0
+        var st = if (st0.lastAliveMs == 0L) st0.copy(lastAliveMs = ts.nowMs()) else st0
+        val aliveSince = st.lastAliveMs
         val events = mutableListOf<PendingEvent>()
         val zone = ts.zone()
         val now = ts.nowMs()
@@ -124,8 +135,15 @@ object Engine {
             val at = scheduledInstant(date, st.settings.defaultAlarmTime, zone)
             if (at > now) continue                              // not in the past yet
             if (st.session?.occurrenceId == id) continue        // currently ringing for it
+            if (at < aliveSince) continue                       // already handled, or predates us
 
             val ov = st.override
+            // An override that MOVED this occurrence later has not resolved it -- the
+            // replacement instant is still ahead of us. Latching here would clear the
+            // override in step 3 and delete the alarm the user just asked for.
+            if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
+                ov.fireAtMs != null && ov.fireAtMs > now) continue
+
             val suppressed = ov != null && ov.boundOccurrenceId == id   // DERIVED, never stored
             val reasonFor = when {
                 suppressed && ov!!.kind == OverrideKind.SKIP -> LatchReason.SKIPPED
@@ -161,24 +179,44 @@ object Engine {
         // 4. Drop an elapsed nap.
         st.nap?.let { if (it.fireAtMs <= now) st = st.copy(nap = null) }
 
-        // 5. Pick nextFire: the earliest of (override | scheduled) and nap.
-        val (nextSchedId, nextSchedAt) = nextUnlatchedScheduled(st, ts)
+        // 5. Pick nextFire: the earliest of the three independent candidates.
+        //
+        // The override is a candidate IN ITS OWN RIGHT, not a special case of the next
+        // scheduled occurrence. Earlier this was gated on
+        // `ov.boundOccurrenceId == nextSchedId`, so the moment the bound occurrence's
+        // original instant passed -- 05:00, with a 04:00 default and a 07:00 override --
+        // the next scheduled occurrence became tomorrow, the condition went false, and
+        // the override the user had just set stopped existing.
         val ov = st.override
-        val primary: NextFire? = when {
-            ov != null && ov.boundOccurrenceId == nextSchedId && ov.kind == OverrideKind.SKIP -> {
-                // This occurrence is skipped; fall through to the one after it.
-                val after = st.copy(latches = st.latches + Latch(nextSchedId, LatchReason.SKIPPED, now))
-                val (_, at2) = nextUnlatchedScheduled(after, ts)
-                NextFire(at2, OccurrenceSource.SCHEDULED, "scheduled")
-            }
-            ov != null && ov.boundOccurrenceId == nextSchedId && ov.fireAtMs != null ->
-                NextFire(ov.fireAtMs, OccurrenceSource.TOMORROW_OVERRIDE, "override")
-            else -> NextFire(nextSchedAt, OccurrenceSource.SCHEDULED, "scheduled")
-        }
-        val napFire = st.nap?.let { NextFire(it.fireAtMs, OccurrenceSource.NAP, "nap") }
-        val nextFire = listOfNotNull(primary, napFire).minByOrNull { it.atMs }
+        val overrideFire = ov?.takeIf {
+            it.kind == OverrideKind.TIME && it.fireAtMs != null && it.fireAtMs > now
+        }?.let { NextFire(it.fireAtMs!!, OccurrenceSource.TOMORROW_OVERRIDE, "override") }
 
-        st = st.copy(stateVersion = st.stateVersion + 1)
+        // The scheduled candidate, with the occurrence the override owns removed:
+        // SKIP silences it, TIME replaces it. Either way it must not also fire itself.
+        val scheduledFire: NextFire? = run {
+            var probe = st
+            repeat(8) {
+                val (id, at) = nextUnlatchedScheduled(probe, ts)
+                if (ov != null && ov.boundOccurrenceId == id) {
+                    probe = probe.copy(latches = probe.latches + Latch(id, LatchReason.SKIPPED, now))
+                } else {
+                    return@run NextFire(at, OccurrenceSource.SCHEDULED, "scheduled")
+                }
+            }
+            null
+        }
+
+        val napFire = st.nap?.let { NextFire(it.fireAtMs, OccurrenceSource.NAP, "nap") }
+        val nextFire = listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
+
+        // Ten years is 3650 latches, re-serialized on every save and linearly scanned
+        // inside recompute's loops -- on the main thread, on the fire path.
+        val cutoff = today.minusDays(30)
+        val stale = st.latches.filter { LocalDate.parse(it.id.localDate).isBefore(cutoff) }
+        if (stale.isNotEmpty()) st = st.copy(latches = st.latches - stale.toSet())
+
+        st = st.copy(stateVersion = st.stateVersion + 1, lastAliveMs = now)
         events += PendingEvent("recompute", mapOf("reason" to reason,
             "nextFireAtMs" to (nextFire?.atMs?.toString() ?: "null")))
 
@@ -289,7 +327,7 @@ object Engine {
 
         val occId = when (source) {
             OccurrenceSource.NAP -> OccurrenceId(localDateOf(now, ts.zone()), OccurrenceSource.NAP)
-            else -> nextUnlatchedScheduled(st1, ts).first
+            else -> occurrenceBeingFired(st1, ts)
         }
         val session = RingSession(
             ringId = newRingId,
@@ -304,6 +342,34 @@ object Engine {
         st1 = st1.copy(session = session, nap = if (source == OccurrenceSource.NAP) null else st1.nap)
         events += PendingEvent("ring_start", mapOf("ringId" to newRingId, "trigger" to source.name))
         return recompute(st1, ts, "ring_start").let { it.copy(events = events + it.events) }
+    }
+
+    /**
+     * The occurrence this trigger is FOR. Alarms are delivered at or slightly after the
+     * instant, and may be minutes late after a Doze wake, so "the next one strictly in
+     * the future" is the wrong question -- it names tomorrow and latches today MISSED.
+     */
+    fun occurrenceBeingFired(st: EngineState, ts: TimeSource): OccurrenceId {
+        val now = ts.nowMs()
+        val zone = ts.zone()
+        val tolerance = 60 * 60_000L        // generous: a late Doze delivery is normal
+
+        // An override owns the instant if one is bound and due.
+        st.override?.let { ov ->
+            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null &&
+                now >= ov.fireAtMs - 5_000 && now - ov.fireAtMs < tolerance) {
+                return ov.boundOccurrenceId
+            }
+        }
+        // Otherwise the most recent unlatched scheduled occurrence at or just before now.
+        var date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        repeat(2) {
+            val id = OccurrenceId(date.format(DATE), OccurrenceSource.SCHEDULED)
+            val at = scheduledInstant(date, st.settings.defaultAlarmTime, zone)
+            if (at <= now + 5_000 && now - at < tolerance && st.latches.none { it.id == id }) return id
+            date = date.minusDays(1)
+        }
+        return nextUnlatchedScheduled(st, ts).first
     }
 
     fun snooze(st: EngineState, ts: TimeSource): RecomputeResult {
@@ -322,7 +388,9 @@ object Engine {
     fun endSession(st: EngineState, ts: TimeSource, outcome: Outcome): RecomputeResult {
         val s = st.session ?: return recompute(st, ts, "end_noop")
         val now = ts.nowMs()
-        val latchReason = if (outcome == Outcome.CAPPED) LatchReason.FIRED else LatchReason.FIRED
+        // CAPPED means the siren ran an hour and the user never woke. Recording it as
+        // FIRED makes a slept-through night indistinguishable from a normal one.
+        val latchReason = if (outcome == Outcome.CAPPED) LatchReason.MISSED else LatchReason.FIRED
         var next = st.copy(
             session = null,
             lastOutcome = LastOutcome(outcome, now, s.occurrenceId.toString(), s.ringId, s.snoozeCount),

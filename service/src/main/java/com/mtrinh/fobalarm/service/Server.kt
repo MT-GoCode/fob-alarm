@@ -38,22 +38,36 @@ object Server {
         thread(isDaemon = true, name = "logs") { serve(ctx, LOG_PORT, false) }
     }
 
+    private val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+
     private fun serve(ctx: Context, port: Int, control: Boolean) {
-        runCatching {
-            // Bind the control port to the P2P interface; logs listen everywhere.
-            val server = if (control)
-                ServerSocket(port, 50, runCatching { InetAddress.getByName("192.168.49.1") }.getOrNull())
-            else ServerSocket(port)
-            if (control) controlStatus = "listening" else logStatus = "listening"
-            Svc.log(if (control) "control_server_started" else "log_server_started", "port" to port.toString())
-            while (true) {
-                val sock = server.accept()
-                thread(isDaemon = true) { runCatching { handle(ctx, sock, control) } }
+        // The control socket binds to 192.168.49.1, which does not exist until the
+        // group is up -- and one transient accept() failure used to kill the listener
+        // for the life of the process, making remote dismiss permanently impossible.
+        // Both get an outer retry loop.
+        var backoffMs = 1_000L
+        while (true) {
+            runCatching {
+                val server = if (control)
+                    ServerSocket(port, 50, runCatching { InetAddress.getByName("192.168.49.1") }.getOrNull())
+                else ServerSocket(port)
+                if (control) controlStatus = "listening" else logStatus = "listening"
+                Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())
+                backoffMs = 1_000L
+                server.use { srv ->
+                    while (true) {
+                        val sock = srv.accept()
+                        sock.soTimeout = 10_000          // a half-open peer must not park a thread forever
+                        runCatching { pool.execute { runCatching { handle(ctx, sock, control) } } }
+                            .onFailure { runCatching { sock.close() } }
+                    }
+                }
+            }.onFailure {
+                if (control) controlStatus = "retrying: ${it.message}" else logStatus = "retrying: ${it.message}"
+                Svc.log("server_retry", "port" to port.toString(), "error" to it.toString())
             }
-        }.onFailure {
-            if (control) controlStatus = "failed: ${it.message}" else logStatus = "failed: ${it.message}"
-            Svc.log(if (control) "control_server_failed" else "log_server_failed", "error" to it.toString())
-            started = false
+            Thread.sleep(backoffMs + (Math.random() * 500).toLong())
+            backoffMs = (backoffMs * 2).coerceAtMost(30_000)
         }
     }
 
@@ -71,8 +85,19 @@ object Server {
             if (line.startsWith("Content-Length:", true))
                 contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
         }
+        // Content-Length is BYTES and this reader yields CHARS, and one read() returns
+        // as soon as any data is available. Loop, and stop at the char count we get.
         val body = if (contentLength > 0) {
-            val buf = CharArray(contentLength); r.read(buf, 0, contentLength); String(buf)
+            val sb = StringBuilder()
+            val buf = CharArray(contentLength)
+            var guard = 0
+            while (sb.length < contentLength && guard++ < 64) {
+                val n = r.read(buf, 0, contentLength)
+                if (n <= 0) break
+                sb.appendRange(buf, 0, n)
+                if (!r.ready()) break
+            }
+            sb.toString()
         } else ""
 
         val (code, payload) = if (control) route(ctx, method, path, body) else routeLogs(path)
@@ -101,12 +126,35 @@ object Server {
             .firstOrNull { it.startsWith("$key=") }?.substringAfter("=")
 
     private fun route(ctx: Context, method: String, path: String, body: String): Pair<Int, String> {
-        val o = runCatching { JSONObject(body) }.getOrDefault(JSONObject())
-        val rid = o.optString("requestId", java.util.UUID.randomUUID().toString())
+        val parsed = runCatching { if (body.isBlank()) JSONObject() else JSONObject(body) }
+        if (parsed.isFailure) {
+            // Swallowing this into an empty object made /v1/tomorrow silently CLEAR the
+            // user's override and report 200 OK.
+            Svc.log("bad_request_body", "path" to path)
+            return 400 to """{"error":"malformed json body"}"""
+        }
+        val o = parsed.getOrThrow()
+        val rid = o.optString("requestId").takeIf { it.isNotBlank() }
+            ?: java.util.UUID.randomUUID().toString()
         return try {
             when {
-                path.startsWith("/v1/snapshot") ->
+                path.startsWith("/v1/snapshot") -> {
+                    // The controller piggybacks its own device on the poll it already
+                    // makes, so the alarm phone can render both devices. No new endpoint.
+                    param(path, "deviceId")?.let { id ->
+                        Svc.peerDevice = com.mtrinh.fobalarm.core.DeviceView(
+                            batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,
+                            plugged = param(path, "plugged") == "true",
+                            appVersion = param(path, "appVersion") ?: "?",
+                            variant = runCatching {
+                                com.mtrinh.fobalarm.core.Variant.valueOf(param(path, "variant") ?: "LIVE")
+                            }.getOrDefault(com.mtrinh.fobalarm.core.Variant.LIVE),
+                            role = com.mtrinh.fobalarm.core.Role.CONTROLLER,
+                            deviceId = id,
+                            lastSeenMs = System.currentTimeMillis())
+                    }
                     200 to Wire.snapshotToJson(Svc.snapshot()).toString()
+                }
 
                 path.startsWith("/v1/dismiss") && method == "POST" ->
                     200 to Wire.snapshotToJson(

@@ -45,7 +45,7 @@ class Audio(private val ctx: Context) {
             val de = File(ctx.createDeviceProtectedStorageContext().filesDir, "bundled_alarm.wav")
             if (de.exists()) return Uri.fromFile(de)
             val resId = ctx.resources.getIdentifier("bundled_alarm", "raw", ctx.packageName)
-            if (resId != 0) return Uri.parse("android.resource://${'$'}{ctx.packageName}/${'$'}resId")
+            if (resId != 0) return Uri.parse("android.resource://" + ctx.packageName + "/" + resId)
             return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         }
@@ -76,9 +76,12 @@ class Audio(private val ctx: Context) {
         .build()
 
     private fun startPlayer(settings: Settings) {
-        val uri = resolveUri(ctx, settings.ringtoneUri)
+        // resolveUri reads filesDir, which is credential-encrypted and may be
+        // unreadable after a reboot nobody unlocked. It must not throw out of here.
+        val uri = runCatching { resolveUri(ctx, settings.ringtoneUri) }.getOrNull()
         if (uri == null) { fallbackToTone(); return }
         runCatching {
+            player?.release()
             player = MediaPlayer().apply {
                 setAudioAttributes(attrs())
                 setDataSource(ctx, uri)
@@ -153,12 +156,12 @@ class Audio(private val ctx: Context) {
         val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
         val routed = runCatching { player?.routedDevice?.type }.getOrNull()
         val onSpeaker = routed == null || routed == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        val floorVol = max * Settings.VOLUME_FLOOR / 100
+        val target = max * settings.alarmVolumePercent / 100
 
         audible = "playing=$playing muted=$muted vol=$vol/$max speaker=$onSpeaker link=$chainLink"
 
         var ok = true
-        if (muted || vol < floorVol) {
+        if (muted || vol < target) {
             Svc.log("volume_mismatch", "muted" to muted.toString(), "vol" to vol.toString())
             assertVolume(settings); ok = false
         }

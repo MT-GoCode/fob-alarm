@@ -65,6 +65,10 @@ class DeMirror(ctx: Context) {
         get() = p.getString("deviceId", null)
         set(v) = p.edit().putString("deviceId", v).apply()
 
+    var lastAliveMs: Long
+        get() = p.getLong("lastAliveMs", 0)
+        set(v) = p.edit().putLong("lastAliveMs", v).apply()
+
     fun mirror(s: Settings, next: NextFire?, session: RingSession?) {
         p.edit()
             .putLong("nextFireAtMs", next?.atMs ?: 0)
@@ -176,6 +180,7 @@ object Persist {
         } ?: ""))
         dao.put(KvRow("stateVersion", st.stateVersion.toString()))
         dao.put(KvRow("lastTimeZone", st.lastTimeZone ?: ""))
+        dao.put(KvRow("lastAliveMs", st.lastAliveMs.toString()))
         dao.put(KvRow("schemaVersion", SCHEMA_VERSION.toString()))
     }
 
@@ -214,6 +219,7 @@ object Persist {
             lastOutcome = lastOutcome,
             stateVersion = dao.get("stateVersion")?.toLongOrNull() ?: 0,
             lastTimeZone = dao.get("lastTimeZone")?.takeIf { it.isNotEmpty() },
+            lastAliveMs = dao.get("lastAliveMs")?.toLongOrNull() ?: 0,
         )
     }
 }

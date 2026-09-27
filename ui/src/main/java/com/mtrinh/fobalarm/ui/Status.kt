@@ -16,8 +16,10 @@ import com.mtrinh.fobalarm.core.*
  * away with no navigation, and nothing is ever blank. SPEC.md invariant 6.
  */
 @Composable
-fun StatusBlock(s: Snapshot, linkAgeMs: Long, modifier: Modifier = Modifier) {
-    val now = s.serverTimeMs
+fun StatusBlock(s: Snapshot, nowMs: Long, modifier: Modifier = Modifier) {
+    // Ages must advance from a LIVE clock. Deriving them from the snapshot's frozen
+    // serverTimeMs made a dead link render as a confidently current screen.
+    val now = nowMs
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
         // --- next alarm: absolute AND relative -----------------------------
@@ -53,9 +55,9 @@ fun StatusBlock(s: Snapshot, linkAgeMs: Long, modifier: Modifier = Modifier) {
         HorizontalDivider(color = Color(0xFF1A2026))
 
         // --- both devices, always -------------------------------------------
-        DeviceLine("this", s.self, 0, now)
-        if (s.peer != null) DeviceLine("peer", s.peer!!, linkAgeMs, now)
-        else Fact("link", "NO PEER — never connected", false)
+        DeviceLine("this", s.self, now)
+        if (s.peer != null) DeviceLine("peer", s.peer!!, now)
+        else Fact("other phone", "never seen", false)
 
         // --- health ----------------------------------------------------------
         Fact("last sync", if (s.clock.lastSyncOkMs == 0L) "never" else Fmt.age(s.clock.lastSyncOkMs, now) +
@@ -79,7 +81,7 @@ fun StatusBlock(s: Snapshot, linkAgeMs: Long, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DeviceLine(label: String, d: DeviceView, ageMs: Long, now: Long) {
+private fun DeviceLine(label: String, d: DeviceView, now: Long) {
     // Charger failure must be visible the moment it happens, not at the next 22:00 gate.
     val ok = d.batteryPct > 30 && d.plugged
     Row(Modifier.fillMaxWidth()) {

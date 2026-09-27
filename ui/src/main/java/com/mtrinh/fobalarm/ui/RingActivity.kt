@@ -16,7 +16,7 @@ open class RingActivity : ComponentActivity() {
 
     companion object {
         /** Set by the app module at startup so this class stays free of service deps. */
-        @Volatile var content: (@androidx.compose.runtime.Composable () -> Unit)? = null
+        @Volatile var content: (@androidx.compose.runtime.Composable (RingActivity) -> Unit)? = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,7 +30,7 @@ open class RingActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         window.attributes = window.attributes.apply { screenBrightness = 1f }
 
-        setContent { FobTheme { content?.invoke() } }
+        setContent { FobTheme { content?.invoke(this) } }
     }
 
     /** The box is the lock: back must never dismiss. */

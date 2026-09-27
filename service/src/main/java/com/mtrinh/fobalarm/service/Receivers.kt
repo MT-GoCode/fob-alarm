@@ -20,6 +20,7 @@ object Boot {
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Boot.ensure(ctx)
+        if (Svc.settings.role != Role.ALARM) return      // controller never fires alarms
         // AlarmManager's own wake lock ends when onReceive returns and the FGS-start
         // allowlist is ~10s, so take a lock and start the service SYNCHRONOUSLY.
         val wl = ctx.getSystemService(PowerManager::class.java)
@@ -81,6 +82,7 @@ class BootReceiver : BroadcastReceiver() {
 object ArmGateRunner {
     fun run(ctx: Context) {
         Boot.ensure(ctx)
+        if (Svc.settings.role != Role.ALARM) return
         GateEval.invalidateSlowChecks()
         val gates = GateEval.evaluate(ctx, Svc.settings, Svc.lastNextFire != null)
         val clockOk = ClockObserver.healthy()

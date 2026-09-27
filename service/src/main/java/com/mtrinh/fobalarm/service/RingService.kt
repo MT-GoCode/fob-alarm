@@ -28,13 +28,12 @@ class RingService : Service(), SensorEventListener {
         fun start(ctx: Context) {
             runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
                 .onFailure {
-                    // Blew the ~10s allowlist window (cold start after OTA, busy disk).
+                    // Blew the ~10s FGS allowlist window (cold start after an OTA, busy
+                    // disk). Retry on a DEDICATED request code: reusing 1001 would share
+                    // the PendingIntent with the real scheduled fire and, under
+                    // FLAG_UPDATE_CURRENT, overwrite the next alarm with a 5s retry.
                     Svc.log("fgs_start_failed", "error" to it.toString())
-                    Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001)
-                    ctx.getSystemService(AlarmManager::class.java).setAlarmClock(
-                        AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 5000,
-                            Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001)),
-                        Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001))
+                    Scheduler.armFireRetry(ctx)
                 }
         }
 
@@ -60,18 +59,39 @@ class RingService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         if (intent?.action == ACTION_STOP) { teardown(); return START_NOT_STICKY }
 
-        // Always take the notification within the allowlist window, whatever else happens.
-        startForeground(NOTIF_ID, ringNotification())
+        // Open the session and arm the watchdog BEFORE anything that can throw, so a
+        // failure here is recoverable rather than terminal.
         serviceAlive = true
+        Scheduler.armWatchdog(this)
+        runCatching { startForeground(NOTIF_ID, ringNotification()) }
+            .onFailure {
+                // ForegroundServiceStartNotAllowed / TypeNotAllowed. Keep ringing: the
+                // audio, the wake lock and the watchdog do not depend on the notification.
+                Svc.log("start_foreground_failed", "error" to it.toString())
+            }
 
-        if (Svc.session == null) {
-            // Fired with no session yet: open one through the engine so precedence,
-            // supersede and latching all go through the single code path.
+        if (intent == null) {
+            // START_STICKY restart, not a real trigger. Only resume; never create.
+            if (Svc.session == null) {
+                Svc.log("sticky_restart_no_session")
+                teardown(); return START_NOT_STICKY
+            }
+        } else {
+            // EVERY genuine trigger goes through the engine, open session or not --
+            // that is what makes the §3 precedence table reachable: a scheduled alarm
+            // superseding an open nap mints a fresh ringId, and a nap arriving during a
+            // real alarm is dropped.
+            val prev = Svc.session?.ringId
             val src = runCatching { OccurrenceSource.valueOf(Svc.de.nextFireSource) }
                 .getOrDefault(OccurrenceSource.SCHEDULED)
             Svc.onTrigger(src)
+            val s = Svc.session
+            if (s == null) { teardown(); return START_NOT_STICKY }
+            // A supersede replaces the session under us: restart audio on the new one.
+            if (prev != null && prev != s.ringId) { audio.stop(); beginAudio() }
         }
 
         val pm = getSystemService(PowerManager::class.java)
@@ -91,6 +111,7 @@ class RingService : Service(), SensorEventListener {
     }
 
     private fun beginAudio() {
+        audio.stop()                 // release any previous player first
         audio.start(Svc.settings)
         acc?.reset()
         rotationDeg = 0.0
@@ -187,6 +208,8 @@ class RingService : Service(), SensorEventListener {
         }
     }
 
+    @Volatile private var lastStartId = 0
+
     private fun teardown() {
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
@@ -196,7 +219,8 @@ class RingService : Service(), SensorEventListener {
         Scheduler.cancelWatchdog(this)
         runCatching { wakeLock?.release() }; wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // With the startId, a teardown racing a fresh start cannot kill the new session.
+        if (lastStartId != 0) stopSelf(lastStartId) else stopSelf()
     }
 
     override fun onDestroy() {

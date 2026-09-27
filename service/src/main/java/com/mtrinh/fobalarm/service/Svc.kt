@@ -25,6 +25,8 @@ object Svc : AlarmHost {
     lateinit var de: DeMirror; private set
     private lateinit var db: Db
     private val io = Executors.newSingleThreadExecutor()
+    /** Never share the ring path's queue with disk IO or a 1.5s group restart. */
+    private val urgent = Executors.newSingleThreadExecutor()
     private val lock = Any()
 
     @Volatile private var state = EngineState()
@@ -34,6 +36,8 @@ object Svc : AlarmHost {
     @Volatile var appVersion: String = "?"
     @Volatile var variant: Variant = Variant.LIVE
     @Volatile var unlockToken: String? = null
+    /** Last device report from the controller. Null until it has ever been heard from. */
+    @Volatile var peerDevice: DeviceView? = null
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -66,18 +70,29 @@ object Svc : AlarmHost {
             snoozeThresholdDegrees = de.snoozeThresholdDegrees,
             ringtoneUri = de.ringtoneUri,
             role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
-        ))
+        ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         recompute("init:de")
 
         // Then bring up Room off-thread and recompute again once latches, the override
         // and the nap are known. Room is expendable; the schedule is not.
         io.execute {
+            var attempt = 0
+            while (attempt < 5 && !dbReady) {
+                attempt++
+                runCatching { db = Db.open(app); Persist.load(db.dao()) }
+                    .onFailure {
+                        log("db_open_retry", "attempt" to attempt.toString(), "error" to it.toString())
+                        Thread.sleep(500L * attempt)
+                    }
+            }
             runCatching {
-                db = Db.open(app)
                 val loaded = Persist.load(db.dao())
                 synchronized(lock) {
-                    state = loaded.copy(session = state.session)
+                    // Keep the live session and the newer liveness threshold.
+                    state = loaded.copy(
+                        session = state.session,
+                        lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs))
                 }
                 recompute("init:db")
             }.onFailure { log("db_open_failed", "error" to it.toString()) }
@@ -121,38 +136,48 @@ object Svc : AlarmHost {
         lastNextFire = r.nextFire
         logEvents(r.events)
         de.mirror(state.settings, r.nextFire, state.session)
+        de.lastAliveMs = state.lastAliveMs
         if (dbReady) io.execute { runCatching { Persist.save(db.dao(), state) } }
-        Scheduler.arm(app, r.nextFire)
+        // ALARM role only. The controller must never compute or arm a schedule:
+        // a second scheduler on the device with no clock sync would ring in the
+        // wrong room and chirp about gates it cannot pass.
+        if (state.settings.role == Role.ALARM) Scheduler.arm(app, r.nextFire)
 
         if (alsoFire && r.fireNow != null && state.session == null) {
             log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
-            io.execute { RingService.start(app) }
+            urgent.execute { RingService.start(app) }
         }
         if (r.chirpMissed) {
             log("missed_chirp")
-            io.execute { Audio(app).chirp() }
+            urgent.execute { Audio(app).chirp() }
         }
         snapshot()
     }
 
-    fun recompute(reason: String): Snapshot = apply(Engine.recompute(state, ts, reason))
+    fun recompute(reason: String): Snapshot =
+        synchronized(lock) { apply(Engine.recompute(state, ts, reason)) }
 
     // -----------------------------------------------------------------------
     // Trigger entry points (called by the receiver / ring service)
     // -----------------------------------------------------------------------
 
-    fun onTrigger(source: OccurrenceSource): Snapshot =
-        apply(Engine.onTrigger(state, ts, source, "r-" + UUID.randomUUID().toString().take(8)), alsoFire = false)
+    fun onTrigger(source: OccurrenceSource): Snapshot = synchronized(lock) {
+        apply(Engine.onTrigger(state, ts, source, "r-" + UUID.randomUUID().toString().take(8)),
+            alsoFire = false)
+    }
 
-    fun onSnooze(): Snapshot = apply(Engine.snooze(state, ts), alsoFire = false)
+    fun onSnooze(): Snapshot = synchronized(lock) { apply(Engine.snooze(state, ts), alsoFire = false) }
 
-    fun endSession(outcome: Outcome): Snapshot = apply(Engine.endSession(state, ts, outcome), alsoFire = false)
+    fun endSession(outcome: Outcome): Snapshot =
+        synchronized(lock) { apply(Engine.endSession(state, ts, outcome), alsoFire = false) }
 
     // -----------------------------------------------------------------------
     // AlarmHost -- the API surface shared by local and remote callers
     // -----------------------------------------------------------------------
 
-    override fun snapshot(): Snapshot {
+    override fun snapshot(): Snapshot = synchronized(lock) { buildSnapshot() }
+
+    private fun buildSnapshot(): Snapshot {
         val gates = GateEval.current(app, state.settings, lastNextFire != null)
         val s = state.session
         val ovFire = state.override?.fireAtMs
@@ -183,7 +208,7 @@ object Svc : AlarmHost {
             ap = ApView(state.settings.ssid, Group.running, Group.clientCount,
                 Group.lastStartedAtMs, Group.lastError),
             self = selfDevice(),
-            peer = null,     // filled by the client adapter
+            peer = peerDevice,
             lastOutcome = state.lastOutcome,
             appVersion = appVersion,
             settingsSchemaVersion = Persist.SCHEMA_VERSION,
@@ -195,7 +220,11 @@ object Svc : AlarmHost {
         )
     }
 
+    @Volatile private var selfCache: DeviceView? = null
+    @Volatile private var selfCacheAtMs = 0L
+
     fun selfDevice(): DeviceView {
+        selfCache?.let { if (System.currentTimeMillis() - selfCacheAtMs < 10_000) return it }
         val bm = app.getSystemService(BatteryManager::class.java)
         val batt = app.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         return DeviceView(
@@ -203,7 +232,9 @@ object Svc : AlarmHost {
             plugged = (batt?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,
             appVersion = appVersion, variant = variant,
             role = state.settings.role, deviceId = de.deviceId ?: "?",
-            lastSeenMs = System.currentTimeMillis())
+            lastSeenMs = System.currentTimeMillis()).also {
+            selfCache = it; selfCacheAtMs = System.currentTimeMillis()
+        }
     }
 
     /** Idempotent by content: a replayed request returns the current snapshot, not a second action. */
@@ -216,14 +247,21 @@ object Svc : AlarmHost {
 
     override fun dismiss(ringId: String, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        val s = state.session ?: throw StaleRingException(snapshot())
-        // Carrying ringId makes a replayed dismiss incapable of killing a FUTURE alarm.
-        if (s.ringId != ringId) {
-            log("stale_dismiss_rejected", "got" to ringId, "have" to s.ringId)
-            throw StaleRingException(snapshot())
+        // The ringId check and the end MUST be one transaction: a supersede landing
+        // between them would let a dismiss aimed at the finished nap ring end the real
+        // 04:00 session instead.
+        val snap = synchronized(lock) {
+            val s = state.session ?: throw StaleRingException(snapshot())
+            if (s.ringId != ringId) {
+                log("stale_dismiss_rejected", "got" to ringId, "have" to s.ringId)
+                throw StaleRingException(snapshot())
+            }
+            apply(Engine.endSession(state, ts,
+                if (actor == Actor.CONTROLLER) Outcome.DISMISSED_REMOTE else Outcome.DISMISSED_LOCAL),
+                alsoFire = false)
         }
-        RingService.stop(app)
-        return endSession(if (actor == Actor.CONTROLLER) Outcome.DISMISSED_REMOTE else Outcome.DISMISSED_LOCAL)
+        runCatching { RingService.stop(app) }
+        return snap
     }
 
     private fun requireUnlocked(patch: Settings, token: String?) {
@@ -254,29 +292,31 @@ object Svc : AlarmHost {
         val invalid = SettingsValidator.validate(patch)
         if (invalid.isNotEmpty()) throw IllegalArgumentException(invalid.joinToString { it.reason })
         val ssidChanged = patch.ssid != state.settings.ssid || patch.passphrase != state.settings.passphrase
-        val snap = apply(Engine.patchSettings(state, ts, patch, actor))
-        if (ssidChanged) io.execute { Group.restart(app, state.settings) }
+        val snap = synchronized(lock) { apply(Engine.patchSettings(state, ts, patch, actor)) }
+        if (ssidChanged) Executors.newSingleThreadExecutor().execute { Group.restart(app, state.settings) }
         return snap
     }
 
     override fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return apply(Engine.setNap(state, ts, minutes))
+        return synchronized(lock) { apply(Engine.setNap(state, ts, minutes)) }
     }
 
     override fun clearNap(requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return apply(Engine.clearNap(state, ts))
+        return synchronized(lock) { apply(Engine.clearNap(state, ts)) }
     }
 
     override fun setOverride(kind: String, time: String?, shiftMinutes: Int?, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
-        return when {
-            kind == "SKIP" -> apply(Engine.setSkip(state, ts))
-            kind == "NONE" -> apply(Engine.clearOverride(state, ts))
-            shiftMinutes != null -> apply(Engine.shiftOverride(state, ts, shiftMinutes))
-            time != null -> apply(Engine.setOverrideTime(state, ts, time))
-            else -> snapshot()
+        return synchronized(lock) {
+            when {
+                kind == "SKIP" -> apply(Engine.setSkip(state, ts))
+                kind == "NONE" -> apply(Engine.clearOverride(state, ts))
+                shiftMinutes != null -> apply(Engine.shiftOverride(state, ts, shiftMinutes))
+                time != null -> apply(Engine.setOverrideTime(state, ts, time))
+                else -> snapshot()
+            }
         }
     }
 
@@ -316,7 +356,10 @@ object Svc : AlarmHost {
                     System.currentTimeMillis() - unlockedAtMs < 120_000
             if (!fresh) throw ForbiddenException()
         }
-        state = state.copy(settings = SettingsValidator.normalize(backup.settings))
+        val candidate = SettingsValidator.normalize(backup.settings)
+        val invalid = SettingsValidator.validate(candidate)
+        if (invalid.isNotEmpty()) throw IllegalArgumentException(invalid.joinToString { it.reason })
+        synchronized(lock) { state = state.copy(settings = candidate) }
         if (dbReady) io.execute {
             runCatching {
                 db.dao().clearEvents()
@@ -367,9 +410,12 @@ object Svc : AlarmHost {
     }
 }
 
-class StaleRingException(val snapshot: Snapshot) : Exception("stale ringId")
-class ConflictException(val snapshot: Snapshot) : Exception("stale stateVersion")
-class ForbiddenException : Exception("password required")
+// Errors are ClientError (from :data) so the local and remote paths carry the SAME
+// vocabulary. Anything else and the three-outcome table in section 7 is only
+// implemented on one of the two paths.
+typealias StaleRingException = com.mtrinh.fobalarm.data.ClientError.StaleRing
+typealias ConflictException = com.mtrinh.fobalarm.data.ClientError.Conflict
+typealias ForbiddenException = com.mtrinh.fobalarm.data.ClientError.Forbidden
 
 /** All alarms are setAlarmClock: exempt from standby quotas and Doze. */
 object Scheduler {
@@ -396,6 +442,9 @@ object Scheduler {
     }
 
     fun armWatchdog(ctx: Context) = set(ctx, ACTION_WATCHDOG, 1002, System.currentTimeMillis() + 60_000)
+
+    /** Separate request code from the scheduled fire, so a retry cannot clobber it. */
+    fun armFireRetry(ctx: Context) = set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000)
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 

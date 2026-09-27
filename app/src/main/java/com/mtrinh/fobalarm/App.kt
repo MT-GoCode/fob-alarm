@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.mtrinh.fobalarm.core.Mode
 import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.core.Variant
 import com.mtrinh.fobalarm.data.LocalStateClient
@@ -62,10 +63,21 @@ class App : Application() {
      * only ever appears on the alarm phone.
      */
     private fun wireRingScreen() {
-        RingActivity.content = {
-            val app = remember { AppState(LocalStateClient(Svc), scope).also { it.startPolling() } }
+        RingActivity.content = { activity ->
+            // Its own scope, cancelled with the activity: an Application-scoped poll
+            // would accumulate a forever-loop on every recreation.
+            val scope = rememberCoroutineScope()
+            val app = remember {
+                AppState(LocalStateClient(Svc), scope, isLocal = true).also { it.startPolling() }
+            }
+            val mode = app.snapshot?.mode
+            // Finish as soon as the ring is over. Nothing else may keep this window --
+            // it is full brightness, KEEP_SCREEN_ON, and shown over the lock screen.
+            LaunchedEffect(mode) {
+                if (mode != null && mode != Mode.RINGING) activity.finish()
+            }
             Surface(Modifier.fillMaxSize()) {
-                RootScreen(app = app, isAlarmRole = true, instrument = { RingInstrument() })
+                RootScreen(app = app, isAlarmRole = true)
             }
         }
     }
@@ -95,18 +107,4 @@ class App : Application() {
             }
         }
     }
-}
-
-@Composable
-private fun RingInstrument() {
-    var deg by remember { mutableDoubleStateOf(0.0) }
-    var stale by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            deg = RingService.rotationDeg
-            stale = RingService.rvStale
-            delay(60)
-        }
-    }
-    RotationInstrument(deg, Svc.settings.snoozeThresholdDegrees, null, stale, Modifier.fillMaxSize())
 }

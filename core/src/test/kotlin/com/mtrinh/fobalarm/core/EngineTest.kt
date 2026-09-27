@@ -14,8 +14,11 @@ private fun at(iso: String) = ZonedDateTime.parse(iso).toInstant().toEpochMilli(
 
 class EngineTest {
 
+    /** An ESTABLISHED install: firstSeenMs is well in the past, so history is real. */
     private fun fresh(iso: String = "2026-09-26T01:00:00-07:00[America/Los_Angeles]") =
-        FakeClock(at(iso)) to EngineState(settings = Settings(defaultAlarmTime = "04:00"))
+        FakeClock(at(iso)) to EngineState(
+            settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
 
     // --- basic scheduling -------------------------------------------------
 
@@ -100,7 +103,8 @@ class EngineTest {
     @Test fun `spring forward into a non-existent local time still fires`() {
         // US DST 2027-03-14: 02:00 -> 03:00. An 02:30 alarm does not exist that day.
         val c = FakeClock(at("2027-03-13T12:00:00-08:00[America/Los_Angeles]"))
-        val s = EngineState(settings = Settings(defaultAlarmTime = "02:30"))
+        val s = EngineState(settings = Settings(defaultAlarmTime = "02:30"),
+            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
         val r = Engine.recompute(s, c, "t")
         assertNotNull(r.nextFire)
         assertTrue(r.nextFire!!.atMs > c.ms)
@@ -129,7 +133,8 @@ class EngineTest {
     @Test fun `forward jump inside the wake window rings instead of latching silently`() {
         // Phone comes up with a wrong clock, NITZ corrects it to 04:20.
         val c = FakeClock(at("2026-09-26T04:20:00-07:00[America/Los_Angeles]"))
-        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00", missedGraceMinutes = 15))
+        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00", missedGraceMinutes = 15),
+            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
         val r = Engine.recompute(s, c, "clock_jump")
         assertEquals(OccurrenceSource.SCHEDULED, r.fireNow, "must ring, not latch silently")
         assertFalse(r.chirpMissed)
@@ -137,7 +142,8 @@ class EngineTest {
 
     @Test fun `forward jump past the wake window chirps audibly`() {
         val c = FakeClock(at("2026-09-26T15:00:00-07:00[America/Los_Angeles]"))
-        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00"))
+        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
         val r = Engine.recompute(s, c, "clock_jump")
         assertNull(r.fireNow)
         assertTrue(r.chirpMissed, "a banner alone would be a silent failure")
@@ -217,6 +223,97 @@ class EngineTest {
     @Test fun `nextFire is never null under normal settings`() {
         val (c, s0) = fresh()
         assertNotNull(Engine.recompute(s0, c, "t").nextFire)
+    }
+}
+
+class RegressionTest {
+    private fun at(iso: String) = ZonedDateTime.parse(iso).toInstant().toEpochMilli()
+    private val established = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]")
+    /** Running normally right up to the fire. */
+    private val alive = at("2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+
+    /**
+     * The headline feature was deleting the alarm. Setting 07:00 at 01:00 worked, but the
+     * next recompute latched the 04:00 occurrence SUPERSEDED while its replacement was
+     * still in the future, which cleared the override. Result: no 07:00 alarm and no
+     * 04:00 alarm -- no alarm at all that day.
+     */
+    @Test fun `an override moving the alarm LATER survives recompute`() {
+        val c = FakeClock(at("2026-09-26T01:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = established)
+        val ov = Engine.setOverrideTime(st, c, "07:00")
+        assertEquals(at("2026-09-26T07:00:00-07:00[America/Los_Angeles]"), ov.nextFire!!.atMs)
+
+        c.set("2026-09-26T05:00:00-07:00[America/Los_Angeles]")   // the hourly tick
+        val after = Engine.recompute(ov.state, c, "tick")
+        assertNotNull(after.state.override, "the override must not be cleared before it fires")
+        assertEquals(at("2026-09-26T07:00:00-07:00[America/Los_Angeles]"), after.nextFire!!.atMs)
+    }
+
+    @Test fun `snooze-tomorrow survives recompute too`() {
+        val c = FakeClock(at("2026-09-25T23:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = established)
+        val shifted = Engine.shiftOverride(st, c, 120)             // 04:00 -> 06:00
+        c.set("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
+        val after = Engine.recompute(shifted.state, c, "tick")
+        assertEquals(at("2026-09-26T06:00:00-07:00[America/Los_Angeles]"), after.nextFire!!.atMs)
+    }
+
+    /**
+     * Alarms are delivered at or after the instant. Resolving the occurrence with
+     * `at > now` bound every fire to TOMORROW and latched TODAY as MISSED -- a bogus
+     * `missed` event every single morning, on a device whose only diagnostic is its log.
+     */
+    @Test fun `a fire delivered slightly late binds to today, not tomorrow`() {
+        val c = FakeClock(at("2026-09-26T04:00:00.120-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = alive)
+        val r = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1")
+        assertEquals("2026-09-26", r.state.session!!.occurrenceId.localDate)
+        assertTrue(r.events.none { it.type == "missed" }, "a normal morning must log no missed event")
+        assertTrue(r.state.latches.none {
+            it.id.localDate == "2026-09-26" && it.reason == LatchReason.MISSED })
+    }
+
+    @Test fun `a fire delivered minutes late still binds to today`() {
+        val c = FakeClock(at("2026-09-26T04:07:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = alive)
+        val r = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1")
+        assertEquals("2026-09-26", r.state.session!!.occurrenceId.localDate)
+    }
+
+    /** A fresh install (or a destructive migration) must not invent a fortnight of failures. */
+    @Test fun `a brand new install neither rings immediately nor reports missed`() {
+        val c = FakeClock(at("2026-09-26T06:00:00-07:00[America/Los_Angeles]"))
+        val r = Engine.recompute(EngineState(settings = Settings(defaultAlarmTime = "04:00")), c, "init")
+        assertNull(r.fireNow, "a fresh install must not ring on launch")
+        assertFalse(r.chirpMissed)
+        assertTrue(r.state.latches.none { it.reason == LatchReason.MISSED },
+            "occurrences before this install existed are not ours to miss")
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    /** A slept-through night must be distinguishable from a successful wake. */
+    @Test fun `CAPPED latches MISSED, not FIRED`() {
+        val c = FakeClock(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = established)
+        val ring = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        c.set("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
+        val done = Engine.endSession(ring, c, Outcome.CAPPED)
+        assertEquals(LatchReason.MISSED,
+            done.state.latches.first { it.id.localDate == "2026-09-26" }.reason)
+    }
+
+    /** Ten years of daily latches must not accumulate on the fire path. */
+    @Test fun `latches are pruned to a bounded window`() {
+        val c = FakeClock(at("2026-09-26T05:00:00-07:00[America/Los_Angeles]"))
+        val old = (1..400).map {
+            Latch(OccurrenceId("2025-0${(it % 9) + 1}-0${(it % 9) + 1}", OccurrenceSource.SCHEDULED),
+                LatchReason.FIRED, 0)
+        }
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = established, latches = old)
+        val r = Engine.recompute(st, c, "t")
+        assertTrue(r.state.latches.size < 40, "expected pruning, got ${r.state.latches.size}")
     }
 }
 

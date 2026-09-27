@@ -72,7 +72,10 @@ class HttpStateClient(
         remote.copy(self = selfProvider(), peer = remote.self.copy(lastSeenMs = System.currentTimeMillis()))
 
     override suspend fun snapshot(): Result<Snapshot> = runCatching {
-        withSelf(Wire.snapshotFrom(JSONObject(request("GET", "/v1/snapshot"))))
+        val me = selfProvider()
+        val q = "?deviceId=${me.deviceId}&batteryPct=${me.batteryPct}&plugged=${me.plugged}" +
+                "&appVersion=${me.appVersion}&variant=${me.variant.name}"
+        withSelf(Wire.snapshotFrom(JSONObject(request("GET", "/v1/snapshot$q"))))
     }
 
     override suspend fun dismiss(ringId: String, requestId: String) = runCatching {

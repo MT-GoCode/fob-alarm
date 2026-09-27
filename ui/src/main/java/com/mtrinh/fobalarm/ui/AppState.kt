@@ -25,6 +25,8 @@ sealed class DismissUi {
 class AppState(
     private val client: StateClient,
     private val scope: CoroutineScope,
+    /** ALARM role: this client is in-process, so our own poll says nothing about the link. */
+    private val isLocal: Boolean = false,
     /** Controller-side: persist each export locally so the alarm phone is not the only copy. */
     private val onExport: ((Backup) -> Unit)? = null,
 ) {
@@ -40,10 +42,24 @@ class AppState(
     var buttonLockedUntilMs by mutableLongStateOf(0L); private set
     private var lastRingId: String? = null
 
-    val connected: Boolean get() = System.currentTimeMillis() - lastOkMs < 30_000
-    val linkAgeMs: Long get() = if (lastOkMs == 0L) Long.MAX_VALUE / 2 else System.currentTimeMillis() - lastOkMs
+    /**
+     * Link health means "have the two phones heard from each other", never "did my own
+     * in-process call succeed". On the ALARM role that is peer.lastSeenMs; on the
+     * CONTROLLER it is our last successful poll.
+     */
+    private val linkAtMs: Long
+        get() = if (isLocal) (snapshot?.peer?.lastSeenMs ?: 0L) else lastOkMs
+
+    val connected: Boolean get() = linkAtMs != 0L && nowMs - linkAtMs < 60_000
+    val linkAgeMs: Long get() = if (linkAtMs == 0L) Long.MAX_VALUE / 2 else nowMs - linkAtMs
+
+    /** One ticking clock for the whole UI, so screens do not each run their own loop. */
+    var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
 
     fun startPolling(fastMs: Long = 500, idleMs: Long = 20_000) {
+        scope.launch {
+            while (true) { nowMs = System.currentTimeMillis(); delay(500) }
+        }
         scope.launch {
             var sinceBackup = 0L
             while (true) {

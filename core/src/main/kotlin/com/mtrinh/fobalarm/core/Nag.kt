@@ -27,8 +27,10 @@ object Nag {
         val deliberatelySilent = s?.tomorrow?.kind == "SKIP"
         if (deliberatelySilent) return Reason.NONE
 
-        // (3) liveness. Independent of (1).
-        if (lastOkMs != 0L && nowMs - lastOkMs > NO_CONTACT_MS) return Reason.NO_CONTACT
+        // (3) liveness. Independent of (1). `lastOkMs == 0` means we have NEVER reached
+        // the alarm phone, which is the pairing-failure case and needs the nag most.
+        if (lastOkMs == 0L) return if (s == null) Reason.NO_CONTACT else Reason.NONE
+        if (nowMs - lastOkMs > NO_CONTACT_MS) return Reason.NO_CONTACT
 
         // (1) silent failure: the alarm phone's OWN published nextFire has gone stale,
         // and no ring session ever opened for it.
