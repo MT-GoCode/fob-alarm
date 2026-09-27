@@ -5,4 +5,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "fobalarm"
-include(":app")
+include(":core", ":data", ":service", ":ui", ":app")
