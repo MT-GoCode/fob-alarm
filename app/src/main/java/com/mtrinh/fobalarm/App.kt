@@ -41,6 +41,7 @@ class App : Application() {
         // readable over http://<phone>:8766/v1/logs -- there is no logcat here.
         Crash.reportPending(this)
         Boot.ensure(this)
+        Fmt.use24h = android.text.format.DateFormat.is24HourFormat(this)
         wireRingScreen()
 
         // Owns the group / join loop and the control server, and keeps the process at

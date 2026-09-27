@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -238,41 +240,28 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
                 }
             }
         }
-        StatusBlock(s, app.nowMs, app.connected) { armed ->
-            app.patch { it.copy(armed = armed) }
-        }
+        StatusBlock(s, app.nowMs, app.connected) { app.reload() }
 
-        Section("Tomorrow only")
+        Section("Tomorrow only", "Changes the next alarm once, then goes back to normal.")
         var pickTime by remember { mutableStateOf(false) }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("+15m" to 15, "+30m" to 30, "+1h" to 60, "+2h" to 120).forEach { (t, m) ->
-                OutlinedButton(onClick = { app.overrideShift(m) },
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    modifier = Modifier.height(36.dp)) { Text(t, fontSize = 12.sp) }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(onClick = { pickTime = true }) { Text("Set a time", fontSize = 12.sp) }
-            OutlinedButton(onClick = { app.overrideSkip() }) { Text("Skip next", fontSize = 12.sp) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { pickTime = true }) { Text("Set a time") }
+            OutlinedButton(onClick = { app.overrideSkip() }) { Text("Skip") }
             if (s.tomorrow.kind != "NONE") {
-                Button(onClick = { app.clearOverride() }) { Text("Clear", fontSize = 12.sp) }
+                Button(onClick = { app.clearOverride() }) { Text("Clear") }
             }
         }
         if (pickTime) {
             TimePickerDialog("Wake me at",
                 s.tomorrow.timeMs?.let { Fmt.clock(it) } ?: s.settings.defaultAlarmTime,
-                onCancel = { pickTime = false }) { v ->
-                app.overrideTime(v); pickTime = false
-            }
+                onCancel = { pickTime = false }) { v -> app.overrideTime(v); pickTime = false }
         }
 
-        Section("Nap")
-        ChoiceSetting("Wake me in", null,
-            listOf("10m" to 10, "20m" to 20, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
-            s.settings.napMinutes) { v -> app.nap(v) }
+        Section("Nap", "A one-off timer from now. Does not change the alarm.")
+        DurationSetting("Wake me in", s.settings.napMinutes * 60,
+            minSeconds = 60, maxSeconds = 12 * 3600) { secs -> app.nap(secs / 60) }
         if (s.nap.armed) {
-            OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap", fontSize = 12.sp) }
+            OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap") }
         }
 
         app.lastError?.let { Text(it, color = Bad, fontSize = 12.sp) }
@@ -288,13 +277,8 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
 private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: (String) -> Unit) {
     val g = s.gates
     if (g.evaluatedAtMs == 0L) {
-        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
-            contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("Checking this device…", fontSize = 14.sp, color = Muted)
-            }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
         return
     }
@@ -302,52 +286,58 @@ private fun InitScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean, onFix: 
     val rows = g.entries()
     val perms = rows.filter { it.first.kind == GateKind.PERMISSION }
     val compat = rows.filter { it.first.kind == GateKind.COMPAT }
-    val blocking = perms.count { !it.second && it.first.blocking }
+    val missing = perms.filter { !it.second && it.first.blocking }
 
-    Page(
-        applyInsets = false,
-        title = "Setup",
-        subtitle = when {
-            !isAlarmRole -> "These are the alarm phone's permissions. Grant them on that phone."
-            blocking == 0 -> "All set."
-            else -> "$blocking permission${if (blocking == 1) "" else "s"} still needed."
-        },
-        subtitleColor = if (blocking == 0) Good else Muted,
-        snapshot = s,
-    ) {
-        Spacer(Modifier.height(10.dp))
-
-        perms.forEach { (info, ok) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text(if (ok) "✓" else if (info.blocking) "•" else "◦", fontSize = 18.sp,
-                    color = if (ok) Good else Muted, modifier = Modifier.width(26.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(info.label + if (!info.blocking) "  (optional)" else "",
-                        fontSize = 15.sp,
-                        color = if (ok) Muted else MaterialTheme.colorScheme.onSurface)
-                    if (!ok) Text(info.explain, fontSize = 12.sp, color = Muted)
-                }
-                if (!ok && isAlarmRole && info.fix != FixAction.NONE) {
-                    Button(onClick = { onFix(info.key) },
-                        contentPadding = PaddingValues(horizontal = 18.dp)) {
-                        Text(if (info.fix == FixAction.REQUEST) "Allow" else "Open")
-                    }
+    Page(title = "Setup") {
+        // One clear message at the top, as asked. Nothing here blocks the app.
+        if (missing.isEmpty()) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Text("Everything needed is allowed.", fontSize = 13.sp, color = Good,
+                    modifier = Modifier.padding(14.dp))
+            }
+        } else {
+            Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("The alarm cannot ring yet", fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("Allow the items below. You can still use the rest of the app.",
+                        fontSize = 12.sp, color = Color.Black)
                 }
             }
-            HorizontalDivider(color = Color(0xFF151A1F))
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        perms.forEach { (info, ok) ->
+            ListItem(
+                headlineContent = { Text(info.label) },
+                supportingContent = { Text(info.explain, fontSize = 12.sp) },
+                leadingContent = {
+                    Icon(
+                        if (ok) Icons.Default.CheckCircle else Icons.Default.Error,
+                        contentDescription = if (ok) "allowed" else "not allowed",
+                        tint = if (ok) Good else Bad)
+                },
+                trailingContent = {
+                    // Every row is actionable, always -- including granted ones, so you
+                    // can check or revoke. Nothing here is a dead row.
+                    if (isAlarmRole) {
+                        TextButton(onClick = { onFix(info.key) }) {
+                            Text(if (ok) "Check" else "Allow")
+                        }
+                    }
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
 
         Section("This phone")
         compat.forEach { (info, ok) -> Fact(info.label, if (ok) "yes" else "no", ok) }
 
-        // Link state, visible HERE so it can be seen before getting past setup.
         Section("Link")
-        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected"
-             else "off" + (s.ap.lastError?.let { " — $it" } ?: ""), s.ap.running)
+        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
         Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
-        Text("The group starts once a name and passphrase are set in Settings and " +
-             "nearby-devices is allowed.", fontSize = 11.sp, color = Muted)
     }
 }
 

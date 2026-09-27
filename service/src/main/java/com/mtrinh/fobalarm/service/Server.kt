@@ -164,6 +164,8 @@ object Server {
                             role = com.mtrinh.fobalarm.core.Role.CONTROLLER,
                             deviceId = id,
                             lastSeenMs = System.currentTimeMillis())
+                        Svc.peerBlockers = param(path, "blockers")
+                            ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
                     }
                     200 to Wire.snapshotToJson(Svc.snapshot()).toString()
                 }

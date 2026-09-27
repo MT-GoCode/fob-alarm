@@ -139,16 +139,6 @@ class EngineTest {
             Engine.recompute(s, FakeClock(at("2026-09-26T15:00:00-07:00[America/Los_Angeles]")), "t").fireNow)
     }
 
-    @Test fun `a disarmed alarm never rings and has no next fire`() {
-        val c = FakeClock(at("2026-09-26T04:20:00-07:00[America/Los_Angeles]"))
-        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00", armed = false),
-            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
-        val r = Engine.recompute(s, c, "t")
-        assertNull(r.fireNow)
-        assertNull(r.nextFire)
-    }
-
-
     @Test fun `backward jump past a fired occurrence does not re-fire`() {
         val (c, s0) = fresh("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
         val fired = Engine.recompute(s0, c, "t").state
@@ -438,13 +428,4 @@ class PasswordTest2 {
         assertTrue(Auth.accepts(Settings(), ""))
     }
 
-    @Test fun `disarmed means no next alarm at all`() {
-        val c = FakeClock(ZonedDateTime.parse("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
-            .toInstant().toEpochMilli())
-        val st = EngineState(settings = Settings(armed = false),
-            lastAliveMs = c.ms - 60_000)
-        assertNull(Engine.recompute(st, c, "t").nextFire)
-        val armed = Engine.recompute(st.copy(settings = Settings(armed = true)), c, "t")
-        assertNotNull(armed.nextFire)
-    }
 }

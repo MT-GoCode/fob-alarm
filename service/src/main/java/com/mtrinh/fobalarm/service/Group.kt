@@ -18,7 +18,6 @@ import com.mtrinh.fobalarm.core.Settings
  */
 object Group {
     @Volatile var running = false
-    @Volatile var clientCount = 0
     @Volatile var lastStartedAtMs = 0L
     @Volatile var lastError: String? = null
     @Volatile var ownerAddress: String? = null
@@ -64,12 +63,26 @@ object Group {
         val ch = channel ?: return
         runCatching {
             m.requestGroupInfo(ch) { g: WifiP2pGroup? ->
-                clientCount = g?.clientList?.size ?: 0
+                reportedClients = g?.clientList?.size ?: 0
                 running = g != null
                 ownerAddress = "192.168.49.1"
             }
         }
     }
+
+    @Volatile private var reportedClients = 0
+
+    /**
+     * A peer that polled us in the last minute IS connected, whatever the P2P client
+     * list says -- it lags, and it was reporting "no clients" while the other phone was
+     * actively talking to us.
+     */
+    val clientCount: Int
+        get() {
+            val seen = Svc.peerDevice?.lastSeenMs ?: 0
+            val peerLive = seen > 0 && System.currentTimeMillis() - seen < 60_000
+            return maxOf(reportedClients, if (peerLive) 1 else 0)
+        }
 
     fun stop(ctx: Context) {
         val m = manager ?: return

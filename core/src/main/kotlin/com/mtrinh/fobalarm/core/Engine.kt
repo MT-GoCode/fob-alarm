@@ -145,9 +145,7 @@ object Engine {
             }
 
             // One rule: an alarm that should have gone off and did not, rings now.
-            if (reasonFor == LatchReason.MISSED && st.settings.armed) {
-                fireNow = OccurrenceSource.SCHEDULED
-            }
+            if (reasonFor == LatchReason.MISSED) fireNow = OccurrenceSource.SCHEDULED
 
             st = st.copy(latches = st.latches + Latch(id, reasonFor, now))
             events += PendingEvent("latch", mapOf("occurrence" to id.toString(), "reason" to reasonFor.name))
@@ -194,9 +192,7 @@ object Engine {
         }
 
         val napFire = st.nap?.let { NextFire(it.fireAtMs, OccurrenceSource.NAP, "nap") }
-        val nextFire =
-            if (!st.settings.armed) null
-            else listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
+        val nextFire = listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
 
         // Ten years is 3650 latches, re-serialized on every save and linearly scanned
         // inside recompute's loops -- on the main thread, on the fire path.
@@ -421,7 +417,6 @@ object Engine {
         if (a.snoozeThresholdDegrees != b.snoozeThresholdDegrees) add("threshold:${a.snoozeThresholdDegrees}->${b.snoozeThresholdDegrees}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
         if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
-        if (a.armed != b.armed) add("armed:${a.armed}->${b.armed}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")
         if (a.ssid != b.ssid) add("ssid")
         if (a.passphrase != b.passphrase) add("passphrase")

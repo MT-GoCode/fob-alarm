@@ -290,10 +290,13 @@ class MainActivity : ComponentActivity() {
         var pw by remember { mutableStateOf("") }
 
         Section("Pairing", "Both phones must use the same name and passphrase.")
-        OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID (DIRECT-xy…)", fontSize = 12.sp) },
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(ssid, { ssid = it }, label = { Text("Name (starts DIRECT-)", fontSize = 12.sp) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8–63)", fontSize = 12.sp) },
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8-63)", fontSize = 12.sp) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(12.dp))
         Button(onClick = { confirm = true },
             enabled = pass.length in 8..63 && ssid.isNotBlank()) { Text("Apply credentials") }
 
@@ -317,8 +320,18 @@ class MainActivity : ComponentActivity() {
 
         Spacer(Modifier.height(8.dp))
         Section("Ringtone", "A built-in tone is used unless you choose a file.")
-        OutlinedButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) {
-            Text(if (Svc.settings.ringtoneUri != null) "Change audio file" else "Pick audio file", fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (Svc.settings.ringtoneUri != null) "Your file" else "Built-in tone",
+                fontSize = 15.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
+            if (Svc.settings.ringtoneUri != null) {
+                TextButton(onClick = {
+                    runCatching {
+                        Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null),
+                            java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
+                    }
+                }) { Text("Use built-in") }
+            }
         }
 
         Section("Password", "Optional. Locks the settings that could stop the alarm.")
@@ -430,10 +443,9 @@ class MainActivity : ComponentActivity() {
         var ip by remember { mutableStateOf(Updater.host ?: "") }
         var msg by remember { mutableStateOf(Updater.status) }
         Section("Dev channel", "Lets this phone fetch new builds from the Mac.")
-        Text(if (Updater.devModeOn) "ON — expires in " +
-                Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
-             else "OFF — the phone does not listen for builds", fontSize = 11.sp,
-            color = if (Updater.devModeOn) Good else Muted)
+        Text(if (Updater.devModeOn)
+                "On, closes in " + Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
+             else "Off", fontSize = 13.sp, color = if (Updater.devModeOn) Good else Muted)
         var askPw by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { askPw = true }) { Text("Enable 60m", fontSize = 12.sp) }
@@ -470,9 +482,7 @@ class MainActivity : ComponentActivity() {
         Button(onClick = { Updater.check(this@MainActivity) { msg = it } },
             enabled = Updater.devModeOn) { Text("Check for update", fontSize = 12.sp) }
         Text(msg, fontSize = 11.sp, color = Muted)
-        Text("last check ${Fmt.age(Updater.lastCheckAtMs)} · remote vc ${Updater.remoteVersionCode}",
-            fontSize = 10.sp, color = Muted)
-        Text("logs: http://<this phone>:8766/v1/logs  [${Server.logStatus}]", fontSize = 10.sp, color = Muted)
+        Text("Last checked ${Fmt.age(Updater.lastCheckAtMs)}", fontSize = 12.sp, color = Muted)
     }
 
     /** Controller-side pairing. Must match the alarm phone's group byte for byte. */

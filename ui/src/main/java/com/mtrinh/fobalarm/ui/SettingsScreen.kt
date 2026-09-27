@@ -12,10 +12,6 @@ import androidx.compose.ui.unit.sp
 import com.mtrinh.fobalarm.core.Settings
 import com.mtrinh.fobalarm.core.Snapshot
 
-/**
- * One settings screen for both phones. Locked settings are visibly locked rather than
- * hidden, so the screen never lies about what can be changed.
- */
 @Composable
 fun SettingsScreen(
     app: AppState,
@@ -26,26 +22,35 @@ fun SettingsScreen(
     val hasPassword = s.settings.hasPassword
     val locked = hasPassword && app.token == null
 
-    Page(title = "Settings", snapshot = s) {
+    // No status fields here: Status is its own screen.
+    Page(title = "Settings") {
 
-        // --- password, first, because it decides whether anything below is editable ---
+        // One explanation for the whole screen, instead of a caption under every row.
         Card(colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(if (!hasPassword) "No password set" else if (locked) "Locked" else "Unlocked",
-                        fontSize = 15.sp, color = if (locked) Bad else Good)
-                    Text(
-                        if (!hasPassword) "Anyone holding this phone can change the alarm."
-                        else if (locked) "Unlock to change the settings marked with a lock."
-                        else "Locks itself again after about two minutes.",
-                        fontSize = 12.sp, color = Muted)
-                }
-                if (locked) Button(onClick = { showUnlock = true }) { Text("Unlock") }
-            }
+            Text(
+                "Changes save immediately and sync to the other phone. Setting a password " +
+                "locks the settings that could stop the alarm. Dismissing never needs one.",
+                fontSize = 12.sp, color = Muted, modifier = Modifier.padding(14.dp))
         }
 
-        // --- alarm ---
+        Spacer(Modifier.height(18.dp))
+
+        // --- password first, because it decides what else is editable ---
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
+                    fontSize = 16.sp, fontWeight = FontWeight1, color = if (locked) Bad else Good)
+                Text(
+                    if (!hasPassword) "Anything below can be changed by anyone."
+                    else if (locked) "Unlock to change the locked settings."
+                    else "Locks again after a couple of minutes.",
+                    fontSize = 12.sp, color = Muted)
+            }
+            if (locked) Button(onClick = { showUnlock = true }) { Text("Unlock") }
+        }
+
         Section("Alarm")
         LockedRow(locked) {
             TimeSetting("Alarm time", s.settings.defaultAlarmTime) { v ->
@@ -62,33 +67,32 @@ fun SettingsScreen(
             ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch { it.copy(vibrate = v) } }
         }
         LockedRow(locked) {
-            ChoiceSetting("Give up after", null,
-                listOf("15m" to 15, "30m" to 30, "45m" to 45, "1h" to 60, "2h" to 120),
-                s.settings.maxRingMinutes) { v -> app.patch { it.copy(maxRingMinutes = v) } }
+            DurationSetting("Give up after", s.settings.maxRingMinutes * 60,
+                minSeconds = 5 * 60, maxSeconds = 4 * 3600) { secs ->
+                app.patch { it.copy(maxRingMinutes = secs / 60) }
+            }
         }
 
-        // --- snooze ---
         Section("Snooze", "Turn the phone this far to snooze it.")
         LockedRow(locked) {
-            // Seconds, not minutes: the 30s default cannot survive a minutes-only control.
-            ChoiceSetting("Snooze for", null,
-                listOf("30s" to 30, "1m" to 60, "2m" to 120, "5m" to 300, "10m" to 600),
-                s.settings.snoozeSeconds) { v -> app.patch { it.copy(snoozeSeconds = v) } }
+            DurationSetting("Snooze for", s.settings.snoozeSeconds,
+                minSeconds = 10, maxSeconds = Settings.SNOOZE_CEILING_S,
+                allowSeconds = true) { secs ->
+                app.patch { it.copy(snoozeSeconds = secs) }
+            }
         }
         LockedRow(locked) {
-            ChoiceSetting("Rotation needed", null,
+            ChoiceSetting("Rotation", null,
                 listOf("90°" to 90, "120°" to 120, "180°" to 180, "360°" to 360),
                 s.settings.snoozeThresholdDegrees) { v ->
                 app.patch { it.copy(snoozeThresholdDegrees = v) }
             }
         }
 
-        // --- test ---
         Section("Test",
-            if (s.self.role?.name == "CONTROLLER")
-                "Rings the alarm phone in 10 seconds. Stop it from that phone."
-            else "Rings this phone in 10 seconds. Lock it and put it down first.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (s.self.role?.name == "CONTROLLER") "Rings the alarm phone now."
+            else "Rings this phone now.")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) {
                 Text("Test ring")
             }
@@ -97,7 +101,7 @@ fun SettingsScreen(
             }
         }
         app.testMessage?.let {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(it, fontSize = 13.sp,
                 color = if (app.testOk) MaterialTheme.colorScheme.primary else Bad)
         }
@@ -114,21 +118,16 @@ fun SettingsScreen(
     }
 }
 
-/** Visibly locked, and says why when tapped, rather than silently doing nothing. */
+/** Locked settings stay readable; tapping says why rather than doing nothing. */
 @Composable
 fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
     var explain by remember { mutableStateOf(false) }
     Box {
         content()
         if (locked) {
-            Box(Modifier.matchParentSize()) {
-                // Intercept taps, but stay readable: you must be able to check the
-                // alarm time without unlocking.
-                Box(Modifier.matchParentSize().clickableNoRipple { explain = true })
-                Icon(Icons.Default.Lock, contentDescription = "Locked",
-                    tint = Muted, modifier = Modifier.size(16.dp)
-                        .align(Alignment.CenterEnd))
-            }
+            Box(Modifier.matchParentSize().clickableNoRipple { explain = true })
+            Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Muted,
+                modifier = Modifier.size(16.dp).align(Alignment.CenterEnd))
         }
     }
     if (explain) {
@@ -142,9 +141,11 @@ fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
 
 @Composable
 fun ToggleSetting(label: String, value: Boolean, onSet: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(label, fontSize = 15.sp, modifier = Modifier.weight(1f))
         Switch(checked = value, onCheckedChange = onSet)
     }
 }
+
+private val FontWeight1 = androidx.compose.ui.text.font.FontWeight.SemiBold

@@ -1,6 +1,8 @@
 package com.mtrinh.fobalarm.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -11,65 +13,89 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtrinh.fobalarm.core.*
 
-/**
- * ONE status block. Everything worth knowing, in one place, in one order:
- * what this phone is, whether it will ring, when, and what could stop it.
- */
+/** Everything worth knowing, in one place, in one order. */
 @Composable
-fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onArm: (Boolean) -> Unit) {
-    val armed = s.settings.armed
+fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Unit) {
 
-    // --- headline: armed, and when ---------------------------------------
+    val myBlockers = s.gates.failing().filter { GateInfo.of(it)?.blocking == true }
+    val peerBlockers = s.peerBlockers
+    val willRing = myBlockers.isEmpty() && s.nextFire != null
+
+    // --- headline -----------------------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(if (armed) "Armed" else "Disarmed",
-                fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                color = if (armed) Good else Bad)
             Text(
-                if (!armed) "will not ring"
-                else if (s.nextFire != null)
-                    "${Fmt.absolute(s.nextFire!!.atMs)} · ${Fmt.until(s.nextFire!!.atMs, nowMs)}"
-                else "no alarm scheduled",
-                fontSize = 14.sp,
-                color = if (armed && s.nextFire != null) MaterialTheme.colorScheme.onSurface else Bad)
+                if (s.nextFire != null) Fmt.absolute(s.nextFire!!.atMs) else "No alarm set",
+                fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                color = if (willRing) MaterialTheme.colorScheme.onSurface else Bad)
+            Text(
+                if (s.nextFire != null) Fmt.until(s.nextFire!!.atMs, nowMs) else "nothing scheduled",
+                fontSize = 15.sp, color = Muted)
         }
-        Switch(checked = armed, onCheckedChange = onArm)
+        IconButton(onClick = onReload) {
+            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+        }
     }
 
-    // --- one-off changes --------------------------------------------------
-    if (s.tomorrow.kind != "NONE" || s.nap.armed) {
+    // --- anything that would stop it ringing, on EITHER phone ---------------
+    if (myBlockers.isNotEmpty() || peerBlockers.isNotEmpty()) {
         Spacer(Modifier.height(10.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
+            Column(Modifier.padding(14.dp)) {
+                Text("The alarm will not ring", fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, color = Color.Black)
+                myBlockers.forEach {
+                    Text("This phone: " + (GateInfo.of(it)?.label ?: it),
+                        fontSize = 13.sp, color = Color.Black)
+                }
+                peerBlockers.forEach {
+                    Text("Other phone: " + (GateInfo.of(it)?.label ?: it),
+                        fontSize = 13.sp, color = Color.Black)
+                }
+                Text("Open Setup to fix.", fontSize = 12.sp, color = Color.Black)
+            }
+        }
+    }
+
+    // --- one-off changes ----------------------------------------------------
+    if (s.tomorrow.kind != "NONE" || s.nap.armed) {
+        Spacer(Modifier.height(12.dp))
         if (s.tomorrow.kind == "SKIP") {
-            Fact("tomorrow", "skipping " + (s.tomorrow.replacesMs?.let { Fmt.absolute(it) } ?: ""))
+            Fact("tomorrow", "skipped")
         } else if (s.tomorrow.kind != "NONE") {
-            Fact("tomorrow", (s.tomorrow.timeMs?.let { Fmt.absolute(it) } ?: "?") +
-                    "  instead of  " + (s.tomorrow.replacesMs?.let { Fmt.absolute(it) } ?: "?"))
+            Fact("tomorrow", s.tomorrow.timeMs?.let { Fmt.absolute(it) } ?: "?")
         }
         if (s.nap.armed) Fact("nap", s.nap.atMs?.let { Fmt.until(it, nowMs) } ?: "?")
     }
 
-    Section("This phone", null)
+    Section("This phone")
     Fact("role", s.self.role?.name ?: "not set", s.self.role != null)
+    Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.batteryPct >= 20)
     Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
     Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
-    Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.batteryPct >= 20)
-    Section("Other phone", null)
+
+    Section("Other phone")
     if (s.peer == null) {
-        Fact("status", "never connected", false)
+        Fact("status", "not connected", false)
     } else {
-        Fact("status", if (connected) "connected" else "last seen ${Fmt.age(s.peer!!.lastSeenMs, nowMs)}",
+        Fact("status",
+            if (connected) "connected" else "last heard ${Fmt.age(s.peer!!.lastSeenMs, nowMs)}",
             connected)
         Fact("role", s.peer!!.role?.name ?: "unknown", s.peer!!.role != null)
-        Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged), s.peer!!.batteryPct >= 20)
+        Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged),
+            s.peer!!.batteryPct >= 20)
     }
 
-    Section("Alarm health", null)
+    Section("Alarm")
     Fact("last result", s.lastOutcome?.let {
-        "${it.kind.name.lowercase().replace('_', ' ')}, ${Fmt.absolute(it.atMs)}"
+        "${it.kind.name.lowercase().replace('_', ' ')} · ${Fmt.absolute(it.atMs)}"
     } ?: "nothing yet")
-    Fact("ringtone", if (s.gates.audioPlayable) "ready" else "cannot be read", s.gates.audioPlayable)
+    Fact("ringtone", if (s.settings.ringtoneUri != null) "your file" else "built-in",
+        s.gates.audioPlayable)
     Fact("volume", "${s.settings.alarmVolumePercent}%" +
-            if (!s.gates.volumeNotFixed) ", MUTED" else "", s.gates.volumeNotFixed)
-    Fact("clock synced", if (s.clock.lastSyncOkMs == 0L) "never" else Fmt.age(s.clock.lastSyncOkMs, nowMs),
+            (if (!s.gates.volumeNotFixed) " · MUTED" else "") +
+            (if (s.settings.vibrate) " · vibrate" else ""), s.gates.volumeNotFixed)
+    Fact("clock synced",
+        if (s.clock.lastSyncOkMs == 0L) "never" else Fmt.age(s.clock.lastSyncOkMs, nowMs),
         s.clock.lastSyncOkMs != 0L)
 }

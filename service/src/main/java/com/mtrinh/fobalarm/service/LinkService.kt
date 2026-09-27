@@ -54,7 +54,19 @@ class LinkService : Service() {
         }
     }
 
+    private val p2pReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            Svc.log("p2p_connection_changed")
+            Group.refresh(c)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        runCatching {
+            registerReceiver(p2pReceiver, android.content.IntentFilter(
+                android.net.wifi.p2p.WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION),
+                Context.RECEIVER_NOT_EXPORTED)
+        }
         runCatching { startForeground(NOTIF_ID, notification()) }
             .onFailure { Svc.log("link_fgs_failed", "error" to it.toString()) }
         alive = true
@@ -96,6 +108,7 @@ class LinkService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(p2pReceiver) }
         alive = false
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()

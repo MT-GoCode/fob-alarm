@@ -38,30 +38,27 @@ data class GateInfo(
     companion object {
         val ALL: List<GateInfo> = listOf(
             // ---- permissions: setup, blocking, actionable ----
-            GateInfo("foregroundService", "Notifications allowed",
-                "Lets the alarm show its full-screen ring notification, and keeps the " +
-                "link service running.",
+            GateInfo("foregroundService", "Notifications",
+                "Needed to show the alarm screen and keep the link running.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.REQUEST),
-            GateInfo("exactAlarm", "Exact alarms allowed",
-                "Without this Android may delay the alarm by minutes or hours.",
+            GateInfo("exactAlarm", "Exact alarms",
+                "Without this Android can delay the alarm by minutes or hours.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
-            GateInfo("fullScreenIntent", "Can show over the lock screen",
-                "Lets the ring screen appear without unlocking. Granted automatically to " +
-                "alarm apps on Android 14+.",
+            GateInfo("fullScreenIntent", "Show over the lock screen",
+                "Lets the ring screen appear without unlocking the phone.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
             // NOT blocking. It matters on a horizon of months, the setting is buried
             // under an OEM-dependent name, and there is no reliable deep link to it --
             // so making it a wall stopped setup dead over something that cannot affect
             // tonight. It stays visible, and the 22:00 check will keep complaining.
-            GateInfo("notHibernating", "Android won't pause this app",
-                "Only matters after months of not opening the app. Settings > Apps > " +
-                "Fob Alarm > App info, then turn OFF \"Pause app activity if unused\".",
+            GateInfo("notHibernating", "Keep the app active",
+                "Turn off \"Pause app activity if unused\" so Android never stops the alarm.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
             GateInfo("localNetworkPermission", "Nearby devices",
                 "Required to pair the two phones over Wi-Fi Direct.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.REQUEST),
             GateInfo("notificationPolicyAccess", "Do Not Disturb access",
-                "Lets the app detect a DND or Bedtime rule that would mute the alarm.",
+                "Lets the app warn you if a DND rule would mute the alarm.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
 
             // ---- compatibility: facts, nothing to grant ----

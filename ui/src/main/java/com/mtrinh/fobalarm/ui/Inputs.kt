@@ -48,7 +48,9 @@ fun TimeSetting(
     }
 
     if (open) {
-        val state = rememberTimePickerState(initialHour = h, initialMinute = m, is24Hour = true)
+        val state = rememberTimePickerState(initialHour = h, initialMinute = m,
+            is24Hour = android.text.format.DateFormat.is24HourFormat(
+                androidx.compose.ui.platform.LocalContext.current))
         AlertDialog(
             onDismissRequest = { open = false },
             title = { Text(label) },
@@ -151,7 +153,9 @@ fun TimePickerDialog(
         runCatching { initial.split(":").map { it.toInt() } }.getOrDefault(listOf(7, 0))
             .let { (it.getOrElse(0) { 7 }) to (it.getOrElse(1) { 0 }) }
     }
-    val state = rememberTimePickerState(initialHour = h, initialMinute = m, is24Hour = true)
+    val state = rememberTimePickerState(initialHour = h, initialMinute = m,
+        is24Hour = android.text.format.DateFormat.is24HourFormat(
+            androidx.compose.ui.platform.LocalContext.current))
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(title) },
@@ -170,3 +174,80 @@ fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
     this.clickable(
         interactionSource = androidx.compose.foundation.interaction.MutableInteractionSource(),
         indication = null, onClick = onClick)
+
+/**
+ * A duration, entered as hours and minutes, bounded with a stated limit rather than a
+ * silent clamp. Not a clock dial: a dial asks "what time is it" and this asks "how long".
+ */
+@Composable
+fun DurationSetting(
+    label: String,
+    totalSeconds: Int,
+    minSeconds: Int,
+    maxSeconds: Int,
+    allowSeconds: Boolean = false,
+    onSet: (Int) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = { open = true }) {
+            Text(Fmt.duration(totalSeconds * 1000L), fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold)
+        }
+    }
+
+    if (open) {
+        var h by remember { mutableStateOf((totalSeconds / 3600).toString()) }
+        var m by remember { mutableStateOf(((totalSeconds % 3600) / 60).toString()) }
+        var sec by remember { mutableStateOf((totalSeconds % 60).toString()) }
+        var err by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(label) },
+            text = {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        NumberBox(h, "h") { h = it; err = null }
+                        NumberBox(m, "m") { m = it; err = null }
+                        if (allowSeconds) NumberBox(sec, "s") { sec = it; err = null }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Between ${Fmt.duration(minSeconds * 1000L)} and " +
+                         "${Fmt.duration(maxSeconds * 1000L)}", fontSize = 12.sp, color = Muted)
+                    err?.let { Text(it, color = Bad, fontSize = 12.sp) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val total = (h.toIntOrNull() ?: 0) * 3600 +
+                            (m.toIntOrNull() ?: 0) * 60 +
+                            (if (allowSeconds) sec.toIntOrNull() ?: 0 else 0)
+                    when {
+                        total < minSeconds -> err = "Too short. Minimum is ${Fmt.duration(minSeconds * 1000L)}."
+                        total > maxSeconds -> err = "Too long. Maximum is ${Fmt.duration(maxSeconds * 1000L)}."
+                        else -> { onSet(total); open = false }
+                    }
+                }) { Text("Set") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun NumberBox(value: String, suffix: String, onChange: (String) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) onChange(it) },
+            singleLine = true,
+            modifier = Modifier.width(76.dp),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+        )
+        Text(suffix, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp, end = 12.dp))
+    }
+}

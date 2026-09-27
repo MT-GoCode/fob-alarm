@@ -77,6 +77,7 @@ object Wire {
         put("nap", JSONObject().put("armed", s.nap.armed).put("atMs", s.nap.atMs ?: JSONObject.NULL))
         put("settings", settingsToJson(s.settings))
         put("lastEvents", JSONArray().apply { s.lastEvents.forEach { put(eventToJson(it)) } })
+        put("peerBlockers", JSONArray(s.peerBlockers))
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -106,7 +107,6 @@ object Wire {
         .put("maxRingMinutes", s.maxRingMinutes)
         .put("napMinutes", s.napMinutes)
         .put("vibrate", s.vibrate)
-        .put("armed", s.armed)
         .put("ssid", s.ssid ?: JSONObject.NULL)
         // The passphrase is transmitted: the controller must be able to render and edit it,
         // and the link that carries it is the WPA2 group it unlocks.
@@ -125,7 +125,6 @@ object Wire {
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),
-        armed = o.optBoolean("armed", base.armed),
         hasPasswordRemote = o.optBoolean("hasPassword", base.hasPasswordRemote),
         ssid = if (o.has("ssid") && !o.isNull("ssid")) o.getString("ssid") else base.ssid,
         passphrase = if (o.has("passphrase") && !o.isNull("passphrase")) o.getString("passphrase") else base.passphrase,
@@ -218,6 +217,9 @@ object Wire {
             settings = settingsFrom(o.getJSONObject("settings"), Settings()),
             lastEvents = o.optJSONArray("lastEvents")?.let { a ->
                 (0 until a.length()).map { eventFrom(a.getJSONObject(it)) }
+            } ?: emptyList(),
+            peerBlockers = o.optJSONArray("peerBlockers")?.let { a ->
+                (0 until a.length()).map { a.getString(it) }
             } ?: emptyList(),
         )
     }

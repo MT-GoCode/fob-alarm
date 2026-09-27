@@ -18,6 +18,8 @@ class HttpStateClient(
     private val hostProvider: () -> String?,
     private val networkProvider: () -> Network?,
     private val selfProvider: () -> DeviceView,
+    /** This phone's own failing blocking gates, sent so the peer can show them. */
+    private val localBlockers: () -> List<String> = { emptyList() },
 ) : StateClient {
 
     companion object { const val PORT = 8765 }
@@ -74,7 +76,8 @@ class HttpStateClient(
     override suspend fun snapshot(): Result<Snapshot> = runCatching {
         val me = selfProvider()
         val q = "?deviceId=${me.deviceId}&batteryPct=${me.batteryPct}&plugged=${me.plugged}" +
-                "&appVersion=${me.appVersion}&variant=${me.variant.name}"
+                "&appVersion=${me.appVersion}&variant=${me.variant.name}" +
+                "&blockers=" + localBlockers().joinToString(",")
         withSelf(Wire.snapshotFrom(JSONObject(request("GET", "/v1/snapshot$q"))))
     }
 

@@ -79,9 +79,6 @@ class DeMirror(ctx: Context) {
         get() = p.getBoolean("vibrate", true)
         set(v) = p.edit().putBoolean("vibrate", v).apply()
 
-    var armed: Boolean
-        get() = p.getBoolean("armed", true)
-        set(v) = p.edit().putBoolean("armed", v).apply()
 
     /** Without this, process death between the tap and the fire turns a SILENT test
      *  into a full-volume siren. */
@@ -121,7 +118,6 @@ class DeMirror(ctx: Context) {
             .putString("passwordHash", s.passwordHash)
             .putString("passwordSalt", s.passwordSalt)
             .putBoolean("vibrate", s.vibrate)
-            .putBoolean("armed", s.armed)
             .putLong("nextFireAtMs", next?.atMs ?: 0)
             .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
             .putString("defaultAlarmTime", s.defaultAlarmTime)

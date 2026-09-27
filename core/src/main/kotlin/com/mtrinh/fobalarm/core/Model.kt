@@ -18,8 +18,6 @@ data class Settings(
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
-    /** Master switch. Disarmed means no alarm fires at all, and the status screen says so. */
-    val armed: Boolean = true,
     val ssid: String? = null,
     val passphrase: String? = null,
     val passwordHash: String? = null,
@@ -224,6 +222,8 @@ data class Snapshot(
     val nap: NapView,
     val settings: Settings,
     val lastEvents: List<Event>,
+    /** Blocking gates failing on the OTHER phone, reported by it. */
+    val peerBlockers: List<String> = emptyList(),
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

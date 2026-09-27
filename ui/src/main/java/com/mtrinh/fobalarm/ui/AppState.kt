@@ -136,7 +136,7 @@ class AppState(
     fun testRing(silent: Boolean) {
         scope.launch {
             testOk = true
-            testMessage = "Ringing in 10 seconds"
+            testMessage = "Ringing…"
             client.testRing(silent, UUID.randomUUID().toString())
                 .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
                 .onFailure {

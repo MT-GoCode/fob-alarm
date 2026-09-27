@@ -11,8 +11,12 @@ import java.util.Locale
 object Fmt {
     private fun f(p: String) = SimpleDateFormat(p, Locale.getDefault())
 
-    fun clock(ms: Long): String = f("HH:mm").format(Date(ms))
-    fun absolute(ms: Long): String = f("EEE d MMM HH:mm").format(Date(ms))
+    /** Follows the phone's 12/24-hour setting, so times match the pickers. */
+    @Volatile var use24h: Boolean = true
+
+    fun clock(ms: Long): String = f(if (use24h) "HH:mm" else "h:mm a").format(Date(ms))
+    fun absolute(ms: Long): String =
+        f(if (use24h) "EEE d MMM HH:mm" else "EEE d MMM h:mm a").format(Date(ms))
 
     /** An unknown timestamp is a problem, so it says so. */
     fun age(ms: Long, now: Long = System.currentTimeMillis()): String {
@@ -32,6 +36,7 @@ object Fmt {
         return when {
             s < 60 -> "${s}s"
             s < 3600 -> "${s / 60}m"
+            s % 3600 == 0L && s < 86400 -> "${s / 3600}h"
             s < 86400 -> "${s / 3600}h ${(s % 3600) / 60}m"
             else -> "${s / 86400}d ${(s % 86400) / 3600}h"
         }

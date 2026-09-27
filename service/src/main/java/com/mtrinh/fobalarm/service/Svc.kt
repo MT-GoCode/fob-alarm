@@ -38,6 +38,7 @@ object Svc : AlarmHost {
     @Volatile var unlockToken: String? = null
     /** Last device report from the controller. Null until it has ever been heard from. */
     @Volatile var peerDevice: DeviceView? = null
+    @Volatile var peerBlockers: List<String> = emptyList()
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -75,7 +76,6 @@ object Svc : AlarmHost {
             passwordHash = de.passwordHash,
             passwordSalt = de.passwordSalt,
             vibrate = de.vibrate,
-            armed = de.armed,
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         recompute("init:de")
@@ -240,6 +240,7 @@ object Svc : AlarmHost {
             nap = NapView(state.nap != null, state.nap?.fireAtMs),
             settings = state.settings,
             lastEvents = recentEvents(10),
+            peerBlockers = peerBlockers,
         )
     }
 
@@ -434,9 +435,7 @@ object Svc : AlarmHost {
         // 30s window: long enough for the 10s delay, far too short to survive to 04:00.
         de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString())
-        // 10s so the phone can be locked and put down first -- testing from a
-        // foregrounded app proves nothing about 04:00.
-        Scheduler.armTestFire(app, 10)
+        Scheduler.armTestFire(app, 1)
         return snapshot()
     }
 
