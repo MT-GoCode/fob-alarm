@@ -192,6 +192,10 @@ object Server {
                         Actor.CONTROLLER)).toString()
                 }
 
+                path.startsWith("/v1/test") && method == "POST" ->
+                    200 to Wire.snapshotToJson(
+                        Svc.testRing(o.optBoolean("silent"), rid)).toString()
+
                 path.startsWith("/v1/unlock") && method == "POST" ->
                     200 to JSONObject().put("token", Svc.unlock(o.getString("secret"))).toString()
 

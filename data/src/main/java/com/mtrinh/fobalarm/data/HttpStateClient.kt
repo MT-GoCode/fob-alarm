@@ -126,6 +126,11 @@ class HttpStateClient(
             Wire.backupToJson(backup).put("token", token ?: JSONObject.NULL), 15000))))
     }
 
+    override suspend fun testRing(silent: Boolean, requestId: String) = runCatching {
+        withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/test",
+            JSONObject().put("silent", silent).put("requestId", requestId)))))
+    }
+
     override suspend fun unlock(secret: String) = runCatching {
         JSONObject(request("POST", "/v1/unlock", JSONObject().put("secret", secret))).getString("token")
     }

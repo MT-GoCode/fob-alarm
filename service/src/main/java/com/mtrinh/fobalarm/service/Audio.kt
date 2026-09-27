@@ -64,7 +64,10 @@ class Audio(private val ctx: Context) {
         }
     }
 
-    fun start(settings: Settings) {
+    fun start(settings: Settings, silent: Boolean = false) {
+        // Silent test: vibration and screen only. Proves the screen wakes and the
+        // remote dismiss works, without waking the house at 23:00.
+        if (silent) { chainLink = "silent"; audible = "silent test"; startVibration(); return }
         assertVolume(settings)
         startPlayer(settings)
         startVibration()

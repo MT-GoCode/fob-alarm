@@ -77,6 +77,21 @@ fun SettingsScreen(
             app.patch { it.copy(stillWorthWakingBefore = v) }
         }
 
+        // Trusting a green permission tick is not the same as knowing. SPEC.md section 8.
+        Section("Test ring")
+        Text("Fires in 10 seconds through the real alarm path, so lock the phone and put " +
+             "it down first. Caps at 60s and stops by itself. Touches no schedule.",
+            fontSize = 11.sp, color = Muted)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) {
+                Text("Test ring", fontSize = 13.sp)
+            }
+            OutlinedButton(onClick = { app.testRing(true) }, modifier = Modifier.weight(1f)) {
+                Text("Silent test", fontSize = 13.sp)
+            }
+        }
+        app.testMessage?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary) }
+
         // --- alarm-phone-only: credentials, ringtone, password ---------------
         if (deviceSettings != null) {
             Section("This device")

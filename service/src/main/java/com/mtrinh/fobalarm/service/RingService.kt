@@ -73,12 +73,30 @@ class RingService : Service(), SensorEventListener {
                 Svc.log("start_foreground_failed", "error" to it.toString())
             }
 
+        // A TEST ring has no engine session by design: it must not latch, schedule or
+        // consume an occurrence. It caps itself and needs no dismiss to end.
+        if (intent != null && Svc.session == null && Svc.testUntilMs == 0L &&
+            Svc.de.pendingTest) {
+            Svc.de.pendingTest = false
+            Svc.testUntilMs = System.currentTimeMillis() + 60_000
+            Svc.log("test_ring_start", "silent" to Svc.testSilent.toString())
+            val pm0 = getSystemService(PowerManager::class.java)
+            wakeLock = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:test")
+                .also { it.acquire(90_000) }
+            audio.stop(); audio.start(Svc.settings, silent = Svc.testSilent)
+            handler.removeCallbacks(heartbeat); handler.post(heartbeat)
+            showRingUi()
+            return START_STICKY
+        }
+
         if (intent == null) {
             // START_STICKY restart, not a real trigger. Only resume; never create.
-            if (Svc.session == null) {
+            if (Svc.session == null && !Svc.testActive) {
                 Svc.log("sticky_restart_no_session")
                 teardown(); return START_NOT_STICKY
             }
+        } else if (Svc.testActive) {
+            return START_STICKY
         } else {
             // EVERY genuine trigger goes through the engine, open session or not --
             // that is what makes the §3 precedence table reachable: a scheduled alarm
@@ -104,6 +122,7 @@ class RingService : Service(), SensorEventListener {
         startGesture()
 
         if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
+        else if (Svc.session == null) beginAudio()      // test ring: no engine session
         handler.removeCallbacks(heartbeat)
         handler.post(heartbeat)
         showRingUi()
@@ -179,9 +198,22 @@ class RingService : Service(), SensorEventListener {
 
     private val heartbeat = object : Runnable {
         override fun run() {
+            val now = System.currentTimeMillis()
+
+            if (Svc.testUntilMs > 0L) {
+                if (now >= Svc.testUntilMs) {
+                    Svc.log("test_ring_end")
+                    Svc.testUntilMs = 0L
+                    teardown(); return
+                }
+                if (!Svc.testSilent) audio.heartbeat(Svc.settings)
+                audible = audio.audible
+                handler.postDelayed(this, 5_000)
+                return
+            }
+
             val s = Svc.session
             if (s == null) { teardown(); return }
-            val now = System.currentTimeMillis()
 
             if (now >= s.endsByMs) {
                 audio.stop()

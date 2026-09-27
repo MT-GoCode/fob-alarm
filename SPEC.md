@@ -554,6 +554,37 @@ setting for any password holder either.
 | `missedGraceMinutes` | 15 |
 | `ssid` / `passphrase` | user-set, gate |
 
+### Test ring
+
+**Invokable from both phones**, because the point is to verify the thing you cannot
+otherwise see: that the alarm phone wakes its own screen, appears over the lock screen,
+and makes noise. A green permission tick is not the same as knowing.
+
+Two buttons, because they answer different questions:
+
+| button | does | answers |
+|---|---|---|
+| **Test ring** | full audio at the configured volume, vibration, screen | "will this actually wake me?" |
+| **Test ring (silent)** | vibration + screen only, audio suppressed | "does the screen and the remote dismiss work?" — usable at 23:00 without waking the house |
+
+Rules, all of them load-bearing:
+
+- **Touches no latch, no schedule, no override, no nap.** It is not an occurrence. It
+  cannot consume tomorrow's alarm, and `nextFire` is unchanged throughout.
+- **Fires after 10 s**, so you can lock the phone and put it down first. That delay is
+  the whole point: testing from an unlocked, foregrounded app proves nothing about
+  4 AM.
+- **Caps at 60 s** and stops by itself. It never needs dismissing to end, though dismiss
+  works normally — which is also how you test the controller's dismiss button.
+- Runs on a **dedicated `PendingIntent` request code**, so it can never overwrite the
+  real scheduled fire.
+- Logged as `test_ring{silent}` and `test_ring_end`. It is visible in history precisely
+  so a test is never mistaken for a real alarm that fired.
+- Lives in **Settings**, not on the setup screen. Setup is permissions and hardware.
+
+Triggered from the controller it goes through the same `/v1/test` endpoint as everything
+else, so a successful remote test also proves the link end to end.
+
 ### Next-alarm override (the thing you'd call "tomorrow")
 
 **Never stored as a word or a date-relative notion.** Stored bound to an occurrence, resolved to an absolute instant at set time:

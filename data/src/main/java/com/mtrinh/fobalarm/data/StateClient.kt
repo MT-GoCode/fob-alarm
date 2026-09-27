@@ -21,6 +21,8 @@ interface StateClient {
     suspend fun export(): Result<Backup>
     suspend fun import(backup: Backup, token: String?): Result<Snapshot>
     suspend fun unlock(secret: String): Result<String>
+    /** Touches no latch, no schedule, no override. Invokable from either phone. */
+    suspend fun testRing(silent: Boolean, requestId: String): Result<Snapshot>
 }
 
 /** Distinguishing these three is what stops the UI saying "fetch the key" about a healthy phone. */
@@ -48,6 +50,7 @@ interface AlarmHost {
     fun export(): Backup
     fun import(backup: Backup, token: String?): Snapshot
     fun unlock(secret: String): String
+    fun testRing(silent: Boolean, requestId: String): Snapshot
 }
 
 /** ALARM role. In-process; still returns Result so the renderer is exercised identically. */
@@ -69,4 +72,6 @@ class LocalStateClient(private val host: AlarmHost) : StateClient {
     override suspend fun export() = runCatching { host.export() }
     override suspend fun import(backup: Backup, token: String?) = runCatching { host.import(backup, token) }
     override suspend fun unlock(secret: String) = runCatching { host.unlock(secret) }
+    override suspend fun testRing(silent: Boolean, requestId: String) =
+        runCatching { host.testRing(silent, requestId) }
 }

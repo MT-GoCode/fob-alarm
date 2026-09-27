@@ -129,6 +129,22 @@ class AppState(
         }
     }
 
+    var testMessage by mutableStateOf<String?>(null); private set
+
+    /** Same path as every other command, so a remote test proves the link too. */
+    fun testRing(silent: Boolean) {
+        scope.launch {
+            testMessage = "Ringing in 10s — lock the phone now"
+            client.testRing(silent, UUID.randomUUID().toString())
+                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
+                .onFailure { testMessage = "Test failed: ${it.message}" }
+            delay(6000); testMessage = null
+        }
+    }
+
+    /** Called when returning to the app, so a just-granted permission flips immediately. */
+    fun refreshNow() { scope.launch { refresh() } }
+
     fun nap(minutes: Int) = act { client.nap(minutes, UUID.randomUUID().toString()) }
     fun clearNap() = act { client.clearNap(UUID.randomUUID().toString()) }
     fun overrideTime(hhmm: String) = act { client.setOverride("TIME", hhmm, null, UUID.randomUUID().toString()) }

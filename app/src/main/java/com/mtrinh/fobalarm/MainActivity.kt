@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.mtrinh.fobalarm.core.*
 import com.mtrinh.fobalarm.data.*
 import com.mtrinh.fobalarm.service.*
@@ -39,6 +40,14 @@ class MainActivity : ComponentActivity() {
     private fun refreshGates() {
         GateEval.invalidateSlowChecks()
         GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
+        // Re-evaluating the gates is not enough: the screen renders the SNAPSHOT, which
+        // only re-polls every 20s while idle. Pull a fresh one so a permission you just
+        // granted turns green now instead of when you happen to navigate.
+        if (::app.isInitialized) {
+            lifecycleScope.launch {
+                repeat(4) { kotlinx.coroutines.delay(300); app.refreshNow() }
+            }
+        }
     }
 
     override fun onResume() {
@@ -178,10 +187,6 @@ class MainActivity : ComponentActivity() {
                     Intent(ASettings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
                 "notHibernating" -> startActivity(
                     IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
-                "powerOk" -> startActivity(Intent(
-                    ASettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:$packageName")))
-
                 // --- device settings we cannot change for you ---
                 "dndAllowsAlarms" -> startActivity(Intent("android.settings.ZEN_MODE_SETTINGS"))
                 "volumeNotFixed", "vibrationEnabled" -> startActivity(Intent(ASettings.ACTION_SOUND_SETTINGS))

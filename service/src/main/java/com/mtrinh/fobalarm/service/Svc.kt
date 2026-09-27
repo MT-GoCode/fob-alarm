@@ -405,6 +405,26 @@ object Svc : AlarmHost {
         return recompute("role_changed")
     }
 
+    /**
+     * Test ring. Deliberately NOT an occurrence: no latch, no schedule change, no
+     * override, no nap. It cannot consume tomorrow's alarm. SPEC.md section 8.
+     */
+    @Volatile var testSilent = false; private set
+    /** Non-zero while a test ring is live. A test is NOT an engine session. */
+    @Volatile var testUntilMs = 0L
+    val testActive: Boolean get() = System.currentTimeMillis() < testUntilMs
+
+    override fun testRing(silent: Boolean, requestId: String): Snapshot {
+        if (seen(requestId)) return snapshot()
+        testSilent = silent
+        de.pendingTest = true
+        log("test_ring", "silent" to silent.toString())
+        // 10s so the phone can be locked and put down first -- testing from a
+        // foregrounded app proves nothing about 04:00.
+        Scheduler.armTestFire(app, 10)
+        return snapshot()
+    }
+
     fun pruneHistory() {
         if (!dbReady) return
         io.execute { runCatching { db.dao().prune(System.currentTimeMillis() - 90L * 86400_000) } }
@@ -446,6 +466,10 @@ object Scheduler {
 
     /** Separate request code from the scheduled fire, so a retry cannot clobber it. */
     fun armFireRetry(ctx: Context) = set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000)
+
+    /** Also its own request code: a test must never overwrite the real alarm. */
+    fun armTestFire(ctx: Context, seconds: Int) =
+        set(ctx, ACTION_FIRE, 1006, System.currentTimeMillis() + seconds * 1000L)
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 

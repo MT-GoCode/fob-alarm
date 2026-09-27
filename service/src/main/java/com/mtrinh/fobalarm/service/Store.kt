@@ -69,6 +69,11 @@ class DeMirror(ctx: Context) {
         get() = p.getLong("lastAliveMs", 0)
         set(v) = p.edit().putLong("lastAliveMs", v).apply()
 
+    /** A test ring was requested; survives the process hop to the alarm delivery. */
+    var pendingTest: Boolean
+        get() = p.getBoolean("pendingTest", false)
+        set(v) = p.edit().putBoolean("pendingTest", v).apply()
+
     fun mirror(s: Settings, next: NextFire?, session: RingSession?) {
         p.edit()
             .putLong("nextFireAtMs", next?.atMs ?: 0)

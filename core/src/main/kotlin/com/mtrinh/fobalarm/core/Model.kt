@@ -170,10 +170,27 @@ data class Gates(
     val freeDiskOk: Boolean,
     val noBluetoothAudio: Boolean,
 ) {
-    /** Blocking gates only. thermalOk/powerOk are health, not blockers -- they must never disarm. */
+    /**
+     * SETUP gates only: permissions and the schedule. Everything else -- power, thermal,
+     * DND, Bluetooth, disk, audio readability -- is a nightly condition reported on the
+     * status screen and checked by the 22:00 arm gate. None of them may ever disarm the
+     * alarm or trap the user on a setup screen.
+     */
     val allPass: Boolean get() = scheduleExists && exactAlarm && foregroundService &&
-            gyroscopePresent && notHibernating && fullScreenIntent && audioPlayable &&
-            dndAllowsAlarms && volumeNotFixed && freeDiskOk && noBluetoothAudio
+            notHibernating && fullScreenIntent
+
+    /** Conditions that do not block setup but should be visible tonight. */
+    fun warnings(): List<String> = buildList {
+        if (!audioPlayable) add("audioPlayable")
+        if (!dndAllowsAlarms) add("dndAllowsAlarms")
+        if (!volumeNotFixed) add("volumeNotFixed")
+        if (!vibrationEnabled) add("vibrationEnabled")
+        if (!noBluetoothAudio) add("noBluetoothAudio")
+        if (!powerOk) add("powerOk")
+        if (!thermalOk) add("thermalOk")
+        if (!freeDiskOk) add("freeDiskOk")
+        if (!gyroscopePresent) add("gyroscopePresent")
+    }
 
     fun failing(): List<String> = buildList {
         if (!scheduleExists) add("scheduleExists")
