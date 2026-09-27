@@ -1,5 +1,6 @@
 package com.mtrinh.fobalarm.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -135,14 +136,19 @@ fun SliderSetting(
 /** Standalone clock face, for one-off choices that are not a stored setting. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TimePickerDialog(title: String, initial: String, onSet: (String) -> Unit) {
+fun TimePickerDialog(
+    title: String,
+    initial: String,
+    onCancel: () -> Unit,
+    onSet: (String) -> Unit,
+) {
     val (h, m) = remember(initial) {
         runCatching { initial.split(":").map { it.toInt() } }.getOrDefault(listOf(7, 0))
             .let { (it.getOrElse(0) { 7 }) to (it.getOrElse(1) { 0 }) }
     }
     val state = rememberTimePickerState(initialHour = h, initialMinute = m, is24Hour = true)
     AlertDialog(
-        onDismissRequest = { onSet(initial) },
+        onDismissRequest = onCancel,
         title = { Text(title) },
         text = { TimePicker(state = state) },
         confirmButton = {
@@ -150,6 +156,73 @@ fun TimePickerDialog(title: String, initial: String, onSet: (String) -> Unit) {
                 Text("Set")
             }
         },
-        dismissButton = { TextButton(onClick = { onSet(initial) }) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
 }
+
+/**
+ * Hours and minutes, the way every other Android app asks for a duration. Bounded at
+ * the widget, with the limit stated rather than silently clamped afterwards.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DurationSetting(
+    label: String,
+    minutes: Int,
+    minMinutes: Int,
+    maxMinutes: Int,
+    secondsValue: Int? = null,
+    onSet: (Int) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val shown = secondsValue?.let { if (it < 60) "${it}s" else fmtDuration(it / 60) }
+        ?: fmtDuration(minutes)
+
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = { open = true }) {
+            Text(shown, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+
+    if (open) {
+        val state = rememberTimePickerState(
+            initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
+        var err by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(label) },
+            text = {
+                Column {
+                    Text("Hours and minutes", fontSize = 12.sp, color = Muted)
+                    TimePicker(state = state)
+                    err?.let { Text(it, color = Bad, fontSize = 12.sp) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val total = state.hour * 60 + state.minute
+                    when {
+                        total < minMinutes -> err = "Minimum is ${fmtDuration(minMinutes)}"
+                        total > maxMinutes -> err = "Maximum is ${fmtDuration(maxMinutes)}"
+                        else -> { onSet(total); open = false }
+                    }
+                }) { Text("Set") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+fun fmtDuration(min: Int): String = when {
+    min < 60 -> "${min}m"
+    min % 60 == 0 -> "${min / 60}h"
+    else -> "${min / 60}h ${min % 60}m"
+}
+
+/** Tap target with no ripple, for overlays that only exist to explain themselves. */
+fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
+    this.clickable(
+        interactionSource = androidx.compose.foundation.interaction.MutableInteractionSource(),
+        indication = null, onClick = onClick)

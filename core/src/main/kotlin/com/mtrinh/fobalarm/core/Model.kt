@@ -16,17 +16,19 @@ data class Settings(
     val snoozeSeconds: Int = 30,                  // hard ceiling 600
     val snoozeThresholdDegrees: Int = 120,        // 60..720
     val maxRingMinutes: Int = 60,                 // floor 5
-    val armGateTime: String = "22:00",
     val napMinutes: Int = 20,                     // last value remembered; 1..300
-    val missedGraceMinutes: Int = 15,
-    val stillWorthWakingBefore: String = "09:00", // forward clock-jump window
+    val vibrate: Boolean = true,
+    /** Master switch. Disarmed means no alarm fires at all, and the status screen says so. */
+    val armed: Boolean = true,
     val ssid: String? = null,
     val passphrase: String? = null,
     val passwordHash: String? = null,
     val passwordSalt: String? = null,
-    val recoveryHash: String? = null,
-    val recoverySalt: String? = null,
+    /** Set from the wire on the controller, which never sees the hash itself. */
+    val hasPasswordRemote: Boolean = false,
 ) {
+    val hasPassword: Boolean get() = passwordHash != null || hasPasswordRemote
+
     companion object {
         const val VOLUME_FLOOR = 50
         const val SNOOZE_CEILING_S = 600
@@ -53,14 +55,11 @@ object SettingsValidator {
         snoozeSeconds = s.snoozeSeconds.coerceIn(5, Settings.SNOOZE_CEILING_S),
         snoozeThresholdDegrees = s.snoozeThresholdDegrees.coerceIn(60, 720),
         maxRingMinutes = s.maxRingMinutes.coerceIn(Settings.MAX_RING_FLOOR_M, 120),
-        napMinutes = s.napMinutes.coerceIn(1, 300),
-        missedGraceMinutes = s.missedGraceMinutes.coerceIn(0, 120),
+        napMinutes = s.napMinutes.coerceIn(1, 720),
     )
 
     fun validate(s: Settings): List<Invalid> = buildList {
         if (!HHMM.matches(s.defaultAlarmTime)) add(Invalid.Field("defaultAlarmTime", "must be HH:mm"))
-        if (!HHMM.matches(s.armGateTime)) add(Invalid.Field("armGateTime", "must be HH:mm"))
-        if (!HHMM.matches(s.stillWorthWakingBefore)) add(Invalid.Field("stillWorthWakingBefore", "must be HH:mm"))
         s.passphrase?.let { if (it.length !in 8..63) add(Invalid.Field("passphrase", "8-63 characters")) }
         s.ssid?.let { if (!it.startsWith("DIRECT-")) add(Invalid.Field("ssid", "must begin DIRECT-xy")) }
     }
@@ -177,6 +176,11 @@ data class Gates(
 }
 
 data class ArmGate(val lastRunAtMs: Long, val result: String, val failingGates: List<String>)
+
+/** Everything that would stop a ring, in one place, for the status screen. */
+data class Blockers(val keys: List<String>) {
+    val canRing: Boolean get() = keys.isEmpty()
+}
 data class NextFire(val atMs: Long, val source: OccurrenceSource, val label: String)
 data class RingView(
     val ringId: String, val startedAtMs: Long, val trigger: OccurrenceSource,

@@ -23,7 +23,7 @@ object Wire {
             put("foregroundService", s.gates.foregroundService)
             put("p2pSupported", s.gates.p2pSupported)
             put("gyroscopePresent", s.gates.gyroscopePresent)
-            put("staApConcurrent", s.gates.staApConcurrent)
+            put("staApConcurrent", true)
             put("groupCredentialsSet", s.gates.groupCredentialsSet)
             put("localNetworkPermission", s.gates.localNetworkPermission)
             put("notificationPolicyAccess", s.gates.notificationPolicyAccess)
@@ -104,15 +104,14 @@ object Wire {
         .put("snoozeSeconds", s.snoozeSeconds)
         .put("snoozeThresholdDegrees", s.snoozeThresholdDegrees)
         .put("maxRingMinutes", s.maxRingMinutes)
-        .put("armGateTime", s.armGateTime)
         .put("napMinutes", s.napMinutes)
-        .put("missedGraceMinutes", s.missedGraceMinutes)
-        .put("stillWorthWakingBefore", s.stillWorthWakingBefore)
+        .put("vibrate", s.vibrate)
+        .put("armed", s.armed)
         .put("ssid", s.ssid ?: JSONObject.NULL)
         // The passphrase is transmitted: the controller must be able to render and edit it,
         // and the link that carries it is the WPA2 group it unlocks.
         .put("passphrase", s.passphrase ?: JSONObject.NULL)
-        .put("hasPassword", s.passwordHash != null)
+        .put("hasPassword", s.hasPassword)
 
     /** Patches carry only the keys present; absent keys keep their current value. */
     fun settingsFrom(o: JSONObject, base: Settings) = base.copy(
@@ -124,10 +123,10 @@ object Wire {
         snoozeSeconds = o.optInt("snoozeSeconds", base.snoozeSeconds),
         snoozeThresholdDegrees = o.optInt("snoozeThresholdDegrees", base.snoozeThresholdDegrees),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
-        armGateTime = o.optString("armGateTime", base.armGateTime),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
-        missedGraceMinutes = o.optInt("missedGraceMinutes", base.missedGraceMinutes),
-        stillWorthWakingBefore = o.optString("stillWorthWakingBefore", base.stillWorthWakingBefore),
+        vibrate = o.optBoolean("vibrate", base.vibrate),
+        armed = o.optBoolean("armed", base.armed),
+        hasPasswordRemote = o.optBoolean("hasPassword", base.hasPasswordRemote),
         ssid = if (o.has("ssid") && !o.isNull("ssid")) o.getString("ssid") else base.ssid,
         passphrase = if (o.has("passphrase") && !o.isNull("passphrase")) o.getString("passphrase") else base.passphrase,
     )
@@ -227,13 +226,9 @@ object Wire {
         .put("schemaVersion", b.schemaVersion)
         .put("exportedAtMs", b.exportedAtMs)
         .put("settings", settingsToJson(b.settings))
-        // Credentials travel in the backup, or a restored phone cannot be re-gated and
-        // the recovery code is lost with the device it was protecting.
         .put("auth", JSONObject()
             .put("passwordHash", b.settings.passwordHash ?: JSONObject.NULL)
-            .put("passwordSalt", b.settings.passwordSalt ?: JSONObject.NULL)
-            .put("recoveryHash", b.settings.recoveryHash ?: JSONObject.NULL)
-            .put("recoverySalt", b.settings.recoverySalt ?: JSONObject.NULL))
+            .put("passwordSalt", b.settings.passwordSalt ?: JSONObject.NULL))
         .put("events", JSONArray().apply { b.events.forEach { put(eventToJson(it)) } })
 
     fun backupFrom(o: JSONObject) = Backup(
@@ -241,9 +236,7 @@ object Wire {
         settings = settingsFrom(o.getJSONObject("settings"), Settings()).let { base ->
             val a = o.optJSONObject("auth") ?: return@let base
             fun str(k: String) = a.optString(k).takeIf { it.isNotEmpty() && it != "null" }
-            base.copy(
-                passwordHash = str("passwordHash"), passwordSalt = str("passwordSalt"),
-                recoveryHash = str("recoveryHash"), recoverySalt = str("recoverySalt"))
+            base.copy(passwordHash = str("passwordHash"), passwordSalt = str("passwordSalt"))
         },
         events = o.optJSONArray("events")?.let { a -> (0 until a.length()).map { eventFrom(a.getJSONObject(it)) } } ?: emptyList(),
         exportedAtMs = o.optLong("exportedAtMs"))

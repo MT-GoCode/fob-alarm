@@ -38,5 +38,5 @@ object Fmt {
     }
 
     fun battery(pct: Int, plugged: Boolean): String =
-        if (pct < 0) "unknown" else "$pct%${if (plugged) " plugged" else " ON BATTERY"}"
+        if (pct < 0) "unknown" else "$pct%, ${if (plugged) "charging" else "on battery"}"
 }

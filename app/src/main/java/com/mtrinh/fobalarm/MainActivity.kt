@@ -288,8 +288,6 @@ class MainActivity : ComponentActivity() {
         var pass by remember { mutableStateOf(Svc.settings.passphrase ?: "") }
         var confirm by remember { mutableStateOf(false) }
         var pw by remember { mutableStateOf("") }
-        var recovery by remember { mutableStateOf<String?>(null) }
-        var removing by remember { mutableStateOf(false) }
 
         Text("Group credentials", fontSize = 12.sp, color = Muted)
         OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID (DIRECT-xy…)", fontSize = 12.sp) },
@@ -323,84 +321,44 @@ class MainActivity : ComponentActivity() {
             Text(if (Svc.settings.ringtoneUri != null) "Change audio file" else "Pick audio file", fontSize = 12.sp)
         }
 
-        Spacer(Modifier.height(8.dp))
-        Text("Password", fontSize = 12.sp, color = Muted)
-        val hasPw = Svc.settings.passwordHash != null
-        Text(
-            if (hasPw) "Set. Gates the settings that can silence tomorrow. Never gates dismiss."
-            else "Not set — every setting is editable by anyone holding this phone.",
-            fontSize = 11.sp, color = if (hasPw) Good else Muted)
-
+        Section("Password",
+            "Optional. Locks the settings that could stop the alarm. Never needed to dismiss.")
         var current by remember { mutableStateOf("") }
         var err by remember { mutableStateOf<String?>(null) }
+        val hasPw = Svc.settings.hasPassword
+
         if (hasPw) {
             OutlinedTextField(current, { current = it; err = null },
-                label = { Text("Current password or recovery code", fontSize = 12.sp) },
+                label = { Text("Current password", fontSize = 12.sp) },
                 visualTransformation = PasswordVisualTransformation(), singleLine = true,
                 modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
         }
         OutlinedTextField(pw, { pw = it; err = null },
             label = { Text(if (hasPw) "New password" else "Set a password", fontSize = 12.sp) },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth())
         err?.let { Text(it, color = Bad, fontSize = 12.sp) }
-
+        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
                     runCatching { Svc.setPassword(pw, current.ifBlank { null }) }
-                        .onSuccess { recovery = it.second; pw = ""; current = ""; err = null }
+                        .onSuccess { pw = ""; current = ""; err = null }
                         .onFailure { err = "Current password is wrong" }
                 },
                 enabled = pw.length >= 4 && (!hasPw || current.isNotBlank())
-            ) { Text(if (hasPw) "Change" else "Set password", fontSize = 12.sp) }
-
+            ) { Text(if (hasPw) "Change" else "Set", fontSize = 13.sp) }
             if (hasPw) {
-                OutlinedButton(onClick = { removing = true }) { Text("Remove", fontSize = 12.sp) }
-            }
-        }
-
-        if (removing) {
-            AlertDialog(
-                onDismissRequest = { removing = false },
-                title = { Text("Remove the password?") },
-                text = {
-                    Text("Every setting that can silence tomorrow — the alarm time, the " +
-                         "volume, the ringtone, the snooze length — becomes editable by " +
-                         "anyone holding this phone, including you at 4 AM.", fontSize = 13.sp)
-                },
-                confirmButton = {
-                    TextButton(onClick = {
+                OutlinedButton(
+                    onClick = {
                         runCatching { Svc.setPassword(null, current.ifBlank { null }) }
-                            .onSuccess { recovery = null; current = ""; err = null }
+                            .onSuccess { current = ""; err = null }
                             .onFailure { err = "Current password is wrong" }
-                        removing = false
-                    }, enabled = current.isNotBlank()) { Text("Remove") }
-                },
-                dismissButton = { TextButton(onClick = { removing = false }) { Text("Keep it") } })
-        }
-
-        recovery?.let { code ->
-            AlertDialog(
-                onDismissRequest = { },     // must not be dismissible by a stray tap
-                title = { Text("Write this down now") },
-                text = {
-                    Column {
-                        Text("Recovery code — shown exactly once:", fontSize = 12.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text(code, fontSize = 22.sp, fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(10.dp))
-                        Text("Put it on the printed runbook with the spare key to the box. " +
-                             "It is the only way back in if you forget the password — " +
-                             "without it, recovery means a factory reset and losing " +
-                             "every setting, the pairing and the history.",
-                            fontSize = 11.sp, color = Muted)
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { recovery = null }) { Text("I wrote it down") }
-                })
+                    },
+                    enabled = current.isNotBlank()
+                ) { Text("Remove", fontSize = 13.sp) }
+            }
         }
 
         Spacer(Modifier.height(8.dp))

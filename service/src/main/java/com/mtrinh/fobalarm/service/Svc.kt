@@ -74,9 +74,8 @@ object Svc : AlarmHost {
             passphrase = de.passphrase,
             passwordHash = de.passwordHash,
             passwordSalt = de.passwordSalt,
-            recoveryHash = de.recoveryHash,
-            recoverySalt = de.recoverySalt,
-            armGateTime = de.armGateTime,
+            vibrate = de.vibrate,
+            armed = de.armed,
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         recompute("init:de")
@@ -112,8 +111,6 @@ object Svc : AlarmHost {
                         passphrase = loaded.settings.passphrase ?: state.settings.passphrase,
                         passwordHash = loaded.settings.passwordHash ?: state.settings.passwordHash,
                         passwordSalt = loaded.settings.passwordSalt ?: state.settings.passwordSalt,
-                        recoveryHash = loaded.settings.recoveryHash ?: state.settings.recoveryHash,
-                        recoverySalt = loaded.settings.recoverySalt ?: state.settings.recoverySalt,
                     ) else state.settings,
                     latches = loaded.latches,
                     override = loaded.override,
@@ -176,10 +173,6 @@ object Svc : AlarmHost {
         if (alsoFire && r.fireNow != null && state.session == null) {
             log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
             urgent.execute { RingService.start(app) }
-        }
-        if (r.chirpMissed) {
-            log("missed_chirp")
-            urgent.execute { Audio(app).chirp() }
         }
         snapshot()
     }
@@ -299,7 +292,7 @@ object Svc : AlarmHost {
             patch.ringtoneUri != state.settings.ringtoneUri,
             patch.snoozeSeconds != state.settings.snoozeSeconds,
             patch.defaultAlarmTime != state.settings.defaultAlarmTime,
-            patch.armGateTime != state.settings.armGateTime,
+            patch.vibrate != state.settings.vibrate,
             patch.maxRingMinutes != state.settings.maxRingMinutes,
             patch.alarmVolumePercent != state.settings.alarmVolumePercent,
             patch.ssid != state.settings.ssid,
@@ -393,30 +386,23 @@ object Svc : AlarmHost {
      * code). Otherwise the gate protects every setting except itself, and "Remove
      * password" is a two-tap bypass of the whole mechanism.
      */
-    fun setPassword(password: String?, current: String?): Pair<Snapshot, String?> {
+    /** Changing or removing the password requires the current one. No recovery code. */
+    fun setPassword(password: String?, current: String?): Snapshot {
         if (!Auth.gateOpen(state.settings) && !Auth.accepts(state.settings, current ?: "")) {
             log("password_change_rejected")
             throw ForbiddenException()
         }
-        if (password == null) {
-            log("password_removed")
-            synchronized(lock) {
-                state = state.copy(settings = state.settings.copy(
-                    passwordHash = null, passwordSalt = null,
-                    recoveryHash = null, recoverySalt = null))
-            }
-            return recompute("password_cleared") to null
-        }
-        val ps = Auth.newSalt()
-        val rs = Auth.newSalt()
-        val code = Auth.newRecoveryCode()
         synchronized(lock) {
-            state = state.copy(settings = state.settings.copy(
-                passwordHash = Auth.hash(password, ps), passwordSalt = ps,
-                recoveryHash = Auth.hash(code, rs), recoverySalt = rs))
+            state = if (password == null) {
+                state.copy(settings = state.settings.copy(passwordHash = null, passwordSalt = null))
+            } else {
+                val salt = Auth.newSalt()
+                state.copy(settings = state.settings.copy(
+                    passwordHash = Auth.hash(password, salt), passwordSalt = salt))
+            }
         }
-        log("password_set")
-        return recompute("password_set") to code
+        log(if (password == null) "password_removed" else "password_set")
+        return recompute("password")
     }
 
     fun setRole(role: Role): Snapshot {
@@ -452,6 +438,13 @@ object Svc : AlarmHost {
         // foregrounded app proves nothing about 04:00.
         Scheduler.armTestFire(app, 10)
         return snapshot()
+    }
+
+    fun stopTest() {
+        testUntilMs = 0L
+        de.pendingTestUntilMs = 0L
+        RingService.stop(app)
+        log("test_ring_stopped")
     }
 
     fun pruneHistory() {
@@ -509,15 +502,7 @@ object Scheduler {
 
     fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, System.currentTimeMillis() + 3600_000)
 
-    fun armGateAlarm(ctx: Context) {
-        val at = Engine.run {
-            val zone = Svc.ts.zone()
-            val now = Svc.ts.nowMs()
-            var d = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
-            var t = scheduledInstant(d, Svc.settings.armGateTime, zone)
-            if (t <= now) t = scheduledInstant(d.plusDays(1), Svc.settings.armGateTime, zone)
-            t
-        }
-        set(ctx, ACTION_ARMGATE, 1004, at)
-    }
+    /** Hourly health check. Not a chirp, not a schedule: it only refreshes status. */
+    fun armGateAlarm(ctx: Context) =
+        set(ctx, ACTION_ARMGATE, 1004, System.currentTimeMillis() + 3600_000)
 }

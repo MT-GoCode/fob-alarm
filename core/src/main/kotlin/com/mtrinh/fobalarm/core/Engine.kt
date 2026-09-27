@@ -42,9 +42,8 @@ data class RecomputeResult(
     val events: List<PendingEvent>,
     /** Set when a forward clock jump landed on an unfired occurrence we should ring for now. */
     val fireNow: OccurrenceSource? = null,
-    /** Set when a missed occurrence needs the audible three-chirp alert. */
-    val chirpMissed: Boolean = false,
 )
+
 
 data class PendingEvent(val type: String, val detail: Map<String, String> = emptyMap())
 
@@ -120,12 +119,6 @@ object Engine {
 
         // 2. Latch the past. THE ONLY place a latch is written.
         var fireNow: OccurrenceSource? = null
-        var chirp = false
-        val stillWorthWaking = run {
-            val (h, m) = st.settings.stillWorthWakingBefore.split(":").map { it.toInt() }
-            val nowLocal = Instant.ofEpochMilli(now).atZone(zone).toLocalTime()
-            nowLocal.isBefore(LocalTime.of(h, m))
-        }
 
         // Walk backwards over recent scheduled dates so a multi-day outage latches each day.
         for (back in 14 downTo 0) {
@@ -151,16 +144,9 @@ object Engine {
                 else -> LatchReason.MISSED
             }
 
-            // A missed occurrence we could still usefully ring for.
-            if (reasonFor == LatchReason.MISSED) {
-                val missedByMin = (now - at) / 60_000
-                if (missedByMin <= st.settings.missedGraceMinutes) {
-                    fireNow = OccurrenceSource.SCHEDULED
-                } else if (stillWorthWaking) {
-                    fireNow = OccurrenceSource.SCHEDULED
-                } else {
-                    chirp = true            // audible, never a silent banner
-                }
+            // One rule: an alarm that should have gone off and did not, rings now.
+            if (reasonFor == LatchReason.MISSED && st.settings.armed) {
+                fireNow = OccurrenceSource.SCHEDULED
             }
 
             st = st.copy(latches = st.latches + Latch(id, reasonFor, now))
@@ -208,7 +194,9 @@ object Engine {
         }
 
         val napFire = st.nap?.let { NextFire(it.fireAtMs, OccurrenceSource.NAP, "nap") }
-        val nextFire = listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
+        val nextFire =
+            if (!st.settings.armed) null
+            else listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
 
         // Ten years is 3650 latches, re-serialized on every save and linearly scanned
         // inside recompute's loops -- on the main thread, on the fire path.
@@ -224,7 +212,7 @@ object Engine {
         events += PendingEvent("recompute", mapOf("reason" to reason,
             "nextFireAtMs" to (nextFire?.atMs?.toString() ?: "null")))
 
-        return RecomputeResult(st, nextFire, events, fireNow, chirp)
+        return RecomputeResult(st, nextFire, events, fireNow)
     }
 
     // -----------------------------------------------------------------------
@@ -432,7 +420,8 @@ object Engine {
         if (a.snoozeSeconds != b.snoozeSeconds) add("snoozeSeconds:${a.snoozeSeconds}->${b.snoozeSeconds}")
         if (a.snoozeThresholdDegrees != b.snoozeThresholdDegrees) add("threshold:${a.snoozeThresholdDegrees}->${b.snoozeThresholdDegrees}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
-        if (a.armGateTime != b.armGateTime) add("armGateTime:${a.armGateTime}->${b.armGateTime}")
+        if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
+        if (a.armed != b.armed) add("armed:${a.armed}->${b.armed}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")
         if (a.ssid != b.ssid) add("ssid")
         if (a.passphrase != b.passphrase) add("passphrase")

@@ -129,25 +129,25 @@ class EngineTest {
     }
 
     // --- clock jumps ------------------------------------------------------
-
-    @Test fun `forward jump inside the wake window rings instead of latching silently`() {
-        // Phone comes up with a wrong clock, NITZ corrects it to 04:20.
-        val c = FakeClock(at("2026-09-26T04:20:00-07:00[America/Los_Angeles]"))
-        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00", missedGraceMinutes = 15),
-            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
-        val r = Engine.recompute(s, c, "clock_jump")
-        assertEquals(OccurrenceSource.SCHEDULED, r.fireNow, "must ring, not latch silently")
-        assertFalse(r.chirpMissed)
-    }
-
-    @Test fun `forward jump past the wake window chirps audibly`() {
-        val c = FakeClock(at("2026-09-26T15:00:00-07:00[America/Los_Angeles]"))
+    @Test fun `a missed alarm rings, whenever it is noticed`() {
+        // One rule, no grace window, no silent branch, no chirp variant.
         val s = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
-            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"))
-        val r = Engine.recompute(s, c, "clock_jump")
-        assertNull(r.fireNow)
-        assertTrue(r.chirpMissed, "a banner alone would be a silent failure")
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        assertEquals(OccurrenceSource.SCHEDULED,
+            Engine.recompute(s, FakeClock(at("2026-09-26T04:20:00-07:00[America/Los_Angeles]")), "t").fireNow)
+        assertEquals(OccurrenceSource.SCHEDULED,
+            Engine.recompute(s, FakeClock(at("2026-09-26T15:00:00-07:00[America/Los_Angeles]")), "t").fireNow)
     }
+
+    @Test fun `a disarmed alarm never rings and has no next fire`() {
+        val c = FakeClock(at("2026-09-26T04:20:00-07:00[America/Los_Angeles]"))
+        val s = EngineState(settings = Settings(defaultAlarmTime = "04:00", armed = false),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        val r = Engine.recompute(s, c, "t")
+        assertNull(r.fireNow)
+        assertNull(r.nextFire)
+    }
+
 
     @Test fun `backward jump past a fired occurrence does not re-fire`() {
         val (c, s0) = fresh("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
@@ -286,7 +286,6 @@ class RegressionTest {
         val c = FakeClock(at("2026-09-26T06:00:00-07:00[America/Los_Angeles]"))
         val r = Engine.recompute(EngineState(settings = Settings(defaultAlarmTime = "04:00")), c, "init")
         assertNull(r.fireNow, "a fresh install must not ring on launch")
-        assertFalse(r.chirpMissed)
         assertTrue(r.state.latches.none { it.reason == LatchReason.MISSED },
             "occurrences before this install existed are not ours to miss")
         assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
@@ -369,15 +368,6 @@ class AuthTest {
         assertFalse(Auth.accepts(s, "hunter3"))
     }
 
-    @Test fun `the recovery code also opens the gate`() {
-        val ps = Auth.newSalt(); val rs = Auth.newSalt()
-        val code = Auth.newRecoveryCode()
-        val s = Settings(
-            passwordHash = Auth.hash("pw", ps), passwordSalt = ps,
-            recoveryHash = Auth.hash(code, rs), recoverySalt = rs)
-        assertTrue(Auth.accepts(s, code))
-    }
-
     @Test fun `declining a password leaves the gate open`() {
         assertTrue(Auth.accepts(Settings(), "anything"))
     }
@@ -433,32 +423,28 @@ class NagTest {
     }
 }
 
-class PasswordFootgunTest {
-    /** The gate must protect itself, or "Remove password" is a two-tap bypass. */
-    @Test fun `recovery code is accepted however it is typed`() {
-        val rs = Auth.newSalt()
-        val code = Auth.newRecoveryCode()               // XXXX-XXXX-XXXX-XXXX
-        val ps = Auth.newSalt()
-        val s = Settings(
-            passwordHash = Auth.hash("pw", ps), passwordSalt = ps,
-            recoveryHash = Auth.hash(code, rs), recoverySalt = rs)
-
-        assertTrue(Auth.accepts(s, code), "as displayed")
-        assertTrue(Auth.accepts(s, code.replace("-", "")), "without dashes")
-        assertTrue(Auth.accepts(s, code.lowercase()), "lowercased")
-        assertTrue(Auth.accepts(s, code.replace("-", " ")), "with spaces")
-        assertFalse(Auth.accepts(s, "WRONGWRONGWRONGWRON"))
-    }
-
-    @Test fun `a set password rejects the empty string`() {
+class PasswordTest2 {
+    @Test fun `a set password rejects the empty string and the wrong one`() {
         val ps = Auth.newSalt()
         val s = Settings(passwordHash = Auth.hash("pw", ps), passwordSalt = ps)
         assertFalse(Auth.accepts(s, ""))
+        assertFalse(Auth.accepts(s, "nope"))
+        assertTrue(Auth.accepts(s, "pw"))
         assertFalse(Auth.gateOpen(s))
     }
 
     @Test fun `no password means the gate is open, by design`() {
         assertTrue(Auth.gateOpen(Settings()))
         assertTrue(Auth.accepts(Settings(), ""))
+    }
+
+    @Test fun `disarmed means no next alarm at all`() {
+        val c = FakeClock(ZonedDateTime.parse("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+            .toInstant().toEpochMilli())
+        val st = EngineState(settings = Settings(armed = false),
+            lastAliveMs = c.ms - 60_000)
+        assertNull(Engine.recompute(st, c, "t").nextFire)
+        val armed = Engine.recompute(st.copy(settings = Settings(armed = true)), c, "t")
+        assertNotNull(armed.nextFire)
     }
 }

@@ -72,16 +72,20 @@ class App : Application() {
             // would accumulate a forever-loop on every recreation.
             val scope = rememberCoroutineScope()
             val app = remember {
-                AppState(LocalStateClient(Svc), scope, isLocal = true).also { it.startPolling() }
+                AppState(LocalStateClient(Svc), scope, isLocal = true).also {
+                    it.startPolling()
+                    it.onStopTest = { Svc.stopTest() }
+                }
             }
-            val mode = app.snapshot?.mode
-            // Finish as soon as the ring is over. Nothing else may keep this window --
-            // it is full brightness, KEEP_SCREEN_ON, and shown over the lock screen.
-            LaunchedEffect(mode) {
-                if (mode != null && mode != Mode.RINGING) activity.finish()
-            }
+            val snap = app.snapshot
+            // Finish ONLY when the ring is genuinely over -- an open session or a live
+            // test. Never render the tabbed screen here: a snapshot flicker used to drop
+            // the user into Settings mid-ring.
+            val ringing = snap == null || snap.ring != null || Svc.testActive
+            LaunchedEffect(ringing) { if (!ringing) activity.finish() }
             Surface(Modifier.fillMaxSize()) {
-                RootScreen(app = app, isAlarmRole = true)
+                if (snap?.ring != null) RingOnlyScreen(app, snap)
+                else TestRingScreen(app)
             }
         }
     }

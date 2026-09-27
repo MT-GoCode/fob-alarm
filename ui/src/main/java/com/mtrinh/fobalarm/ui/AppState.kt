@@ -157,6 +157,12 @@ class AppState(
         act { client.patchSettings(s.stateVersion, edit(s.settings), UUID.randomUUID().toString(), token) }
     }
 
+    /** Optimistic: returns true and clears the dialog; a failure shows as still locked. */
+    fun unlockBlocking(secret: String): Boolean {
+        unlock(secret) { }
+        return true
+    }
+
     fun unlock(secret: String, onResult: (Boolean) -> Unit) {
         scope.launch {
             client.unlock(secret)
@@ -169,18 +175,36 @@ class AppState(
         scope.launch { client.history(0, limit).onSuccess { history = it.reversed() } }
     }
 
-    private fun act(block: suspend () -> Result<Snapshot>) {
+    /** "Saved" / "Not saved" for every change, because the other phone may not have it. */
+    var syncMessage by mutableStateOf<String?>(null); private set
+    var syncOk by mutableStateOf(true); private set
+
+    private fun act(label: String = "Setting", block: suspend () -> Result<Snapshot>) {
         scope.launch {
+            syncMessage = "Saving…"; syncOk = true
             block()
-                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); lastError = null }
+                .onSuccess {
+                    snapshot = it; lastOkMs = System.currentTimeMillis(); lastError = null
+                    syncOk = true; syncMessage = "Saved"
+                    delay(1800); syncMessage = null
+                }
                 .onFailure { e ->
-                    lastError = when (e) {
-                        is ClientError.Forbidden -> "Password required"
-                        is ClientError.Conflict -> "Changed elsewhere — reloading"
-                        else -> e.message
+                    syncOk = false
+                    syncMessage = when (e) {
+                        is ClientError.Forbidden -> "Not saved: unlock first"
+                        is ClientError.Conflict -> "Not saved: changed elsewhere"
+                        else -> "Not saved: alarm phone unreachable"
                     }
-                    if (e is ClientError.Conflict) { snapshot = e.snapshot }
+                    lastError = syncMessage
+                    if (e is ClientError.Conflict) snapshot = e.snapshot
+                    delay(5000); syncMessage = null
                 }
         }
     }
+
+    fun reload() { scope.launch { refresh() } }
+
+    /** Supplied by :app, which owns the service handle. */
+    var onStopTest: (() -> Unit)? = null
+    fun stopTest() { onStopTest?.invoke() }
 }

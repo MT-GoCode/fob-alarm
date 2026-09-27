@@ -75,17 +75,13 @@ class DeMirror(ctx: Context) {
         get() = p.getString("passwordSalt", null)
         set(v) = p.edit().putString("passwordSalt", v).apply()
 
-    var recoveryHash: String?
-        get() = p.getString("recoveryHash", null)
-        set(v) = p.edit().putString("recoveryHash", v).apply()
+    var vibrate: Boolean
+        get() = p.getBoolean("vibrate", true)
+        set(v) = p.edit().putBoolean("vibrate", v).apply()
 
-    var recoverySalt: String?
-        get() = p.getString("recoverySalt", null)
-        set(v) = p.edit().putString("recoverySalt", v).apply()
-
-    var armGateTime: String
-        get() = p.getString("armGateTime", "22:00")!!
-        set(v) = p.edit().putString("armGateTime", v).apply()
+    var armed: Boolean
+        get() = p.getBoolean("armed", true)
+        set(v) = p.edit().putBoolean("armed", v).apply()
 
     /** Without this, process death between the tap and the fire turns a SILENT test
      *  into a full-volume siren. */
@@ -124,9 +120,8 @@ class DeMirror(ctx: Context) {
             .putString("passphrase", s.passphrase)
             .putString("passwordHash", s.passwordHash)
             .putString("passwordSalt", s.passwordSalt)
-            .putString("recoveryHash", s.recoveryHash)
-            .putString("recoverySalt", s.recoverySalt)
-            .putString("armGateTime", s.armGateTime)
+            .putBoolean("vibrate", s.vibrate)
+            .putBoolean("armed", s.armed)
             .putLong("nextFireAtMs", next?.atMs ?: 0)
             .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
             .putString("defaultAlarmTime", s.defaultAlarmTime)
@@ -220,8 +215,6 @@ object Persist {
         add(KvRow("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(st.settings)
             .put("passwordHash", st.settings.passwordHash ?: JSONObject.NULL)
             .put("passwordSalt", st.settings.passwordSalt ?: JSONObject.NULL)
-            .put("recoveryHash", st.settings.recoveryHash ?: JSONObject.NULL)
-            .put("recoverySalt", st.settings.recoverySalt ?: JSONObject.NULL)
             .toString()))
         add(KvRow("latches", JSONArray().apply {
             st.latches.forEach { put(JSONObject().put("id", it.id.toString())
@@ -249,8 +242,6 @@ object Persist {
             com.mtrinh.fobalarm.data.Wire.settingsFrom(o, Settings()).copy(
                 passwordHash = o.optString("passwordHash").takeIf { s -> s.isNotEmpty() && s != "null" },
                 passwordSalt = o.optString("passwordSalt").takeIf { s -> s.isNotEmpty() && s != "null" },
-                recoveryHash = o.optString("recoveryHash").takeIf { s -> s.isNotEmpty() && s != "null" },
-                recoverySalt = o.optString("recoverySalt").takeIf { s -> s.isNotEmpty() && s != "null" },
             )
         } ?: Settings()
         val latches = dao.get("latches")?.let {

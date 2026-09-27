@@ -20,14 +20,6 @@ object Auth {
         return d.toHex()
     }
 
-    /** Human-typable, unambiguous alphabet. Displayed exactly once. */
-    fun newRecoveryCode(): String {
-        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val r = SecureRandom()
-        return (0 until 16).joinToString("") { alphabet[r.nextInt(alphabet.length)].toString() }
-            .chunked(4).joinToString("-")
-    }
-
     fun verifies(secret: String, hash: String?, salt: String?): Boolean {
         if (hash == null || salt == null) return false
         return constantTimeEquals(hash(secret, salt), hash)
@@ -36,13 +28,8 @@ object Auth {
     /** True when no password is set: the gate is optional and declining is supported. */
     fun gateOpen(s: Settings): Boolean = s.passwordHash == null
 
-    /** Recovery codes are displayed grouped; accept them however they are typed. */
-    fun normalizeRecovery(raw: String): String =
-        raw.uppercase().filter { it.isLetterOrDigit() }.chunked(4).joinToString("-")
-
     fun accepts(s: Settings, secret: String): Boolean =
-        gateOpen(s) || verifies(secret, s.passwordHash, s.passwordSalt) ||
-                verifies(normalizeRecovery(secret), s.recoveryHash, s.recoverySalt)
+        gateOpen(s) || verifies(secret, s.passwordHash, s.passwordSalt)
 
     private fun constantTimeEquals(a: String, b: String): Boolean {
         if (a.length != b.length) return false

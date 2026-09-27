@@ -85,6 +85,30 @@ fun RootScreen(
 // instrument differ.
 // ---------------------------------------------------------------------------
 
+/** The ring, and only the ring. No tabs, no navigation away. */
+@Composable
+fun RingOnlyScreen(app: AppState, s: Snapshot) = RingingScreen(app, s, isAlarmRole = true)
+
+/** A test ring is visibly a test. */
+@Composable
+fun TestRingScreen(app: AppState) {
+    Column(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("TEST", fontSize = 16.sp, color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold)
+        Text(Fmt.clock(app.nowMs), fontSize = 54.sp, fontWeight = FontWeight.Light)
+        Text("This is a test. It stops by itself.", fontSize = 13.sp, color = Muted)
+        Spacer(Modifier.height(36.dp))
+        Button(onClick = { app.stopTest() },
+            modifier = Modifier.fillMaxWidth().height(110.dp)) {
+            Text("STOP TEST", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val ring = s.ring!!
@@ -93,7 +117,6 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
 
         Spacer(Modifier.height(8.dp))
         Text(Fmt.clock(now), fontSize = 34.sp, fontWeight = FontWeight.Light, color = Muted)
@@ -183,7 +206,6 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
     val nag = Nag.evaluate(s, app.lastOkMs, now)
 
     Page(snapshot = s) {
-        LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
 
         // The only cover for "the alarm phone died silently at 03:00", which the arm
         // gate structurally cannot catch.
@@ -196,7 +218,9 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
                 }
             }
         }
-        StatusBlock(s, app.nowMs)
+        StatusBlock(s, app.nowMs, app.connected) { armed ->
+            app.patch { it.copy(armed = armed) }
+        }
 
         Section("Tomorrow only", "Applies to the next alarm, then clears itself.")
         var pickTime by remember { mutableStateOf(false) }
@@ -216,7 +240,8 @@ private fun WaitingScreen(app: AppState, s: Snapshot) {
             }
         }
         if (pickTime) {
-            TimePickerDialog("Wake me at", s.settings.defaultAlarmTime) { v ->
+            TimePickerDialog("Wake me at", s.settings.defaultAlarmTime,
+                onCancel = { pickTime = false }) { v ->
                 app.overrideTime(v); pickTime = false
             }
         }

@@ -39,10 +39,9 @@ class AlarmReceiver : BroadcastReceiver() {
                     }
                 }
                 Scheduler.ACTION_TICK -> {
-                    ClockObserver.poll()
-                    Svc.log("tick", "clockSource" to ClockObserver.source)
                     Svc.pruneHistory()
                     Svc.recompute("hourly_tick")
+                    SyncWindow.run(ctx)
                 }
                 Scheduler.ACTION_ARMGATE -> ArmGateRunner.run(ctx)
             }
@@ -80,59 +79,68 @@ class BootReceiver : BroadcastReceiver() {
  * The nightly arm gate. Pass -> absolutely nothing happens. Fail -> audible, because a
  * silent notification behind acrylic is not a warning. It NEVER disarms. SPEC.md section 10.
  */
+/**
+ * Hourly health refresh. It does NOT chirp and it does NOT disarm -- arming is an
+ * explicit switch the user controls, and a failing check is reported on the status
+ * screen rather than at 22:00 in the dark.
+ */
 object ArmGateRunner {
     fun run(ctx: Context) {
         Boot.ensure(ctx)
         if (Svc.settings.role != Role.ALARM) return
         GateEval.invalidateSlowChecks()
         val gates = GateEval.evaluate(ctx, Svc.settings, Svc.lastNextFire != null)
-        val clockOk = ClockObserver.healthy()
-        val failing = gates.failing().toMutableList()
-        if (!clockOk) failing += "clockSynced"
-
-        val pass = failing.isEmpty()
-        Svc.armGate = ArmGate(System.currentTimeMillis(), if (pass) "PASS" else "FAIL", failing)
-        Svc.log(if (pass) "gate_pass" else "gate_fail", "failing" to failing.joinToString(","))
-
-        if (!pass) {
-            // Three short chirps at STREAM_ALARM volume. You are awake at 22:00.
-            Audio(ctx).chirp(3)
-            val nm = ctx.getSystemService(NotificationManager::class.java)
-            runCatching {
-                nm.notify(77, android.app.Notification.Builder(ctx, RingService.CHANNEL_STATUS)
-                    .setContentTitle("Arm gate failed")
-                    .setContentText(failing.joinToString(", "))
-                    .setSmallIcon(android.R.drawable.stat_notify_error)
-                    .build())
-            }
-        }
-        Svc.log("arm")
+        val failing = gates.failing()
+        Svc.armGate = ArmGate(System.currentTimeMillis(),
+            if (failing.isEmpty()) "OK" else "ISSUES", failing)
+        Svc.log("health", "failing" to failing.joinToString(","))
         Scheduler.armGateAlarm(ctx)
     }
 }
 
 /**
- * Before first unlock, Room is unreadable. This is the only moment it becomes readable,
- * so it is the only chance to load the settings that live there.
+ * Hourly clock sync. This phone cannot host the Wi-Fi Direct group and stay on home
+ * Wi-Fi simultaneously, so syncing means dropping the group for a moment. Never while
+ * ringing, and never for long.
  */
-class UnlockReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        Boot.ensure(ctx)
-        Svc.tryLoadRoom("user_unlocked")
-    }
-}
+object SyncWindow {
+    @Volatile var lastAttemptMs = 0L
+    @Volatile var lastOkMs = 0L
+    @Volatile var running = false
 
-/**
- * A clock correction was previously noticed up to an hour late, via the tick. A backwards
- * jump could then invent a fortnight of missed alarms; a forward one could hide real
- * misses for years.
- */
-class TimeChangeReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        Boot.ensure(ctx)
-        ClockObserver.poll()
-        Svc.log("time_changed", "action" to (intent.action ?: "?"))
-        Svc.recompute("time_changed")
+    fun run(ctx: Context) {
+        if (Svc.settings.role != Role.ALARM) { ClockObserver.poll(); return }
+        if (Svc.session != null || Svc.testActive || running) return
+        running = true
+        lastAttemptMs = System.currentTimeMillis()
+        Thread({
+            runCatching {
+                val hadGroup = Group.running
+                if (hadGroup) {
+                    Svc.log("sync_group_down")
+                    Group.stop(ctx)
+                    Thread.sleep(3_000)
+                }
+                // Give Android a moment to reassociate with home Wi-Fi, then read time.
+                repeat(12) {
+                    if (Svc.session != null) return@runCatching
+                    ClockObserver.poll()
+                    if (ClockObserver.healthy()) return@repeat
+                    Thread.sleep(5_000)
+                }
+                if (ClockObserver.healthy()) {
+                    lastOkMs = System.currentTimeMillis()
+                    Svc.log("sync_ok", "offsetMs" to ClockObserver.offsetMs.toString())
+                } else {
+                    Svc.log("sync_fail", "source" to ClockObserver.source)
+                }
+                if (hadGroup) {
+                    Group.start(ctx, Svc.settings)
+                    Svc.log("sync_group_up")
+                }
+            }.onFailure { Svc.log("sync_error", "error" to it.toString()) }
+            running = false
+        }, "sync-window").start()
     }
 }
 
