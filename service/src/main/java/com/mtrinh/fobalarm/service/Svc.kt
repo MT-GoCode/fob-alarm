@@ -21,6 +21,9 @@ import java.util.concurrent.Executors
  */
 object Svc : AlarmHost {
 
+    /** Documented in the README. Change it in Settings. */
+    const val DEFAULT_PASSWORD = "12345678"
+
     lateinit var app: Context; private set
     lateinit var de: DeMirror; private set
     private lateinit var db: Db
@@ -78,6 +81,15 @@ object Svc : AlarmHost {
             vibrate = de.vibrate,
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
+
+        // Gated from the very first run. Changeable in Settings; never gates dismiss.
+        if (state.settings.passwordHash == null) {
+            val salt = Auth.newSalt()
+            state = state.copy(settings = state.settings.copy(
+                passwordHash = Auth.hash(DEFAULT_PASSWORD, salt), passwordSalt = salt))
+            log("default_password_set")
+        }
+
         recompute("init:de")
 
         // Then bring up Room off-thread and recompute again once latches, the override
@@ -241,6 +253,7 @@ object Svc : AlarmHost {
             settings = state.settings,
             lastEvents = recentEvents(10),
             peerBlockers = peerBlockers,
+            lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
         )
     }
 

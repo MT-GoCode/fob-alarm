@@ -44,6 +44,11 @@ class MainActivity : ComponentActivity() {
     private fun refreshGates() {
         GateEval.invalidateSlowChecks()
         GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
+        // The controller renders the ALARM phone's snapshot, so its own permission
+        // state has to be supplied separately or its rows describe the wrong device.
+        if (::app.isInitialized) {
+            app.localGates = GateEval.current(this, Svc.settings, Svc.lastNextFire != null)
+        }
         // Re-evaluating the gates is not enough: the screen renders the SNAPSHOT, which
         // only re-polls every 20s while idle. Pull a fresh one so a permission you just
         // granted turns green now instead of when you happen to navigate.
@@ -85,21 +90,21 @@ class MainActivity : ComponentActivity() {
                         title = { Text("Find this toggle") },
                         text = {
                             Column {
-                                Text("On the page that just opened, scroll to:", fontSize = 13.sp)
-                                Spacer(Modifier.height(8.dp))
-                                Text("\"Pause app activity if unused\"", fontSize = 15.sp,
+                                Text("On the page that just opened, scroll to:", fontSize = T.label)
+                                Spacer(Modifier.height(S.sm))
+                                Text("\"Pause app activity if unused\"", fontSize = T.body,
                                     fontWeight = FontWeight.Bold)
                                 Text("(some phones call it \"Remove permissions if app is " +
                                      "unused\" or \"Manage app if unused\")",
-                                    fontSize = 12.sp, color = Muted)
-                                Spacer(Modifier.height(10.dp))
-                                Text("Turn it OFF, then come back here.", fontSize = 13.sp)
-                                Spacer(Modifier.height(10.dp))
+                                    fontSize = T.caption, color = Muted)
+                                Spacer(Modifier.height(S.sm))
+                                Text("Turn it OFF, then come back here.", fontSize = T.label)
+                                Spacer(Modifier.height(S.sm))
                                 Text("Why: Android force-stops apps you have not opened in " +
                                      "a few months. This phone lives in a box and is never " +
                                      "opened, so without this the alarm eventually stops " +
                                      "firing with no warning.",
-                                    fontSize = 11.sp, color = Muted)
+                                    fontSize = T.caption, color = Muted)
                             }
                         },
                         confirmButton = {
@@ -136,7 +141,11 @@ class MainActivity : ComponentActivity() {
                                                 com.mtrinh.fobalarm.data.Wire.backupToJson(b).toString())
                                         }
                                     }) else null,
-                                ).also { it.startPolling() }
+                                ).also {
+                                    it.startPolling()
+                                    it.localGates = GateEval.current(
+                                        this@MainActivity, Svc.settings, Svc.lastNextFire != null)
+                                }
                             }
                             // A ring on the other phone must WAKE this one. Otherwise at
                             // 04:00 you walk into a dark, locked phone and the only
@@ -290,13 +299,13 @@ class MainActivity : ComponentActivity() {
         var pw by remember { mutableStateOf("") }
 
         Section("Pairing", "Both phones must use the same name and passphrase.")
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(ssid, { ssid = it }, label = { Text("Name (starts DIRECT-)", fontSize = 12.sp) },
+        Spacer(Modifier.height(S.sm))
+        OutlinedTextField(ssid, { ssid = it }, label = { Text("Name (starts DIRECT-)", fontSize = T.caption) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8-63)", fontSize = 12.sp) },
+        Spacer(Modifier.height(S.sm))
+        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8-63)", fontSize = T.caption) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(S.sm))
         Button(onClick = { confirm = true },
             enabled = pass.length in 8..63 && ssid.isNotBlank()) { Text("Apply credentials") }
 
@@ -318,11 +327,11 @@ class MainActivity : ComponentActivity() {
                 dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(S.sm))
         Section("Ringtone", "A built-in tone is used unless you choose a file.")
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (Svc.settings.ringtoneUri != null) "Your file" else "Built-in tone",
-                fontSize = 15.sp, modifier = Modifier.weight(1f))
+                fontSize = T.body, modifier = Modifier.weight(1f))
             TextButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
             if (Svc.settings.ringtoneUri != null) {
                 TextButton(onClick = {
@@ -341,17 +350,17 @@ class MainActivity : ComponentActivity() {
 
         if (hasPw) {
             OutlinedTextField(current, { current = it; err = null },
-                label = { Text("Current password", fontSize = 12.sp) },
+                label = { Text("Current password", fontSize = T.caption) },
                 visualTransformation = PasswordVisualTransformation(), singleLine = true,
                 modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(S.sm))
         }
         OutlinedTextField(pw, { pw = it; err = null },
-            label = { Text(if (hasPw) "New password" else "Set a password", fontSize = 12.sp) },
+            label = { Text(if (hasPw) "New password" else "Set a password", fontSize = T.caption) },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth())
-        err?.let { Text(it, color = Bad, fontSize = 12.sp) }
-        Spacer(Modifier.height(10.dp))
+        err?.let { Text(it, color = Bad, fontSize = T.caption) }
+        Spacer(Modifier.height(S.sm))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
@@ -360,7 +369,7 @@ class MainActivity : ComponentActivity() {
                         .onFailure { err = "Current password is wrong" }
                 },
                 enabled = pw.length >= 4 && (!hasPw || current.isNotBlank())
-            ) { Text(if (hasPw) "Change" else "Set", fontSize = 13.sp) }
+            ) { Text(if (hasPw) "Change" else "Set", fontSize = T.label) }
             if (hasPw) {
                 OutlinedButton(
                     onClick = {
@@ -369,15 +378,15 @@ class MainActivity : ComponentActivity() {
                             .onFailure { err = "Current password is wrong" }
                     },
                     enabled = current.isNotBlank()
-                ) { Text("Remove", fontSize = 13.sp) }
+                ) { Text("Remove", fontSize = T.label) }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(S.sm))
         RoleSwitcher()
 
         if (BuildConfig.DEV_CHANNEL) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(S.sm))
             DevChannel()
         }
     }
@@ -394,8 +403,8 @@ class MainActivity : ComponentActivity() {
         var rolePw by remember { mutableStateOf("") }
         var roleErr by remember { mutableStateOf<String?>(null) }
         Section("Role")
-        Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = 12.sp)
-        OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = 12.sp) }
+        Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = T.caption)
+        OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = T.caption) }
         if (asking) {
             val target = if (Svc.settings.role == Role.ALARM) Role.CONTROLLER else Role.ALARM
             AlertDialog(
@@ -404,17 +413,17 @@ class MainActivity : ComponentActivity() {
                 text = {
                     Column {
                         Text("This clears the pairing. Switching the alarm phone to " +
-                             "CONTROLLER stops it ringing entirely.", fontSize = 12.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Type ${target.name} to confirm:", fontSize = 12.sp, color = Muted)
+                             "CONTROLLER stops it ringing entirely.", fontSize = T.caption)
+                        Spacer(Modifier.height(S.sm))
+                        Text("Type ${target.name} to confirm:", fontSize = T.caption, color = Muted)
                         OutlinedTextField(typed, { typed = it }, singleLine = true)
                         if (Svc.settings.passwordHash != null) {
                             OutlinedTextField(rolePw, { rolePw = it; roleErr = null },
-                                label = { Text("Password", fontSize = 12.sp) },
+                                label = { Text("Password", fontSize = T.caption) },
                                 visualTransformation = PasswordVisualTransformation(),
                                 singleLine = true)
                         }
-                        roleErr?.let { Text(it, color = Bad, fontSize = 12.sp) }
+                        roleErr?.let { Text(it, color = Bad, fontSize = T.caption) }
                     }
                 },
                 confirmButton = {
@@ -445,11 +454,11 @@ class MainActivity : ComponentActivity() {
         Section("Dev channel", "Lets this phone fetch new builds from the Mac.")
         Text(if (Updater.devModeOn)
                 "On, closes in " + Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
-             else "Off", fontSize = 13.sp, color = if (Updater.devModeOn) Good else Muted)
+             else "Off", fontSize = T.label, color = if (Updater.devModeOn) Good else Muted)
         var askPw by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { askPw = true }) { Text("Enable 60m", fontSize = 12.sp) }
-            OutlinedButton(onClick = { Updater.disableDevMode() }) { Text("Off", fontSize = 12.sp) }
+            Button(onClick = { askPw = true }) { Text("Enable 60m", fontSize = T.caption) }
+            OutlinedButton(onClick = { Updater.disableDevMode() }) { Text("Off", fontSize = T.caption) }
         }
         if (askPw) {
             var secret by remember { mutableStateOf("") }
@@ -460,11 +469,11 @@ class MainActivity : ComponentActivity() {
                 text = {
                     Column {
                         Text("The phone will listen for builds for 60 minutes.",
-                            fontSize = 12.sp)
+                            fontSize = T.caption)
                         OutlinedTextField(secret, { secret = it; bad = false },
-                            label = { Text("Password", fontSize = 12.sp) },
+                            label = { Text("Password", fontSize = T.caption) },
                             visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                        if (bad) Text("Rejected", color = Bad, fontSize = 12.sp)
+                        if (bad) Text("Rejected", color = Bad, fontSize = T.caption)
                     }
                 },
                 confirmButton = {
@@ -477,12 +486,12 @@ class MainActivity : ComponentActivity() {
                 dismissButton = { TextButton(onClick = { askPw = false }) { Text("Cancel") } })
         }
         OutlinedTextField(ip, { ip = it; Updater.useHost(it) },
-            label = { Text("Mac IP (primary)", fontSize = 12.sp) }, singleLine = true,
+            label = { Text("Mac IP (primary)", fontSize = T.caption) }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
         Button(onClick = { Updater.check(this@MainActivity) { msg = it } },
-            enabled = Updater.devModeOn) { Text("Check for update", fontSize = 12.sp) }
-        Text(msg, fontSize = 11.sp, color = Muted)
-        Text("Last checked ${Fmt.age(Updater.lastCheckAtMs)}", fontSize = 12.sp, color = Muted)
+            enabled = Updater.devModeOn) { Text("Check for update", fontSize = T.caption) }
+        Text(msg, fontSize = T.caption, color = Muted)
+        Text("Last checked ${Fmt.age(Updater.lastCheckAtMs)}", fontSize = T.caption, color = Muted)
     }
 
     /** Controller-side pairing. Must match the alarm phone's group byte for byte. */
@@ -497,25 +506,25 @@ class MainActivity : ComponentActivity() {
             subtitle = "Enter the same group name and passphrase set on the alarm phone.",
             applyInsets = true,
         ) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(S.sm))
             Fact("nearby devices", if (hasPerm) "granted" else "required", hasPerm)
             if (!hasPerm) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(S.xs))
                 Button(onClick = { requestRuntimePermissions() }) { Text("Grant") }
             }
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID", fontSize = 12.sp) },
+            Spacer(Modifier.height(S.sm))
+            OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID", fontSize = T.caption) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = 12.sp) },
+            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(S.sm))
             Button(onClick = { onSet(ssid.trim(), pass) },
                 enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()) { Text("Join group") }
             Fact("status", P2pJoin.status)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(S.md))
             OutlinedButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
-                Text("This is actually the alarm phone", fontSize = 12.sp)
+                Text("This is actually the alarm phone", fontSize = T.caption)
             }
         }
     }
@@ -527,19 +536,19 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Which phone is this?", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(24.dp))
+            Text("Which phone is this?", fontSize = T.title, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(S.lg))
             Button(onClick = { onPick(Role.ALARM) }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
-                Text("ALARM — lives in the box", fontSize = 16.sp)
+                Text("ALARM — lives in the box", fontSize = T.button)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(S.sm))
             Button(onClick = { onPick(Role.CONTROLLER) }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
-                Text("CONTROLLER — the other room", fontSize = 16.sp)
+                Text("CONTROLLER — the other room", fontSize = T.button)
             }
-            Spacer(Modifier.height(16.dp))
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(S.md))
+            Spacer(Modifier.height(S.sm))
             Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
-                fontSize = 11.sp, color = Muted,
+                fontSize = T.caption, color = Muted,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
     }
@@ -548,10 +557,10 @@ class MainActivity : ComponentActivity() {
     private fun CrashScreen() {
         Page(title = "The app crashed", applyInsets = true) {
             Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
-                fontSize = 11.sp, color = Muted)
-            Spacer(Modifier.height(12.dp))
-            Text(Crash.pending ?: "", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.height(16.dp))
+                fontSize = T.caption, color = Muted)
+            Spacer(Modifier.height(S.sm))
+            Text(Crash.pending ?: "", fontSize = T.caption, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.height(S.md))
             Button(onClick = { Crash.clear(this@MainActivity); recreate() }) { Text("Dismiss") }
         }
     }

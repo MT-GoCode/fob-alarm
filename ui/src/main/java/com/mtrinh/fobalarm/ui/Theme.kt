@@ -29,4 +29,4 @@ val Muted = Color(0xFF8A949C)
 
 @Composable
 fun FobTheme(content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme, typography = FobTypography, content = content)

@@ -31,22 +31,22 @@ fun SettingsScreen(
             Text(
                 "Changes save immediately and sync to the other phone. Setting a password " +
                 "locks the settings that could stop the alarm. Dismissing never needs one.",
-                fontSize = 12.sp, color = Muted, modifier = Modifier.padding(14.dp))
+                fontSize = T.caption, color = Muted, modifier = Modifier.padding(14.dp))
         }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(S.md))
 
         // --- password first, because it decides what else is editable ---
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
                     if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
-                    fontSize = 16.sp, fontWeight = FontWeight1, color = if (locked) Bad else Good)
+                    fontSize = T.button, fontWeight = FontWeight1, color = if (locked) Bad else Good)
                 Text(
                     if (!hasPassword) "Anything below can be changed by anyone."
                     else if (locked) "Unlock to change the locked settings."
                     else "Locks again after a couple of minutes.",
-                    fontSize = 12.sp, color = Muted)
+                    fontSize = T.caption, color = Muted)
             }
             if (locked) Button(onClick = { showUnlock = true }) { Text("Unlock") }
         }
@@ -54,22 +54,22 @@ fun SettingsScreen(
         Section("Alarm")
         LockedRow(locked) {
             TimeSetting("Alarm time", s.settings.defaultAlarmTime) { v ->
-                app.patch { it.copy(defaultAlarmTime = v) }
+                app.patch("Alarm time") { it.copy(defaultAlarmTime = v) }
             }
         }
         LockedRow(locked) {
             SliderSetting("Volume", s.settings.alarmVolumePercent,
                 min = Settings.VOLUME_FLOOR, max = 100, step = 5, suffix = "%") { v ->
-                app.patch { it.copy(alarmVolumePercent = v) }
+                app.patch("Volume") { it.copy(alarmVolumePercent = v) }
             }
         }
         LockedRow(locked) {
-            ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch { it.copy(vibrate = v) } }
+            ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch("Vibrate") { it.copy(vibrate = v) } }
         }
         LockedRow(locked) {
             DurationSetting("Give up after", s.settings.maxRingMinutes * 60,
                 minSeconds = 5 * 60, maxSeconds = 4 * 3600) { secs ->
-                app.patch { it.copy(maxRingMinutes = secs / 60) }
+                app.patch("Give up after") { it.copy(maxRingMinutes = secs / 60) }
             }
         }
 
@@ -78,14 +78,14 @@ fun SettingsScreen(
             DurationSetting("Snooze for", s.settings.snoozeSeconds,
                 minSeconds = 10, maxSeconds = Settings.SNOOZE_CEILING_S,
                 allowSeconds = true) { secs ->
-                app.patch { it.copy(snoozeSeconds = secs) }
+                app.patch("Snooze length") { it.copy(snoozeSeconds = secs) }
             }
         }
         LockedRow(locked) {
             ChoiceSetting("Rotation", null,
                 listOf("90°" to 90, "120°" to 120, "180°" to 180, "360°" to 360),
                 s.settings.snoozeThresholdDegrees) { v ->
-                app.patch { it.copy(snoozeThresholdDegrees = v) }
+                app.patch("Rotation") { it.copy(snoozeThresholdDegrees = v) }
             }
         }
 
@@ -101,8 +101,8 @@ fun SettingsScreen(
             }
         }
         app.testMessage?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, fontSize = 13.sp,
+            Spacer(Modifier.height(S.sm))
+            Text(it, fontSize = T.label,
                 color = if (app.testOk) MaterialTheme.colorScheme.primary else Bad)
         }
 
@@ -134,16 +134,16 @@ fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
         AlertDialog(
             onDismissRequest = { explain = false },
             title = { Text("Locked") },
-            text = { Text("Unlock at the top of this screen to change it.", fontSize = 13.sp) },
+            text = { Text("Unlock at the top of this screen to change it.", fontSize = T.label) },
             confirmButton = { TextButton(onClick = { explain = false }) { Text("OK") } })
     }
 }
 
 @Composable
 fun ToggleSetting(label: String, value: Boolean, onSet: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
         Switch(checked = value, onCheckedChange = onSet)
     }
 }

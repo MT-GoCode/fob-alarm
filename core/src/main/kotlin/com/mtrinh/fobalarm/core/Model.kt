@@ -224,6 +224,8 @@ data class Snapshot(
     val lastEvents: List<Event>,
     /** Blocking gates failing on the OTHER phone, reported by it. */
     val peerBlockers: List<String> = emptyList(),
+    /** Last successful exchange between the two phones, either direction. */
+    val lastHeartbeatMs: Long = 0,
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

@@ -40,21 +40,21 @@ fun Page(
         .padding(horizontal = 18.dp)
 
     Column(if (scroll) base.verticalScroll(rememberScrollState()) else base) {
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(S.md))
         title?.let {
-            Text(it, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(2.dp))
+            Text(it, fontSize = T.title, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(S.xs))
         }
         subtitle?.let {
-            Text(it, fontSize = 13.sp, color = subtitleColor)
-            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = T.label, color = subtitleColor)
+            Spacer(Modifier.height(S.xs))
         }
         content()
         if (snapshot != null) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(S.lg))
             VersionBar(snapshot)
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(S.lg))
     }
 }
 
@@ -66,19 +66,19 @@ fun Page(
 @Composable
 fun VersionBar(s: Snapshot) {
     HorizontalDivider(color = Color(0xFF151A1F))
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(S.xs))
     val self = s.self
     val peer = s.peer
     val mismatch = peer != null && peer.appVersion != self.appVersion
     Column {
         Text("THIS PHONE · ${self.role?.name ?: "NO ROLE"} · ${self.appVersion}",
-            fontSize = 11.sp, color = Muted, fontFamily = FontFamily.Monospace)
+            fontSize = T.caption, color = Muted, fontFamily = FontFamily.Monospace)
         Text(
             if (peer == null) "OTHER PHONE · not connected"
             else "OTHER PHONE · ${peer.role?.name ?: "?"} · ${peer.appVersion}",
-            fontSize = 11.sp, color = if (mismatch) Bad else Muted,
+            fontSize = T.caption, color = if (mismatch) Bad else Muted,
             fontFamily = FontFamily.Monospace)
-        if (mismatch) Text("versions differ, update the older phone", fontSize = 11.sp, color = Bad)
+        if (mismatch) Text("versions differ, update the older phone", fontSize = T.caption, color = Bad)
     }
 }
 
@@ -89,10 +89,10 @@ fun VersionBar(s: Snapshot) {
  */
 @Composable
 fun Fact(key: String, value: String, ok: Boolean? = null) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
-        Text(key, fontSize = 12.sp, color = Muted, modifier = Modifier.width(118.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(value, fontSize = 12.sp, modifier = Modifier.weight(1f),
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.Top) {
+        Text(key, fontSize = T.caption, color = Muted, modifier = Modifier.width(118.dp))
+        Spacer(Modifier.width(S.sm))
+        Text(value, fontSize = T.caption, modifier = Modifier.weight(1f),
             color = when (ok) {
                 true -> Good; false -> Bad; null -> MaterialTheme.colorScheme.onSurface
             })
@@ -117,11 +117,11 @@ fun PasswordDialog(
         title = { Text(title) },
         text = {
             Column {
-                body?.let { Text(it, fontSize = 13.sp); Spacer(Modifier.height(8.dp)) }
+                body?.let { Text(it, fontSize = T.label); Spacer(Modifier.height(S.sm)) }
                 OutlinedTextField(secret, { secret = it; failed = false },
-                    label = { Text("Password or recovery code", fontSize = 12.sp) },
+                    label = { Text("Password or recovery code", fontSize = T.caption) },
                     visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                if (failed) Text("Wrong password", color = Bad, fontSize = 12.sp)
+                if (failed) Text("Wrong password", color = Bad, fontSize = T.caption)
             }
         },
         confirmButton = {
@@ -142,11 +142,11 @@ fun PasswordDialog(
 /** Section heading, used by every settings-shaped list. */
 @Composable
 fun Section(title: String, note: String? = null) {
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(S.md))
     HorizontalDivider(color = Color(0xFF1A2026))
-    Spacer(Modifier.height(8.dp))
-    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+    Spacer(Modifier.height(S.sm))
+    Text(title, fontSize = T.label, fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.primary)
-    note?.let { Text(it, fontSize = 11.sp, color = Muted) }
-    Spacer(Modifier.height(4.dp))
+    note?.let { Text(it, fontSize = T.caption, color = Muted) }
+    Spacer(Modifier.height(S.xs))
 }

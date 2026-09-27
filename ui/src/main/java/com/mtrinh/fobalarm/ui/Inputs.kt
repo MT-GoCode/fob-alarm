@@ -36,14 +36,14 @@ fun TimeSetting(
             .let { (it.getOrElse(0) { 4 }) to (it.getOrElse(1) { 0 }) }
     }
 
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 14.sp)
-            help?.let { Text(it, fontSize = 11.sp, color = Muted) }
+            Text(label, fontSize = T.label)
+            help?.let { Text(it, fontSize = T.caption, color = Muted) }
         }
         TextButton(onClick = { open = true }) {
-            Text(value, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(value, fontSize = T.headline, fontWeight = FontWeight.SemiBold)
         }
     }
 
@@ -79,10 +79,10 @@ fun ChoiceSetting(
     value: Int,
     onSet: (Int) -> Unit,
 ) {
-    Column(Modifier.padding(vertical = 8.dp)) {
-        Text(label, fontSize = 14.sp)
-        help?.let { Text(it, fontSize = 11.sp, color = Muted) }
-        Spacer(Modifier.height(6.dp))
+    Column(Modifier.padding(vertical = S.sm)) {
+        Text(label, fontSize = T.label)
+        help?.let { Text(it, fontSize = T.caption, color = Muted) }
+        Spacer(Modifier.height(S.xs))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (text, v) ->
                 // Selected is still tappable: for actions like "nap 20m" the selected
@@ -90,11 +90,11 @@ fun ChoiceSetting(
                 if (v == value) {
                     Button(onClick = { onSet(v) },
                         contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = 12.sp) }
+                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
                 } else {
                     OutlinedButton(onClick = { onSet(v) },
                         contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = 12.sp) }
+                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
                 }
             }
         }
@@ -122,14 +122,14 @@ fun SliderSetting(
     // where it never changed at all.
     LaunchedEffect(value) { live = value }
     val steps = ((max - min) / step - 1).coerceAtLeast(0)
-    Column(Modifier.padding(vertical = 8.dp)) {
+    Column(Modifier.padding(vertical = S.sm)) {
         Row {
-            Text(label, fontSize = 14.sp)
+            Text(label, fontSize = T.label)
             Spacer(Modifier.weight(1f))
-            Text("$live$suffix", fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text("$live$suffix", fontSize = T.body, fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary)
         }
-        help?.let { Text(it, fontSize = 11.sp, color = Muted) }
+        help?.let { Text(it, fontSize = T.caption, color = Muted) }
         Slider(
             value = live.toFloat(),
             onValueChange = { live = (Math.round(it / step) * step).coerceIn(min, max) },
@@ -189,11 +189,11 @@ fun DurationSetting(
     onSet: (Int) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
         TextButton(onClick = { open = true }) {
-            Text(Fmt.duration(totalSeconds * 1000L), fontSize = 18.sp,
+            Text(Fmt.duration(totalSeconds * 1000L), fontSize = T.body,
                 fontWeight = FontWeight.SemiBold)
         }
     }
@@ -214,10 +214,10 @@ fun DurationSetting(
                         NumberBox(m, "m") { m = it; err = null }
                         if (allowSeconds) NumberBox(sec, "s") { sec = it; err = null }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(S.sm))
                     Text("Between ${Fmt.duration(minSeconds * 1000L)} and " +
-                         "${Fmt.duration(maxSeconds * 1000L)}", fontSize = 12.sp, color = Muted)
-                    err?.let { Text(it, color = Bad, fontSize = 12.sp) }
+                         "${Fmt.duration(maxSeconds * 1000L)}", fontSize = T.caption, color = Muted)
+                    err?.let { Text(it, color = Bad, fontSize = T.caption) }
                 }
             },
             confirmButton = {
@@ -248,6 +248,6 @@ private fun NumberBox(value: String, suffix: String, onChange: (String) -> Unit)
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
         )
-        Text(suffix, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp, end = 12.dp))
+        Text(suffix, fontSize = T.body, modifier = Modifier.padding(start = 6.dp, end = 12.dp))
     }
 }

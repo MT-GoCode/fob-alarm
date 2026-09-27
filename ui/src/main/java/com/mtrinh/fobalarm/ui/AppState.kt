@@ -37,6 +37,8 @@ class AppState(
     var dismissUi by mutableStateOf<DismissUi>(DismissUi.Idle); private set
     var token by mutableStateOf<String?>(null); private set
     var history by mutableStateOf<List<Event>>(emptyList()); private set
+    /** This phone's own gates, even when the snapshot describes the other phone. */
+    var localGates by mutableStateOf<Gates?>(null)
 
     /** Ring changes disable the button briefly so a reflexive second tap cannot kill the new alarm. */
     var buttonLockedUntilMs by mutableLongStateOf(0L); private set
@@ -84,7 +86,8 @@ class AppState(
                     }
                     lastRingId = s.ring?.ringId
                 }
-                snapshot = s; lastOkMs = System.currentTimeMillis(); lastError = null
+                snapshot = if (isLocal) s else s.copy(lastHeartbeatMs = System.currentTimeMillis())
+                lastOkMs = System.currentTimeMillis(); lastError = null
             }
             .onFailure { lastError = it.message }
     }
@@ -151,16 +154,18 @@ class AppState(
     /** Called when returning to the app, so a just-granted permission flips immediately. */
     fun refreshNow() { scope.launch { refresh() } }
 
-    fun nap(minutes: Int) = act { client.nap(minutes, UUID.randomUUID().toString()) }
-    fun clearNap() = act { client.clearNap(UUID.randomUUID().toString()) }
-    fun overrideTime(hhmm: String) = act { client.setOverride("TIME", hhmm, null, UUID.randomUUID().toString()) }
-    fun overrideShift(minutes: Int) = act { client.setOverride("TIME", null, minutes, UUID.randomUUID().toString()) }
-    fun overrideSkip() = act { client.setOverride("SKIP", null, null, UUID.randomUUID().toString()) }
-    fun clearOverride() = act { client.clearOverride(UUID.randomUUID().toString()) }
+    fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
+    fun clearNap() = act("Nap") { client.clearNap(UUID.randomUUID().toString()) }
+    fun overrideTime(hhmm: String) = act("Tomorrow") { client.setOverride("TIME", hhmm, null, UUID.randomUUID().toString()) }
+    fun overrideShift(minutes: Int) = act("Tomorrow") { client.setOverride("TIME", null, minutes, UUID.randomUUID().toString()) }
+    fun overrideSkip() = act("Skip tomorrow") { client.setOverride("SKIP", null, null, UUID.randomUUID().toString()) }
+    fun clearOverride() = act("Tomorrow") { client.clearOverride(UUID.randomUUID().toString()) }
 
-    fun patch(edit: (Settings) -> Settings) {
+    fun patch(label: String = "Setting", edit: (Settings) -> Settings) {
         val s = snapshot ?: return
-        act { client.patchSettings(s.stateVersion, edit(s.settings), UUID.randomUUID().toString(), token) }
+        act(label) {
+            client.patchSettings(s.stateVersion, edit(s.settings), UUID.randomUUID().toString(), token)
+        }
     }
 
     fun unlock(secret: String, onResult: (Boolean) -> Unit) {
@@ -181,19 +186,29 @@ class AppState(
 
     private fun act(label: String = "Setting", block: suspend () -> Result<Snapshot>) {
         scope.launch {
-            syncMessage = "Saving…"; syncOk = true
+            syncMessage = "$label…"; syncOk = true
+            // 5s deadline: a change that has not landed by then is reported as failed
+            // rather than left spinning.
+            val timeout = launch {
+                delay(5000)
+                if (syncMessage != null && syncMessage!!.endsWith("…")) {
+                    syncOk = false; syncMessage = "$label not saved, no reply"
+                }
+            }
             block()
                 .onSuccess {
+                    timeout.cancel()
                     snapshot = it; lastOkMs = System.currentTimeMillis(); lastError = null
-                    syncOk = true; syncMessage = "Saved"
+                    syncOk = true; syncMessage = "$label synced"
                     delay(1800); syncMessage = null
                 }
                 .onFailure { e ->
+                    timeout.cancel()
                     syncOk = false
                     syncMessage = when (e) {
-                        is ClientError.Forbidden -> "Not saved: unlock first"
-                        is ClientError.Conflict -> "Not saved: changed elsewhere"
-                        else -> "Not saved: alarm phone unreachable"
+                        is ClientError.Forbidden -> "$label not saved, unlock first"
+                        is ClientError.Conflict -> "$label not saved, changed elsewhere"
+                        else -> "$label not saved, other phone unreachable"
                     }
                     lastError = syncMessage
                     if (e is ClientError.Conflict) snapshot = e.snapshot

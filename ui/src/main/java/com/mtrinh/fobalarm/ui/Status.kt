@@ -26,11 +26,11 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
         Column(Modifier.weight(1f)) {
             Text(
                 if (s.nextFire != null) Fmt.absolute(s.nextFire!!.atMs) else "No alarm set",
-                fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                fontSize = T.title, fontWeight = FontWeight.Bold,
                 color = if (willRing) MaterialTheme.colorScheme.onSurface else Bad)
             Text(
                 if (s.nextFire != null) Fmt.until(s.nextFire!!.atMs, nowMs) else "nothing scheduled",
-                fontSize = 15.sp, color = Muted)
+                fontSize = T.body, color = Muted)
         }
         IconButton(onClick = onReload) {
             Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -39,27 +39,27 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
 
     // --- anything that would stop it ringing, on EITHER phone ---------------
     if (myBlockers.isNotEmpty() || peerBlockers.isNotEmpty()) {
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(S.sm))
         Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
             Column(Modifier.padding(14.dp)) {
-                Text("The alarm will not ring", fontSize = 15.sp,
+                Text("The alarm will not ring", fontSize = T.body,
                     fontWeight = FontWeight.Bold, color = Color.Black)
                 myBlockers.forEach {
                     Text("This phone: " + (GateInfo.of(it)?.label ?: it),
-                        fontSize = 13.sp, color = Color.Black)
+                        fontSize = T.label, color = Color.Black)
                 }
                 peerBlockers.forEach {
                     Text("Other phone: " + (GateInfo.of(it)?.label ?: it),
-                        fontSize = 13.sp, color = Color.Black)
+                        fontSize = T.label, color = Color.Black)
                 }
-                Text("Open Setup to fix.", fontSize = 12.sp, color = Color.Black)
+                Text("Open Setup to fix.", fontSize = T.caption, color = Color.Black)
             }
         }
     }
 
     // --- one-off changes ----------------------------------------------------
     if (s.tomorrow.kind != "NONE" || s.nap.armed) {
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(S.sm))
         if (s.tomorrow.kind == "SKIP") {
             Fact("tomorrow", "skipped")
         } else if (s.tomorrow.kind != "NONE") {
@@ -82,6 +82,9 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
             if (connected) "connected" else "last heard ${Fmt.age(s.peer!!.lastSeenMs, nowMs)}",
             connected)
         Fact("role", s.peer!!.role?.name ?: "unknown", s.peer!!.role != null)
+        Fact("last heartbeat",
+            if (s.lastHeartbeatMs == 0L) "never" else Fmt.age(s.lastHeartbeatMs, nowMs),
+            connected)
         Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged),
             s.peer!!.batteryPct >= 20)
     }
