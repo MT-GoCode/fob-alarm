@@ -49,11 +49,14 @@ data class GateInfo(
                 "Lets the ring screen appear without unlocking. Granted automatically to " +
                 "alarm apps on Android 14+.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
+            // NOT blocking. It matters on a horizon of months, the setting is buried
+            // under an OEM-dependent name, and there is no reliable deep link to it --
+            // so making it a wall stopped setup dead over something that cannot affect
+            // tonight. It stays visible, and the 22:00 check will keep complaining.
             GateInfo("notHibernating", "Android won't pause this app",
-                "Android pauses apps you have not opened for a few months, which " +
-                "force-stops this one and cancels every alarm silently. Turn OFF " +
-                "\"Pause app activity if unused\".",
-                GateKind.PERMISSION, blocking = true, fix = FixAction.DEEP_LINK),
+                "Only matters after months of not opening the app. Settings > Apps > " +
+                "Fob Alarm > App info, then turn OFF \"Pause app activity if unused\".",
+                GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
             GateInfo("localNetworkPermission", "Nearby devices",
                 "Required to pair the two phones over Wi-Fi Direct.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.REQUEST),
