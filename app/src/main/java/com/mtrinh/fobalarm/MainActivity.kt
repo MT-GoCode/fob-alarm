@@ -265,7 +265,7 @@ class MainActivity : ComponentActivity() {
         // silently doing nothing or dumping the user on a generic page.
         if (!ok) {
             Toast.makeText(this,
-                "This phone has no direct page for that — open Settings and search for it",
+                "This phone has no direct page for that. Open Settings and search for it.",
                 Toast.LENGTH_LONG).show()
         }
     }

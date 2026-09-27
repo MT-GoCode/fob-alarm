@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.data.LocalStateClient
 import com.mtrinh.fobalarm.service.*
 import com.mtrinh.fobalarm.ui.*
@@ -13,7 +12,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 class App : Application() {
 

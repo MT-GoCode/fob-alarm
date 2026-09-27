@@ -2,7 +2,6 @@ package com.mtrinh.fobalarm
 
 import android.content.Context
 import com.mtrinh.fobalarm.service.Svc
-import java.io.File
 
 /** A stack trace nobody can read is not a diagnostic. Persist it, surface it at next launch. */
 object Crash {
