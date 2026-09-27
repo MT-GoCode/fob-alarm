@@ -1,0 +1,238 @@
+package com.mtrinh.fobalarm.service
+
+import android.app.*
+import android.content.Context
+import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.*
+import com.mtrinh.fobalarm.core.*
+
+class RingService : Service(), SensorEventListener {
+
+    companion object {
+        const val CHANNEL_RING = "ring"
+        const val CHANNEL_STATUS = "status"
+        const val NOTIF_ID = 42
+        const val ACTION_STOP = "stop"
+
+        @Volatile var serviceAlive = false
+        @Volatile var rotationDeg: Double = 0.0
+        @Volatile var gyroBiasDps: Double = 0.0
+        @Volatile var gyroStale = false
+        @Volatile var rvStale = false
+        @Volatile var audible: String = "-"
+
+        fun start(ctx: Context) {
+            runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
+                .onFailure {
+                    // Blew the ~10s allowlist window (cold start after OTA, busy disk).
+                    Svc.log("fgs_start_failed", "error" to it.toString())
+                    Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001)
+                    ctx.getSystemService(AlarmManager::class.java).setAlarmClock(
+                        AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 5000,
+                            Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001)),
+                        Scheduler.pi(ctx, Scheduler.ACTION_FIRE, 1001))
+                }
+        }
+
+        fun stop(ctx: Context) {
+            ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_STOP))
+        }
+    }
+
+    private lateinit var audio: Audio
+    private var wakeLock: PowerManager.WakeLock? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var acc: RotationAccumulator? = null
+    private var sm: SensorManager? = null
+    private var lastAccelG = 1.0
+
+    override fun onBind(i: Intent?) = null
+
+    override fun onCreate() {
+        super.onCreate()
+        Boot.ensure(this)
+        audio = Audio(this)
+        createChannels()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) { teardown(); return START_NOT_STICKY }
+
+        // Always take the notification within the allowlist window, whatever else happens.
+        startForeground(NOTIF_ID, ringNotification())
+        serviceAlive = true
+
+        if (Svc.session == null) {
+            // Fired with no session yet: open one through the engine so precedence,
+            // supersede and latching all go through the single code path.
+            val src = runCatching { OccurrenceSource.valueOf(Svc.de.nextFireSource) }
+                .getOrDefault(OccurrenceSource.SCHEDULED)
+            Svc.onTrigger(src)
+        }
+
+        val pm = getSystemService(PowerManager::class.java)
+        if (wakeLock == null) {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:session")
+                .also { it.acquire(4 * 3600_000L) }
+        }
+
+        Scheduler.armWatchdog(this)
+        startGesture()
+
+        if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
+        handler.removeCallbacks(heartbeat)
+        handler.post(heartbeat)
+        showRingUi()
+        return START_STICKY
+    }
+
+    private fun beginAudio() {
+        audio.start(Svc.settings)
+        acc?.reset()
+        rotationDeg = 0.0
+    }
+
+    private fun showRingUi() {
+        runCatching {
+            startActivity(Intent().setClassName(packageName, "com.mtrinh.fobalarm.ui.RingActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        }
+    }
+
+    // ---- the snooze gesture ------------------------------------------------
+
+    private fun startGesture() {
+        if (acc != null) return
+        acc = RotationAccumulator(Svc.settings.snoozeThresholdDegrees)
+        sm = getSystemService(SensorManager::class.java)
+        val rv = sm?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+            ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        rv?.let { sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
+            sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+        sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+    }
+
+    override fun onSensorChanged(e: SensorEvent) {
+        val a = acc ?: return
+        val now = System.currentTimeMillis()
+        when (e.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> {
+                lastAccelG = Math.sqrt(
+                    (e.values[0] * e.values[0] + e.values[1] * e.values[1] +
+                     e.values[2] * e.values[2]).toDouble()) / SensorManager.GRAVITY_EARTH
+            }
+            Sensor.TYPE_GYROSCOPE -> {
+                a.onGyro(e.values[0].toDouble(), e.values[1].toDouble(), e.values[2].toDouble(),
+                    lastAccelG, now)
+                gyroBiasDps = a.gyroBiasDps
+            }
+            Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
+                // Only accumulate while actually RINGING: never while snoozed or idle.
+                if (Svc.session?.phase != RingPhase.RINGING) return
+                val crossed = a.onRotationVector(RotationAccumulator.quatFromSensor(e.values), now)
+                rotationDeg = a.degrees
+                if (crossed) doSnooze()
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+
+    private fun doSnooze() {
+        val s = Svc.session ?: return
+        if (s.phase != RingPhase.RINGING) return
+        Svc.onSnooze()
+        audio.stop()                       // SNOOZED is fully silent: no hum, no pulse
+        acc?.reset(); rotationDeg = 0.0
+    }
+
+    // ---- heartbeat ---------------------------------------------------------
+
+    private val heartbeat = object : Runnable {
+        override fun run() {
+            val s = Svc.session
+            if (s == null) { teardown(); return }
+            val now = System.currentTimeMillis()
+
+            if (now >= s.endsByMs) {
+                audio.stop()
+                Svc.endSession(Outcome.CAPPED)
+                teardown(); return
+            }
+
+            when (s.phase) {
+                RingPhase.SNOOZED -> {
+                    if (s.snoozeUntilMs != null && now >= s.snoozeUntilMs!!) {
+                        Svc.onTrigger(s.trigger)     // re-ring, same session
+                        beginAudio()
+                    }
+                    audible = "snoozed"
+                }
+                RingPhase.RINGING -> {
+                    audio.heartbeat(Svc.settings)
+                    audible = audio.audible
+                }
+            }
+            acc?.let { gyroStale = it.gyroStale(now); rvStale = it.rvStale(now) }
+            Scheduler.armWatchdog(this@RingService)
+            handler.postDelayed(this, 5_000)
+        }
+    }
+
+    private fun teardown() {
+        serviceAlive = false
+        handler.removeCallbacksAndMessages(null)
+        audio.stop()
+        sm?.unregisterListener(this); sm = null; acc = null
+        rotationDeg = 0.0
+        Scheduler.cancelWatchdog(this)
+        runCatching { wakeLock?.release() }; wakeLock = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        serviceAlive = false
+        handler.removeCallbacksAndMessages(null)
+        runCatching { audio.stop() }
+        runCatching { sm?.unregisterListener(this) }
+        runCatching { wakeLock?.release() }
+        super.onDestroy()
+    }
+
+    // ---- notifications -----------------------------------------------------
+
+    private fun createChannels() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CHANNEL_RING, "Alarm ringing",
+            NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(null, null); enableVibration(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        })
+        nm.createNotificationChannel(NotificationChannel(CHANNEL_STATUS, "Status",
+            NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null) })
+    }
+
+    private fun ringNotification(): Notification {
+        val full = PendingIntent.getActivity(this, 0,
+            Intent().setClassName(packageName, "com.mtrinh.fobalarm.ui.RingActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return Notification.Builder(this, CHANNEL_RING)
+            .setContentTitle("Alarm ringing")
+            .setContentText("Press to dismiss")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setOngoing(true)
+            .setFullScreenIntent(full, true)
+            .build()
+    }
+}
