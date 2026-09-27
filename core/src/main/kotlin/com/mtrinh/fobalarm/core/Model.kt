@@ -6,7 +6,6 @@ package com.mtrinh.fobalarm.core
 // ---------------------------------------------------------------------------
 
 enum class Role { ALARM, CONTROLLER }
-enum class Variant { DEV, LIVE }
 
 data class Settings(
     val role: Role? = null,
@@ -192,7 +191,7 @@ data class ApView(
 )
 data class DeviceView(
     val batteryPct: Int, val plugged: Boolean, val appVersion: String,
-    val variant: Variant, val role: Role?, val deviceId: String, val lastSeenMs: Long = 0,
+    val role: Role?, val deviceId: String, val lastSeenMs: Long = 0,
 )
 data class TomorrowView(val kind: String, val timeMs: Long?, val replacesMs: Long?)
 data class NapView(val armed: Boolean, val atMs: Long?)

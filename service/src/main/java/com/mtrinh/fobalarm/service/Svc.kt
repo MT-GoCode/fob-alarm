@@ -42,7 +42,6 @@ object Svc : AlarmHost {
     @Volatile var armGate: ArmGate? = null
     @Volatile var bootedAtMs: Long = 0
     @Volatile var appVersion: String = "?"
-    @Volatile var variant: Variant = Variant.LIVE
     @Volatile private var unlockTokenValue: String? = null
     /** Self-expiring: a stale token must read as locked, not as enabled-but-failing. */
     val unlockToken: String?
@@ -61,11 +60,10 @@ object Svc : AlarmHost {
     val settings: Settings get() = state.settings
     val session: RingSession? get() = state.session
 
-    fun init(ctx: Context, version: String, variant: Variant) {
+    fun init(ctx: Context, version: String) {
         if (this::app.isInitialized) return
         app = ctx.applicationContext
         appVersion = version
-        this.variant = variant
         bootedAtMs = System.currentTimeMillis() - SystemClock.elapsedRealtime()
         de = DeMirror(app)
         if (de.deviceId == null) de.deviceId = UUID.randomUUID().toString()
@@ -316,7 +314,7 @@ object Svc : AlarmHost {
         return DeviceView(
             batteryPct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
             plugged = (batt?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,
-            appVersion = appVersion, variant = variant,
+            appVersion = appVersion,
             role = state.settings.role, deviceId = de.deviceId ?: "?",
             lastSeenMs = System.currentTimeMillis()).also {
             selfCache = it; selfCacheAtMs = System.currentTimeMillis()
@@ -549,6 +547,7 @@ object Scheduler {
     const val ACTION_TICK = "com.mtrinh.fobalarm.TICK"
     const val ACTION_ARMGATE = "com.mtrinh.fobalarm.ARMGATE"
     const val ACTION_DISMISS = "com.mtrinh.fobalarm.DISMISS"
+    const val ACTION_TEST = "com.mtrinh.fobalarm.TEST"
 
     fun pi(ctx: Context, action: String, rc: Int): PendingIntent = PendingIntent.getBroadcast(
         ctx, rc, Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName),
@@ -577,9 +576,9 @@ object Scheduler {
     /** Separate request code from the scheduled fire, so a retry cannot clobber it. */
     fun armFireRetry(ctx: Context) = set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000)
 
-    /** Also its own request code: a test must never overwrite the real alarm. */
+    /** Its own ACTION and request code: a test can neither overwrite nor become a real alarm. */
     fun armTestFire(ctx: Context, seconds: Int) =
-        set(ctx, ACTION_FIRE, 1006, System.currentTimeMillis() + seconds * 1000L)
+        set(ctx, ACTION_TEST, 1006, System.currentTimeMillis() + seconds * 1000L)
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 

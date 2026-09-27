@@ -12,9 +12,8 @@ import com.mtrinh.fobalarm.core.*
 /** One place that guarantees Svc is up, whatever entry point woke the process. */
 object Boot {
     @Volatile private var version = "?"
-    @Volatile private var variant = Variant.LIVE
-    fun configure(v: String, va: Variant) { version = v; variant = va }
-    fun ensure(ctx: Context) = Svc.init(ctx, version, variant)
+    fun configure(v: String) { version = v }
+    fun ensure(ctx: Context) = Svc.init(ctx, version)
 }
 
 class AlarmReceiver : BroadcastReceiver() {
@@ -32,6 +31,8 @@ class AlarmReceiver : BroadcastReceiver() {
                     Svc.log("alarm_fired")
                     RingService.start(ctx)
                 }
+                // A test that arrives after its window has lapsed simply does nothing.
+                Scheduler.ACTION_TEST -> if (Svc.de.pendingTest) RingService.start(ctx)
                 Scheduler.ACTION_WATCHDOG -> {
                     if (Svc.session != null) {
                         Svc.log("watchdog_resurrect")

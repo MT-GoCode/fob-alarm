@@ -425,10 +425,6 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(S.sm))
         RoleSwitcher()
 
-        if (BuildConfig.DEV_CHANNEL) {
-            Spacer(Modifier.height(S.sm))
-            DevChannel()
-        }
     }
 
     /**
@@ -487,53 +483,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    private fun DevChannel() {
-        var ip by remember { mutableStateOf(Updater.host ?: "") }
-        var msg by remember { mutableStateOf(Updater.status) }
-        Section("Dev channel", "Lets this phone fetch new builds from the Mac.")
-        Text(if (Updater.devModeOn)
-                "On, closes in " + Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
-             else "Off", fontSize = T.label, color = if (Updater.devModeOn) Good else Muted)
-        var askPw by remember { mutableStateOf(false) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { askPw = true }) { Text("Enable 60m", fontSize = T.caption) }
-            OutlinedButton(onClick = { Updater.disableDevMode() }) { Text("Off", fontSize = T.caption) }
-        }
-        if (askPw) {
-            var secret by remember { mutableStateOf("") }
-            var bad by remember { mutableStateOf(false) }
-            AlertDialog(
-                onDismissRequest = { askPw = false },
-                title = { Text("Open the dev channel?") },
-                text = {
-                    Column {
-                        Text("The phone will listen for builds for 60 minutes.",
-                            fontSize = T.caption)
-                        OutlinedTextField(secret, { secret = it; bad = false },
-                            label = { Text("Password", fontSize = T.caption) },
-                            visualTransformation = PasswordVisualTransformation(), singleLine = true)
-                        if (bad) Text("Rejected", color = Bad, fontSize = T.caption)
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        if (Updater.enableDevMode(secret)) {
-                            Updater.discover(this@MainActivity); askPw = false
-                        } else bad = true
-                    }) { Text("Enable") }
-                },
-                dismissButton = { TextButton(onClick = { askPw = false }) { Text("Cancel") } })
-        }
-        OutlinedTextField(ip, { ip = it; Updater.useHost(it) },
-            label = { Text("Mac IP (primary)", fontSize = T.caption) }, singleLine = true,
-            modifier = Modifier.fillMaxWidth())
-        Button(onClick = { Updater.check(this@MainActivity) { msg = it } },
-            enabled = Updater.devModeOn) { Text("Check for update", fontSize = T.caption) }
-        Text(msg, fontSize = T.caption, color = Muted)
-        Text("Last checked ${Fmt.age(Updater.lastCheckAtMs)}", fontSize = T.caption, color = Muted)
-    }
-
     /** Controller-side pairing. Must match the alarm phone's group byte for byte. */
     @Composable
     private fun ControllerSetup(onSet: (String, String) -> Unit) {
@@ -587,7 +536,7 @@ class MainActivity : ComponentActivity() {
             }
             Spacer(Modifier.height(S.md))
             Spacer(Modifier.height(S.sm))
-            Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
+            Text(BuildConfig.VERSION_NAME,
                 fontSize = T.caption, color = Muted,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
@@ -596,7 +545,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun CrashScreen() {
         Page(title = "The app crashed", applyInsets = true) {
-            Text("${BuildConfig.VARIANT.lowercase()} ${BuildConfig.VERSION_NAME}",
+            Text(BuildConfig.VERSION_NAME,
                 fontSize = T.caption, color = Muted)
             Spacer(Modifier.height(S.sm))
             Text(Crash.pending ?: "", fontSize = T.caption, fontFamily = FontFamily.Monospace)

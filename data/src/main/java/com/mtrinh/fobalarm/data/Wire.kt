@@ -84,7 +84,7 @@ object Wire {
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
         .put("batteryPct", d.batteryPct).put("plugged", d.plugged)
-        .put("appVersion", d.appVersion).put("variant", d.variant.name)
+        .put("appVersion", d.appVersion)
         .put("role", d.role?.name ?: JSONObject.NULL).put("deviceId", d.deviceId)
         .put("lastSeenMs", d.lastSeenMs)
 
@@ -92,7 +92,6 @@ object Wire {
         batteryPct = o.optInt("batteryPct", -1),
         plugged = o.optBoolean("plugged", false),
         appVersion = o.optString("appVersion", "?"),
-        variant = runCatching { Variant.valueOf(o.optString("variant")) }.getOrDefault(Variant.LIVE),
         role = o.optString("role").takeIf { it.isNotEmpty() && it != "null" }
             ?.let { runCatching { Role.valueOf(it) }.getOrNull() },
         deviceId = o.optString("deviceId", "?"),

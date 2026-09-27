@@ -2,24 +2,22 @@
 # Build a signed APK, serve it on the LAN, advertise it, print a QR to scan.
 # No ADB anywhere in this path. See SPEC.md section 13.
 #
-#   ./ship          -> dev  flavour (update channel + debug screen compiled in)
-#   ./ship live     -> live flavour (both compiled out)
+# One APK. There is no dev/live split any more: the in-app updater it existed for was
+# deleted (a LAN-fed install path that could commit a package mid-ring).
 set -euo pipefail
 cd "$(dirname "$0")"
-export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
+export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.apps/Contents/jbr/Contents/Home}"
+export JAVA_HOME="${JAVA_HOME/Android Studio.apps/Android Studio.app}"
 
-FLAVOR="${1:-dev}"
-case "$FLAVOR" in
-  dev)  TASK=":app:assembleDevRelease";  APK=app/build/outputs/apk/dev/release/app-dev-release.apk ;;
-  live) TASK=":app:assembleLiveRelease"; APK=app/build/outputs/apk/live/release/app-live-release.apk ;;
-  *) echo "usage: ./ship [dev|live]" >&2; exit 1 ;;
-esac
+TASK=":app:assembleRelease"
+APK=app/build/outputs/apk/release/app-release.apk
+FLAVOR="release"
 PORT=8000
 
 echo "==> core tests (the whole state machine, no phone needed)"
 ./gradlew --no-daemon :core:test -q
 
-echo "==> building $FLAVOR"
+echo "==> building"
 ./gradlew --no-daemon "$TASK" -q
 
 AAPT=$(ls -d "$HOME"/Library/Android/sdk/build-tools/* | sort -V | tail -1)/aapt2
@@ -59,19 +57,6 @@ cat > .serve/manifest.json <<EOF
 {"versionCode":$VC,"versionName":"$VN","flavor":"$FLAVOR","sha256":"$SHA","url":"$URL","builtAt":$(date +%s000)}
 EOF
 
-# mDNS is the convenience layer, not the primary mechanism. macOS 26 gates Bonjour per
-# app, so verify the advertisement rather than assuming it worked.
-if command -v dns-sd >/dev/null 2>&1; then
-  dns-sd -R alarmdev _alarmdev._tcp local $PORT >/dev/null 2>&1 &
-  DNSPID=$!
-  trap 'kill $DNSPID 2>/dev/null || true' EXIT
-  sleep 1
-  if ! timeout 3 dns-sd -B _alarmdev._tcp local 2>/dev/null | grep -q alarmdev; then
-    echo "    note: mDNS advertisement not visible. System Settings -> Privacy & Security"
-    echo "          -> Local Network -> enable for your terminal. Use the manual IP below."
-  fi
-fi
-
 echo "==> serving $FLAVOR $VN ($VC) at $URL"
 echo "    sha256 $SHA"
 echo "    archived releases/fobalarm-$FLAVOR-$VN-$VC.apk"
@@ -85,7 +70,6 @@ echo "    ${IP%.*}. then join it to the same Wi-Fi, or use the phone's hotspot"
 echo "    and connect this Mac to that instead, then re-run ./ship."
 echo
 echo "    Phone: Chrome -> scan/open the URL -> download -> install."
-echo "    Update instead: debug screen -> enable dev mode -> Mac IP $IP -> Check for update."
 echo "    Logs from here:  ./logs <phone-ip>"
 echo "    Ctrl-C to stop."
 cd .serve && exec "$JAVA_HOME/bin/jwebserver" -b 0.0.0.0 -p $PORT -d "$PWD"

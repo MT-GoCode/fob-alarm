@@ -6,7 +6,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.mtrinh.fobalarm.core.Role
-import com.mtrinh.fobalarm.core.Variant
 import com.mtrinh.fobalarm.data.LocalStateClient
 import com.mtrinh.fobalarm.service.*
 import com.mtrinh.fobalarm.ui.*
@@ -33,8 +32,7 @@ class App : Application() {
             prev?.uncaughtException(t, e)
         }
 
-        Boot.configure(BuildConfig.VERSION_NAME,
-            if (BuildConfig.VARIANT == "DEV") Variant.DEV else Variant.LIVE)
+        Boot.configure(BuildConfig.VERSION_NAME)
 
         // Up first and cheap, so that if anything below fails the trace is still
         // readable over http://<phone>:8766/v1/logs -- there is no logcat here.
@@ -56,8 +54,7 @@ class App : Application() {
             runCatching { Audio.ensureBundled(this) }
             runCatching { ClockObserver.poll() }
             runCatching { GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null) }
-            Svc.log("app_start", "version" to BuildConfig.VERSION_NAME,
-                "variant" to BuildConfig.VARIANT)
+            Svc.log("app_start", "version" to BuildConfig.VERSION_NAME)
         }, "fobalarm-init").start()
 
     }

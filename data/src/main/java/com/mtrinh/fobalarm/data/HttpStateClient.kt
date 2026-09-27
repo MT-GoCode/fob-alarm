@@ -76,7 +76,7 @@ class HttpStateClient(
     override suspend fun snapshot(): Result<Snapshot> = runCatching {
         val me = selfProvider()
         val q = "?deviceId=${me.deviceId}&batteryPct=${me.batteryPct}&plugged=${me.plugged}" +
-                "&appVersion=${me.appVersion}&variant=${me.variant.name}" +
+                "&appVersion=${me.appVersion}" +
                 "&blockers=" + localBlockers().joinToString(",")
         withSelf(Wire.snapshotFrom(JSONObject(request("GET", "/v1/snapshot$q"))))
     }

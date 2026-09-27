@@ -33,9 +33,6 @@
          targetSdk 37. Free to declare, load-bearing if Android 17 ever lands. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
-    <!-- dev flavour only; the manifest merger strips nothing, so it is guarded in code too -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 

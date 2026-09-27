@@ -43,23 +43,6 @@ android {
         }
     }
 
-    // Two variants, same applicationId so they replace each other and cannot coexist.
-    // The update channel and debug screen are COMPILED OUT of live: a shipping alarm
-    // that polls a LAN host for executables is a real hole. SPEC.md section 13.
-    flavorDimensions += "channel"
-    productFlavors {
-        create("dev") {
-            dimension = "channel"
-            buildConfigField("boolean", "DEV_CHANNEL", "true")
-            buildConfigField("String", "VARIANT", "\"DEV\"")
-        }
-        create("live") {
-            dimension = "channel"
-            buildConfigField("boolean", "DEV_CHANNEL", "false")
-            buildConfigField("String", "VARIANT", "\"LIVE\"")
-        }
-    }
-
     buildTypes {
         release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("release") }
         debug { signingConfig = signingConfigs.getByName("release") }

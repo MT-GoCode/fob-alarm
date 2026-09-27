@@ -348,7 +348,7 @@ class NagTest {
             0, null, 0, 0.0, 120, 0.0, false, false, "ok") else null,
         clock = ClockView(0, 0, 0, "x", 0),
         ap = ApView(null, true, 1, 0, null),
-        self = DeviceView(90, true, "1", Variant.LIVE, Role.CONTROLLER, "d"),
+        self = DeviceView(90, true, "1", Role.CONTROLLER, "d"),
         peer = null, lastOutcome = null, appVersion = "1", settingsSchemaVersion = 1,
         tomorrow = TomorrowView(if (skip) "SKIP" else "NONE", null, null),
         nap = NapView(false, null), settings = Settings(), lastEvents = emptyList())

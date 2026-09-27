@@ -191,9 +191,6 @@ object Server {
                             batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,
                             plugged = param(path, "plugged") == "true",
                             appVersion = param(path, "appVersion") ?: "?",
-                            variant = runCatching {
-                                com.mtrinh.fobalarm.core.Variant.valueOf(param(path, "variant") ?: "LIVE")
-                            }.getOrDefault(com.mtrinh.fobalarm.core.Variant.LIVE),
                             role = com.mtrinh.fobalarm.core.Role.CONTROLLER,
                             deviceId = id,
                             lastSeenMs = System.currentTimeMillis())
