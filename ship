@@ -1,47 +1,74 @@
 #!/bin/bash
-# Build a signed release APK, serve it on the LAN, print a QR to scan from each phone.
-# No ADB anywhere in this path -- see SPEC.md section 13.
+# Build a signed APK, serve it on the LAN, advertise it, print a QR to scan.
+# No ADB anywhere in this path. See SPEC.md section 13.
+#
+#   ./ship          -> dev  flavour (update channel + debug screen compiled in)
+#   ./ship live     -> live flavour (both compiled out)
 set -euo pipefail
 cd "$(dirname "$0")"
 export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
 
+FLAVOR="${1:-dev}"
+case "$FLAVOR" in
+  dev)  TASK=":app:assembleDevRelease";  APK=app/build/outputs/apk/dev/release/app-dev-release.apk ;;
+  live) TASK=":app:assembleLiveRelease"; APK=app/build/outputs/apk/live/release/app-live-release.apk ;;
+  *) echo "usage: ./ship [dev|live]" >&2; exit 1 ;;
+esac
 PORT=8000
-APK=app/build/outputs/apk/release/app-release.apk
 
-echo "==> building"
-./gradlew --no-daemon :app:assembleRelease -q
+echo "==> core tests (the whole state machine, no phone needed)"
+./gradlew --no-daemon :core:test -q
 
-# Pre-flight: USE_EXACT_ALARM must be in the shipped manifest. If it is missing, Android
-# wipes every setAlarmClock on update and the runtime gate notices far too late.
+echo "==> building $FLAVOR"
+./gradlew --no-daemon "$TASK" -q
+
 AAPT=$(ls -d "$HOME"/Library/Android/sdk/build-tools/* | sort -V | tail -1)/aapt2
+
+# Pre-flight. USE_EXACT_ALARM missing from the shipped manifest means Android wipes every
+# setAlarmClock on update, and the runtime gate notices far too late.
 if ! "$AAPT" dump permissions "$APK" 2>/dev/null | grep -q "android.permission.USE_EXACT_ALARM"; then
   echo "FATAL: USE_EXACT_ALARM missing from built manifest. Refusing to serve." >&2
   exit 1
 fi
 echo "==> pre-flight ok (USE_EXACT_ALARM present)"
 
-mkdir -p .serve
+mkdir -p .serve releases
 cp "$APK" .serve/fobalarm.apk
 VC=$("$AAPT" dump badging "$APK" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+VN=$("$AAPT" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
 SHA=$(shasum -a 256 .serve/fobalarm.apk | cut -d' ' -f1)
 IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
 URL="http://$IP:$PORT/fobalarm.apk"
 
+# Keep the N-1 build: a release-signed APK cannot be downgraded in place, so rolling
+# back means uninstall + reinstall + restore. Never keep only the newest.
+cp "$APK" "releases/fobalarm-$FLAVOR-$VN-$VC.apk"
+
 cat > .serve/manifest.json <<EOF
-{"versionCode":$VC,"sha256":"$SHA","url":"$URL","builtAt":$(date +%s000)}
+{"versionCode":$VC,"versionName":"$VN","flavor":"$FLAVOR","sha256":"$SHA","url":"$URL","builtAt":$(date +%s000)}
 EOF
 
-echo "==> serving $URL"
-echo "    sha256 $SHA"
-echo
-
-if command -v qrencode >/dev/null 2>&1; then
-  qrencode -t ANSIUTF8 "$URL"
-else
-  echo "    (brew install qrencode for a scannable QR -- type the URL for now)"
+# mDNS is the convenience layer, not the primary mechanism. macOS 26 gates Bonjour per
+# app, so verify the advertisement rather than assuming it worked.
+if command -v dns-sd >/dev/null 2>&1; then
+  dns-sd -R alarmdev _alarmdev._tcp local $PORT >/dev/null 2>&1 &
+  DNSPID=$!
+  trap 'kill $DNSPID 2>/dev/null || true' EXIT
+  sleep 1
+  if ! timeout 3 dns-sd -B _alarmdev._tcp local 2>/dev/null | grep -q alarmdev; then
+    echo "    note: mDNS advertisement not visible. System Settings -> Privacy & Security"
+    echo "          -> Local Network -> enable for your terminal. Use the manual IP below."
+  fi
 fi
+
+echo "==> serving $FLAVOR $VN ($VC) at $URL"
+echo "    sha256 $SHA"
+echo "    archived releases/fobalarm-$FLAVOR-$VN-$VC.apk"
 echo
-echo "    On each phone: open Chrome -> go to the URL above -> download -> install."
-echo "    Then pull logs from here with:  ./logs $IP"
-echo "    Ctrl-C to stop serving."
+if command -v qrencode >/dev/null 2>&1; then qrencode -t ANSIUTF8 "$URL"; else echo "    $URL"; fi
+echo
+echo "    Phone: Chrome -> scan/open the URL -> download -> install."
+echo "    Update instead: debug screen -> enable dev mode -> Mac IP $IP -> Check for update."
+echo "    Logs from here:  ./logs <phone-ip>"
+echo "    Ctrl-C to stop."
 cd .serve && exec "$JAVA_HOME/bin/jwebserver" -b 0.0.0.0 -p $PORT -d "$PWD"

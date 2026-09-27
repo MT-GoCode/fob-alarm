@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing leaves this device. The default would sync the database, the password hash
+     and the group passphrase to Drive the moment a Google account was ever added, which
+     is wrong in both directions given the provisioning checklist. Backup is the section
+     14 export instead. -->
+<data-extraction-rules>
+    <cloud-backup><exclude domain="root" /></cloud-backup>
+    <device-transfer><exclude domain="root" /></device-transfer>
+</data-extraction-rules>

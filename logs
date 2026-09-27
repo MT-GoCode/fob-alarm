@@ -1,7 +1,10 @@
 #!/bin/bash
-# logcat replacement: pull the event log straight off a phone over home WiFi.
+# The logcat replacement: pull the event log straight off a phone over home WiFi.
+#   ./logs <ip>           event log
+#   ./logs <ip> state     live snapshot
+#   ./logs <ip> history   full history
 set -euo pipefail
-HOST="${1:?usage: ./logs <phone-ip> [facts|state|logs]}"
+HOST="${1:?usage: ./logs <phone-ip> [logs|state|history]}"
 WHAT="${2:-logs}"
 curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT" | python3 -m json.tool 2>/dev/null \
   || curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT"

@@ -18,9 +18,11 @@ android {
     defaultConfig {
         applicationId = "com.mtrinh.fobalarm"
         minSdk = 31
+        // Do NOT raise targetSdk past 36 without re-running the Phase-3 transport spike:
+        // Local Network Protection is triggered by targetSdk 37, not by an OTA.
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     signingConfigs {
@@ -34,14 +36,26 @@ android {
         }
     }
 
+    // Two variants, same applicationId so they replace each other and cannot coexist.
+    // The update channel and debug screen are COMPILED OUT of live: a shipping alarm
+    // that polls a LAN host for executables is a real hole. SPEC.md section 13.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("dev") {
+            dimension = "channel"
+            buildConfigField("boolean", "DEV_CHANNEL", "true")
+            buildConfigField("String", "VARIANT", "\"DEV\"")
+        }
+        create("live") {
+            dimension = "channel"
+            buildConfigField("boolean", "DEV_CHANNEL", "false")
+            buildConfigField("String", "VARIANT", "\"LIVE\"")
+        }
+    }
+
     buildTypes {
-        release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
-        }
-        debug {
-            signingConfig = signingConfigs.getByName("release")
-        }
+        release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("release") }
+        debug { signingConfig = signingConfigs.getByName("release") }
     }
 
     compileOptions {
@@ -49,11 +63,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
 dependencies {
+    implementation(project(":core"))
+    implementation(project(":data"))
+    implementation(project(":service"))
+    implementation(project(":ui"))
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime)
     implementation(libs.activity.compose)
@@ -62,5 +80,5 @@ dependencies {
     implementation(libs.compose.graphics)
     implementation(libs.compose.tooling)
     implementation(libs.compose.material3)
-    implementation(libs.concurrent.futures)
+    implementation(libs.coroutines.android)
 }

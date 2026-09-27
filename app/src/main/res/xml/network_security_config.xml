@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- The Wi-Fi Direct gateway address is dynamic and <domain-config> has no CIDR
+         support, so there is no host to pin. The app makes no other network calls and
+         WPA2 is the boundary, so the blast radius is nil. SPEC.md section 1. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors><certificates src="system" /></trust-anchors>
+    </base-config>
+</network-security-config>

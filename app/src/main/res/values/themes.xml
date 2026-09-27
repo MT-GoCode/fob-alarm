@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws everything; the platform theme only needs to be dark and chromeless
+         so the near-black surfaces are unobtrusive at 3 AM. -->
+    <style name="FobTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#FF07090B</item>
+        <item name="android:statusBarColor">#FF07090B</item>
+        <item name="android:navigationBarColor">#FF07090B</item>
+    </style>
+</resources>

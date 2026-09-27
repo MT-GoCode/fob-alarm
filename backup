@@ -1,0 +1,12 @@
+#!/bin/bash
+# Pull the alarm phone's full state to the Mac and commit it. The alarm phone is the sole
+# source of truth; this is the third copy. See SPEC.md section 14.
+set -euo pipefail
+cd "$(dirname "$0")"
+HOST="${1:?usage: ./backup <alarm-phone-ip>}"
+mkdir -p backups
+OUT="backups/export-$(date +%Y%m%d-%H%M%S).json"
+curl -s --max-time 20 "http://$HOST:8766/v1/state" > "$OUT"
+curl -s --max-time 20 "http://$HOST:8766/v1/history" > "${OUT%.json}-history.json"
+echo "wrote $OUT"
+git add backups && git commit -q -m "backup $(date +%F)" && echo "committed"

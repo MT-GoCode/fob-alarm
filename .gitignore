@@ -6,3 +6,5 @@ keystore.properties
 keystore/
 local.properties
 .DS_Store
+.serve/
+releases/

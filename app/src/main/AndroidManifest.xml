@@ -1,29 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Alarm. USE_EXACT_ALARM is install-time and not user-revocable; SCHEDULE_EXACT_ALARM
-         would be denied-by-default at targetSdk 33+ and would take the systemExempted FGS
-         down with it. See SPEC.md section 3. -->
+    <!-- USE_EXACT_ALARM is install-time and NOT user-revocable. SCHEDULE_EXACT_ALARM
+         would be denied-by-default at targetSdk 33+ and would take the systemExempted
+         foreground service down with it at 04:00. SPEC.md section 3. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Wi-Fi Direct. createGroup requires ACCESS_FINE_LOCATION conditionally, so it is
+         back in the manifest. NEVER pass it to setPermissionGrantState: it is a restricted
+         permission and at targetSdk >= 35 that throws rather than no-opping. -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Inert on API 36 (the gate there is NEARBY_WIFI_DEVICES); becomes the gate at
+         targetSdk 37. Free to declare, load-bearing if Android 17 ever lands. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!-- dev flavour only; the manifest merger strips nothing, so it is guarded in code too -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
 
     <application
         android:name=".App"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@android:drawable/ic_lock_idle_alarm"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@style/FobTheme">
 
         <activity
             android:name=".MainActivity"
@@ -37,27 +59,32 @@
 
         <!-- directBootAware: the ring path must work after a reboot nobody unlocks. -->
         <activity
-            android:name=".RingActivity"
+            android:name="com.mtrinh.fobalarm.ui.RingActivity"
             android:directBootAware="true"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:showOnLockScreen="true"
-            android:turnScreenOn="true" />
+            android:turnScreenOn="true"
+            android:theme="@style/FobTheme" />
 
         <service
-            android:name=".RingService"
+            android:name="com.mtrinh.fobalarm.service.RingService"
             android:directBootAware="true"
             android:exported="false"
-            android:foregroundServiceType="systemExempted" />
+            android:foregroundServiceType="systemExempted|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="alarm_clock_ringing" />
+        </service>
 
         <receiver
-            android:name=".AlarmReceiver"
+            android:name="com.mtrinh.fobalarm.service.AlarmReceiver"
             android:directBootAware="true"
             android:exported="false" />
 
         <receiver
-            android:name=".BootReceiver"
+            android:name="com.mtrinh.fobalarm.service.BootReceiver"
             android:directBootAware="true"
             android:exported="true">
             <intent-filter>
