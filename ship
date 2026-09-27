@@ -41,7 +41,14 @@ BADGING=$("$AAPT" dump badging "$APK" 2>/dev/null || true)
 VC=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
 VN=$(printf '%s' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
 SHA=$(shasum -a 256 .serve/fobalarm.apk | cut -d' ' -f1)
-IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+# Pick the first interface with a real IP, and list the rest: the Mac moving networks
+# is the single most common reason a phone cannot see the build.
+IP=""
+for i in en0 en1 en2 en3 en4 en5 bridge100; do
+  CAND=$(ipconfig getifaddr "$i" 2>/dev/null || true)
+  if [ -n "$CAND" ]; then IP="${IP:-$CAND}"; fi
+done
+[ -n "$IP" ] || { echo "FATAL: no network interface has an IP. Join a network first." >&2; exit 1; }
 URL="http://$IP:$PORT/fobalarm.apk"
 
 # Keep the N-1 build: a release-signed APK cannot be downgraded in place, so rolling
@@ -70,6 +77,12 @@ echo "    sha256 $SHA"
 echo "    archived releases/fobalarm-$FLAVOR-$VN-$VC.apk"
 echo
 if command -v qrencode >/dev/null 2>&1; then qrencode -t ANSIUTF8 "$URL"; else echo "    $URL"; fi
+echo
+ALL=$(ifconfig | awk '/^[a-z]/{i=$1} /inet /{if($2!="127.0.0.1") printf "%s(%s) ", $2, i}')
+echo "    This Mac is reachable at: $ALL"
+echo "    The phone MUST be on the same network. If its IP does not start with"
+echo "    ${IP%.*}. then join it to the same Wi-Fi, or use the phone's hotspot"
+echo "    and connect this Mac to that instead, then re-run ./ship."
 echo
 echo "    Phone: Chrome -> scan/open the URL -> download -> install."
 echo "    Update instead: debug screen -> enable dev mode -> Mac IP $IP -> Check for update."

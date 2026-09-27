@@ -46,7 +46,15 @@ object Server {
         // for the life of the process, making remote dismiss permanently impossible.
         // Both get an outer retry loop.
         var backoffMs = 1_000L
+        var quietFailures = 0
         while (true) {
+            // The P2P address only exists while the group is up. Waiting for it is the
+            // normal state before pairing, not an error worth logging every 15 seconds.
+            if (control && !Group.running) {
+                controlStatus = "waiting for group"
+                Thread.sleep(5_000)
+                continue
+            }
             runCatching {
                 val server = if (control)
                     ServerSocket(port, 50, runCatching { InetAddress.getByName("192.168.49.1") }.getOrNull())
@@ -64,7 +72,11 @@ object Server {
                 }
             }.onFailure {
                 if (control) controlStatus = "retrying: ${it.message}" else logStatus = "retrying: ${it.message}"
-                Svc.log("server_retry", "port" to port.toString(), "error" to it.toString())
+                // Log the first few, then go quiet: a permanently unbindable address
+                // must not bury every other diagnostic on a phone with no logcat.
+                if (quietFailures++ < 3) {
+                    Svc.log("server_retry", "port" to port.toString(), "error" to it.toString())
+                }
             }
             Thread.sleep(backoffMs + (Math.random() * 500).toLong())
             backoffMs = (backoffMs * 2).coerceAtMost(30_000)

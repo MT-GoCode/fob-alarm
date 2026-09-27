@@ -107,9 +107,10 @@ object Svc : AlarmHost {
     // -----------------------------------------------------------------------
 
     private val memTail = ArrayDeque<Event>()
+    private val seqCounter = java.util.concurrent.atomic.AtomicLong(0)
 
     fun log(type: String, vararg kv: Pair<String, String>) {
-        val e = Event(0, System.currentTimeMillis(), type,
+        val e = Event(seqCounter.incrementAndGet(), System.currentTimeMillis(), type,
             Actor.ALARM, state.stateVersion, kv.toMap())
         synchronized(memTail) {
             memTail.addLast(e); while (memTail.size > 200) memTail.removeFirst()

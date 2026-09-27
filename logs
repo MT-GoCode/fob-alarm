@@ -1,10 +1,49 @@
 #!/bin/bash
-# The logcat replacement: pull the event log straight off a phone over home WiFi.
-#   ./logs <ip>           event log
-#   ./logs <ip> state     live snapshot
-#   ./logs <ip> history   full history
-set -euo pipefail
-HOST="${1:?usage: ./logs <phone-ip> [logs|state|history]}"
-WHAT="${2:-logs}"
-curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT" | python3 -m json.tool 2>/dev/null \
-  || curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT"
+# logcat replacement. With no argument, finds both phones on the LAN by the port the
+# app itself listens on -- more reliable than mDNS and needs nothing installed.
+#   ./logs                 discover and summarise both phones
+#   ./logs <ip>            event log
+#   ./logs <ip> state      live snapshot
+set -uo pipefail
+cd "$(dirname "$0")"
+
+discover() {
+  local sub; sub=$(ipconfig getifaddr en0 2>/dev/null | cut -d. -f1-3)
+  [ -n "$sub" ] || { echo "no network" >&2; exit 1; }
+  for i in $(seq 1 254); do
+    ( nc -z -G 1 -w 1 "$sub.$i" 8766 2>/dev/null && echo "$sub.$i" ) &
+  done 2>/dev/null
+  wait
+}
+
+summarise() {
+  curl -s --max-time 8 "http://$1:8766/v1/state" | python3 -c "
+import sys,json
+d=json.load(sys.stdin); s=d.get('self') or {}
+g=d.get('gates') or {}
+bad=[k for k,v in g.items() if v is False and k!='allPass']
+print(f\"  role={s.get('role')} device={(s.get('deviceId') or '')[:8]} mode={d.get('mode')} \"
+      f\"v{d.get('appVersion')} {s.get('variant')} battery={s.get('batteryPct')}% plugged={s.get('plugged')}\")
+print('  failing:', ', '.join(bad) if bad else 'nothing')
+" 2>/dev/null || echo "  (no answer)"
+}
+
+if [ $# -eq 0 ]; then
+  echo "scanning for phones…"
+  for ip in $(discover | sort); do echo "$ip"; summarise "$ip"; done
+  exit 0
+fi
+
+HOST="$1"; WHAT="${2:-logs}"
+curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT" | python3 -c "
+import sys,json
+try: d=json.load(sys.stdin)
+except Exception: print(sys.stdin.read()); sys.exit()
+if isinstance(d,list):
+    for e in d:
+        det=e.get('detail') or {}
+        extra=' '.join(f'{k}={v}' for k,v in det.items())
+        print(f\"{e.get('seq'):>5}  {e.get('type','?'):<26} {extra}\")
+else:
+    print(json.dumps(d, indent=2))
+"

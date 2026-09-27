@@ -173,12 +173,22 @@ object GateEval {
         return true
     }
 
-    /** Vibration is NOT an unconditional backstop: one tap in Settings removes it. */
+    /**
+     * Vibration is NOT an unconditional backstop: one tap in Settings removes it.
+     *
+     * We can only see half of that. `vibrate_on` is readable, but
+     * `alarm_vibration_intensity` is an @hide setting and throws SecurityException from
+     * Android 12 on -- it is restricted to system apps, and there is no public API for
+     * it. So we check what we can and note that intensity is unobservable rather than
+     * throwing on every refresh.
+     */
     private fun vibrationEnabled(ctx: Context): Boolean {
-        val cr = ctx.contentResolver
-        val on = ASettings.System.getInt(cr, "vibrate_on", 1)
-        val intensity = ASettings.System.getInt(cr, "alarm_vibration_intensity", 2)
-        return on == 1 && intensity != 0
+        val hasVibrator = runCatching {
+            ctx.getSystemService(android.os.VibratorManager::class.java).defaultVibrator.hasVibrator()
+        }.getOrDefault(true)
+        val on = runCatching { ASettings.System.getInt(ctx.contentResolver, "vibrate_on", 1) }
+            .getOrDefault(1)
+        return hasVibrator && on == 1
     }
 
     private fun notHibernating(ctx: Context): Boolean = runCatching {
