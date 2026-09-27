@@ -95,23 +95,36 @@ object Server {
         return String(buf, 0, off, Charsets.UTF_8)
     }
 
+    /** One header line, read byte-wise so the body is never swallowed by a decoder. */
+    private fun readLine(input: java.io.InputStream): String? {
+        val out = java.io.ByteArrayOutputStream()
+        while (true) {
+            val b = input.read()
+            if (b < 0) return if (out.size() == 0) null else out.toString("UTF-8")
+            if (b == '\n'.code) {
+                var line = out.toString("UTF-8")
+                if (line.endsWith("\r")) line = line.dropLast(1)
+                return line
+            }
+            out.write(b)
+        }
+    }
+
     private fun handle(ctx: Context, sock: Socket, control: Boolean) = sock.use { s ->
         val raw = java.io.BufferedInputStream(s.getInputStream())
-        val r = BufferedReader(InputStreamReader(raw, Charsets.UTF_8))
-        val request = r.readLine() ?: return@use
+        val request = readLine(raw) ?: return@use
         val parts = request.split(" ")
         val method = parts.getOrElse(0) { "GET" }
         val path = parts.getOrElse(1) { "/" }
 
         var contentLength = 0
         while (true) {
-            val line = r.readLine() ?: break
+            val line = readLine(raw) ?: break
             if (line.isEmpty()) break
-            if (line.startsWith("Content-Length:", true))
+            if (line.startsWith("Content-Length:", true)) {
                 contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+            }
         }
-        // Content-Length is BYTES. Read bytes off the raw stream and decode once --
-        // counting chars made any non-ASCII passphrase block until the socket timeout.
         val body = if (contentLength > 0) readBody(raw, contentLength) else ""
 
         val (code, payload) = if (control) route(ctx, method, path, body) else routeLogs(path)
@@ -130,6 +143,7 @@ object Server {
                 remove("passphrase")
                 remove("ssid")
             }
+            o.optJSONObject("ap")?.remove("ssid")
             o.toString(2)
         }.getOrElse { """{"error":"${it.message}"}""" }
         path.startsWith("/v1/history") -> {
@@ -204,7 +218,7 @@ object Server {
 
                 path.startsWith("/v1/test") && method == "POST" ->
                     200 to Wire.snapshotToJson(
-                        Svc.testRing(o.optBoolean("silent"), rid)).toString()
+                        Svc.testRing(o.optBoolean("silent"), rid, fromController = true)).toString()
 
                 path.startsWith("/v1/unlock") && method == "POST" ->
                     200 to JSONObject().put("token", Svc.unlock(o.getString("secret"))).toString()

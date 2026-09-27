@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.lerp
@@ -117,7 +116,8 @@ fun RotationInstrument(
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("${degrees.toInt()}", fontSize = T.title, fontWeight = FontWeight.Bold,
-                color = active)
+                // Always legible: `active` is for the arc and the trail, not the numeral.
+                color = if (crossed || snoozed) Good else MaterialTheme.colorScheme.onSurface)
             Text("of $threshold", fontSize = T.caption, color = Muted)
             if (stale) Text("SENSOR STALE", fontSize = T.caption, color = Bad)
         }

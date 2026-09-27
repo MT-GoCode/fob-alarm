@@ -249,6 +249,32 @@ verified. The other thirteen were confirmed present by grep, not by assumption.
 This is the third time an edit silently failed to match and was reported as done. Every
 claim in this file is now grep-verified rather than asserted.
 
+## Round 4 findings — all fixed
+
+The unreviewed UI batch was reviewed. Sixteen defects, three critical:
+
+1. **Every control-port POST was broken — remote dismiss was dead.** My own round-2 fix
+   caused it: `BufferedReader.readLine()` pulls up to 8192 bytes off the socket, so the
+   body landed in the decoder and `readBody(raw, …)` then read an already-drained stream
+   and blocked to the 10s timeout. Dismiss, settings, nap, tomorrow, test and unlock all
+   returned transport errors. Headers are now parsed byte-wise; `raw` is never wrapped.
+2. **The test ring never registered sensors.** The test branch returned before
+   `startGesture()`, so the instrument read 0 forever and the whole snooze-during-test
+   path was unreachable dead code. The claim that a test exercises the snooze gesture
+   was false.
+3. **A "ring anyway" fallback had no UI and no dismiss path** — it would have blared for
+   60 minutes in a locked box with nothing able to stop it. The parallel sessionless
+   mode is gone; the engine failing now opens a REAL session, which gets the ring screen,
+   the dismiss button, the watchdog and the DE mirror for free.
+
+Also: a real alarm could render "TEST" with a "STOP TEST" button; snoozing that fallback
+turned the ringtone into a permanent beep; `dismiss` committed the request id before
+validating the ringId, so a rejected stale dismiss replayed as "Dismissed!" while it was
+still ringing; `ringEndMessage` never cleared on the controller and named the wrong
+phone; a test during a real ring hijacked it and leaked a wake lock; a remote test could
+escalate into a real ring that latched an occurrence; the group SSID still leaked via
+`ap.ssid`; and the instrument's primary numeral went grey at rest.
+
 ## Priority order
 
 1. Controller permission rows are dead controls (§5).

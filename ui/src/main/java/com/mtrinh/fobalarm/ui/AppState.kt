@@ -74,8 +74,7 @@ class AppState(
                     client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
                 }
                 val s = snapshot
-                val live = s?.ring != null ||
-                        (s != null && s.testUntilMs > 0 && System.currentTimeMillis() < s.testUntilMs)
+                val live = s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)
                 delay(if (live) fastMs else idleMs)
             }
         }
@@ -109,6 +108,7 @@ class AppState(
                 val r = client.dismiss(ringId, requestId)   // idempotent by content
                 r.onSuccess {
                     snapshot = it; lastOkMs = System.currentTimeMillis()
+                    ringEndMessage = "Alarm dismissed"
                     dismissUi = DismissUi.Dismissed
                     delay(2000); dismissUi = DismissUi.Idle
                     return@launch
@@ -222,10 +222,10 @@ class AppState(
 
     fun reload() { scope.launch { refresh() } }
 
-    var onClearRingEnd: (() -> Unit)? = null
-    fun clearRingEndMessage() { onClearRingEnd?.invoke() }
+    var ringEndMessage by mutableStateOf<String?>(null); private set
+    fun clearRingEndMessage() { ringEndMessage = null }
 
     /** Supplied by :app, which owns the service handle. */
     var onStopTest: (() -> Unit)? = null
-    fun stopTest() { onStopTest?.invoke(); reload() }
+    fun stopTest() { onStopTest?.invoke(); ringEndMessage = "Test stopped"; reload() }
 }

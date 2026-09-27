@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,9 +69,10 @@ fun RootScreen(
         LaunchedEffect(app.syncMessage) {
             app.syncMessage?.let { snackbar.showSnackbar(it) }
         }
-        // "Alarm dismissed" / "Test stopped" on the screen you are returned to.
-        LaunchedEffect(s.ringEndMessage) {
-            s.ringEndMessage?.let { snackbar.showSnackbar(it); app.clearRingEndMessage() }
+        // Announced by the client that performed it, so it shows once, on the right
+        // phone, and cannot persist in a snapshot for days.
+        LaunchedEffect(app.ringEndMessage) {
+            app.ringEndMessage?.let { snackbar.showSnackbar(it); app.clearRingEndMessage() }
         }
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
@@ -127,7 +126,9 @@ fun RingOnlyScreen(app: AppState, s: Snapshot) = RingingScreen(app, s, isAlarmRo
 @Composable
 private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val ring = s.ring
-    val isTest = ring == null
+    // From the test window, never from "no session": a forced ring has no RingView
+    // either, and labelling a real alarm TEST would be the worst possible mislabel.
+    val isTest = s.testUntilMs > s.serverTimeMs
     val snoozed = ring?.phase == RingPhase.SNOOZED
     val now = app.nowMs
     val deg = ring?.rotationDeg ?: app.testRotationDeg

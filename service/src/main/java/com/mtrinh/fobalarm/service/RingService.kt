@@ -25,8 +25,6 @@ class RingService : Service(), SensorEventListener {
         @Volatile var rvStale = false
         @Volatile var audible: String = "-"
         @Volatile var quaternion: DoubleArray? = null
-        /** Non-zero while ringing without an engine session. */
-        @Volatile var sessionlessUntilMs = 0L
 
         fun start(ctx: Context) {
             runCatching { ctx.startForegroundService(Intent(ctx, RingService::class.java)) }
@@ -41,7 +39,6 @@ class RingService : Service(), SensorEventListener {
         }
 
         fun stop(ctx: Context) {
-            sessionlessUntilMs = 0L
             ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_STOP))
         }
     }
@@ -87,6 +84,8 @@ class RingService : Service(), SensorEventListener {
             // losing it turns a silent test into a full-volume siren.
             val silent = Svc.de.testSilent
             Svc.log("test_ring_start", "silent" to silent.toString())
+            startGesture()                    // without this the test has no sensors
+            acc?.reset(); rotationDeg = 0.0; quaternion = null
             val pm0 = getSystemService(PowerManager::class.java)
             wakeLock = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:test")
                 .also { it.acquire(90_000) }
@@ -115,15 +114,14 @@ class RingService : Service(), SensorEventListener {
             // A wrong latch beats silence: never let an engine throw stop the ring.
             runCatching { Svc.onTrigger(src) }
                 .onFailure { Svc.log("trigger_failed", "error" to it.toString()) }
-            val s = Svc.session
-            if (s == null) {
-                // The engine refused to open a session but an alarm was genuinely due.
-                // Ring anyway, for a bounded window, and let the normal path below take
-                // the wake lock and start the heartbeat.
+            if (Svc.session == null) {
+                // The engine refused. Open a REAL session so the ring screen, the
+                // dismiss button, the watchdog and the DE mirror all behave normally --
+                // a parallel "sessionless" mode had none of those.
                 Svc.log("ring_without_session")
-                sessionlessUntilMs = System.currentTimeMillis() +
-                    Svc.settings.maxRingMinutes * 60_000L
+                runCatching { Svc.forceSession(src) }
             }
+            val s = Svc.session
             // A supersede replaces the session under us: restart audio on the new one.
             if (s != null && prev != null && prev != s.ringId) beginAudio()
         }
@@ -137,7 +135,7 @@ class RingService : Service(), SensorEventListener {
         Scheduler.armWatchdog(this)
         startGesture()
 
-        if (Svc.session?.phase == RingPhase.RINGING || sessionlessUntilMs > 0L) beginAudio()
+        if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
         else if (Svc.session == null) {
             // Test ring: no engine session. Read silence from DE, which survives the
             // process hop -- the in-memory flag does not.
@@ -197,8 +195,7 @@ class RingService : Service(), SensorEventListener {
             Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
                 // Only accumulate while actually RINGING: never while snoozed or idle.
                 val engineRinging = Svc.session?.phase == RingPhase.RINGING
-                val testRinging = (Svc.testActive || sessionlessUntilMs > 0L) &&
-                        testSnoozedUntilMs == 0L
+                val testRinging = Svc.testActive && testSnoozedUntilMs == 0L
                 if (!engineRinging && !testRinging) return
                 val q = RotationAccumulator.quatFromSensor(e.values)
                 quaternion = q
@@ -217,7 +214,7 @@ class RingService : Service(), SensorEventListener {
         val s = Svc.session
         if (s == null) {
             // Test ring: snooze it the same way, so the gesture is genuinely testable.
-            if (!Svc.testActive && sessionlessUntilMs == 0L) return
+            if (!Svc.testActive) return
             if (testSnoozedUntilMs > System.currentTimeMillis()) return
             testSnoozedUntilMs = System.currentTimeMillis() + Svc.settings.snoozeSeconds * 1000L
             Svc.log("test_snooze")
@@ -243,25 +240,16 @@ class RingService : Service(), SensorEventListener {
                     Svc.testUntilMs = 0L
                     teardown(); return
                 }
-                if (testSnoozedUntilMs > 0L && now >= testSnoozedUntilMs) {
-                    testSnoozedUntilMs = 0L
-                    audio.start(Svc.settings, silent = Svc.de.testSilent)
+                if (testSnoozedUntilMs > 0L) {
+                    if (now >= testSnoozedUntilMs) {
+                        testSnoozedUntilMs = 0L
+                        audio.start(Svc.settings, silent = Svc.de.testSilent)
+                    }
+                    // Snoozed is silent: never let the heartbeat resurrect a tone.
+                } else if (!Svc.de.testSilent) {
+                    audio.heartbeat(Svc.settings)
                 }
-                if (!Svc.de.testSilent && testSnoozedUntilMs == 0L) audio.heartbeat(Svc.settings)
                 audible = audio.audible
-                handler.postDelayed(this, 5_000)
-                return
-            }
-
-            if (sessionlessUntilMs > 0L) {
-                if (now >= sessionlessUntilMs) {
-                    Svc.log("sessionless_ring_capped")
-                    sessionlessUntilMs = 0L
-                    teardown(); return
-                }
-                audio.heartbeat(Svc.settings)
-                audible = audio.audible
-                Scheduler.armWatchdog(this@RingService)
                 handler.postDelayed(this, 5_000)
                 return
             }
@@ -297,8 +285,8 @@ class RingService : Service(), SensorEventListener {
     @Volatile private var lastStartId = 0
 
     private fun teardown() {
-        sessionlessUntilMs = 0L
         testSnoozedUntilMs = 0L
+        quaternion = null
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
         audio.stop()

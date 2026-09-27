@@ -79,7 +79,6 @@ object Wire {
         put("peerBlockers", JSONArray(s.peerBlockers))
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
-        put("ringEndMessage", s.ringEndMessage ?: JSONObject.NULL)
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -235,7 +234,6 @@ object Wire {
             } ?: emptyList(),
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
-            ringEndMessage = o.optString("ringEndMessage").takeIf { it.isNotEmpty() && it != "null" },
         )
     }
 

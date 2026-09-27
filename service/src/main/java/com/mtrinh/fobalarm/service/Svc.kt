@@ -220,6 +220,25 @@ object Svc : AlarmHost {
 
     fun onSnooze(): Snapshot = synchronized(lock) { apply(Engine.snooze(state, ts), alsoFire = false) }
 
+    /**
+     * Last resort when the engine refuses to open a session but an alarm is genuinely
+     * due. A REAL session, so the ring screen, the dismiss button, the watchdog and the
+     * DE mirror all work exactly as they normally do.
+     */
+    fun forceSession(source: OccurrenceSource): Snapshot = synchronized(lock) {
+        val now = ts.nowMs()
+        val forced = RingSession(
+            ringId = "r-forced-" + UUID.randomUUID().toString().take(6),
+            occurrenceId = OccurrenceId(Engine.localDateOf(now, ts.zone()), source),
+            startedAtMs = now, trigger = source, phase = RingPhase.RINGING,
+            snoozeCount = 0, snoozeUntilMs = null,
+            endsByMs = now + state.settings.maxRingMinutes * 60_000L)
+        state = state.copy(session = forced)
+        de.mirror(state.settings, lastNextFire, forced)
+        log("forced_session", "ringId" to forced.ringId)
+        buildSnapshot()
+    }
+
     fun endSession(outcome: Outcome): Snapshot =
         synchronized(lock) { apply(Engine.endSession(state, ts, outcome), alsoFire = false) }
 
@@ -275,7 +294,6 @@ object Svc : AlarmHost {
                     System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
-            ringEndMessage = lastRingEndMessage,
         )
     }
 
@@ -324,18 +342,16 @@ object Svc : AlarmHost {
         // 04:00 session instead.
         val snap = synchronized(lock) {
             val s = state.session ?: throw StaleRingException(snapshot())
-            commit(requestId)
             if (s.ringId != ringId) {
                 log("stale_dismiss_rejected", "got" to ringId, "have" to s.ringId)
                 throw StaleRingException(snapshot())
             }
+            commit(requestId)        // only once the dismiss is going to happen
             apply(Engine.endSession(state, ts,
                 if (actor == Actor.CONTROLLER) Outcome.DISMISSED_REMOTE else Outcome.DISMISSED_LOCAL),
                 alsoFire = false)
         }
         runCatching { RingService.stop(app) }
-        lastRingEndMessage = if (actor == Actor.CONTROLLER) "Dismissed from the other phone"
-                             else "Alarm dismissed"
         return snap
     }
 
@@ -479,37 +495,37 @@ object Svc : AlarmHost {
      * Test ring. Deliberately NOT an occurrence: no latch, no schedule change, no
      * override, no nap. It cannot consume tomorrow's alarm. SPEC.md section 8.
      */
-    @Volatile var testSilent = false; private set
     /** Non-zero while a test ring is live. A test is NOT an engine session. */
     @Volatile var testUntilMs = 0L
     val testActive: Boolean get() = System.currentTimeMillis() < testUntilMs
 
-    override fun testRing(silent: Boolean, requestId: String): Snapshot {
+    override fun testRing(silent: Boolean, requestId: String): Snapshot =
+        testRing(silent, requestId, fromController = false)
+
+    fun testRing(silent: Boolean, requestId: String, fromController: Boolean): Snapshot {
         if (seen(requestId)) return snapshot()
         // Never while a real alarm is live: the test branch would be skipped and the
         // flag left armed for the next genuine fire.
-        if (state.session != null || testActive) {
+        if (state.session != null || testActive || RingService.serviceAlive) {
             throw IllegalStateException("already ringing")
         }
-        testSilent = silent
+        commit(requestId)
         de.testSilent = silent
         // Short window: long enough to reach the fire, far too short to survive to 04:00.
         de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString())
-        // Immediately. The delay existed for "lock the phone first", which you do not
-        // need when you are standing there watching it.
-        urgent.execute { RingService.start(app) }
+        // Local: start now. Remote: the app is backgrounded with no FGS allowlist, so
+        // go through a test-specific alarm rather than a generic retry that could
+        // become a real ring and latch an occurrence.
+        if (fromController) Scheduler.armTestFire(app, 1)
+        else urgent.execute { RingService.start(app) }
         return snapshot()
     }
-
-    /** Set when a ring ends, so the screen that follows can say what happened. */
-    @Volatile var lastRingEndMessage: String? = null
 
     fun stopTest() {
         testUntilMs = 0L
         de.pendingTestUntilMs = 0L
         RingService.stop(app)
-        lastRingEndMessage = "Test stopped"
         log("test_ring_stopped")
     }
 

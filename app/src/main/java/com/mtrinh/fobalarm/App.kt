@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import com.mtrinh.fobalarm.core.Mode
 import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.core.Variant
 import com.mtrinh.fobalarm.data.LocalStateClient
