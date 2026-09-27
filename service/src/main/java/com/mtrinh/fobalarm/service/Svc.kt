@@ -293,6 +293,7 @@ object Svc : AlarmHost {
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
             problems = runCatching { Health.problems() }.getOrDefault(emptyList()),
+            warnings = runCatching { Health.warnings() }.getOrDefault(emptyList()),
         )
     }
 

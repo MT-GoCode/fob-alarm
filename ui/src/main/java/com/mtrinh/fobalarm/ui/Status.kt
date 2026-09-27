@@ -13,15 +13,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtrinh.fobalarm.core.*
 
-/** Everything worth knowing, in one place, in one order. */
+/**
+ * Answers two questions in two seconds, without reading: will it ring, and can I stop
+ * it from here. Everything else on this screen had to justify itself against that.
+ */
 @Composable
 fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Unit) {
+    val iAmAlarm = s.self.role == Role.ALARM
+    val problems = s.problems
+    val peerMissing = s.peerBlockers.map { GateInfo.of(it)?.label ?: it }
+    val willRing = problems.isEmpty() && s.nextFire != null
 
-    val alarmProblems = s.problems
-    val peerBlockers = s.peerBlockers.map { GateInfo.of(it)?.label ?: it }
-    val willRing = alarmProblems.isEmpty() && s.nextFire != null
-
-    // --- headline -----------------------------------------------------------
+    // --- will it ring, and when ------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -32,74 +35,71 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
                 if (s.nextFire != null) Fmt.until(s.nextFire!!.atMs, nowMs) else "nothing scheduled",
                 fontSize = T.body, color = Muted)
         }
-        IconButton(onClick = onReload) {
-            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-        }
+        IconButton(onClick = onReload) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
+    }
+    Text(if (iAmAlarm) "This is the alarm phone" else "This is the controller",
+        fontSize = T.label, color = Muted)
+
+    // --- can I stop it from here (controller only) -------------------------
+    if (!iAmAlarm) {
+        Spacer(Modifier.height(S.sm))
+        Text(
+            if (connected) "Alarm phone: connected"
+            else "Alarm phone: not reachable" +
+                    (s.peer?.lastSeenMs?.takeIf { it > 0 }?.let { ", last heard ${Fmt.age(it, nowMs)}" } ?: ""),
+            fontSize = T.body, fontWeight = FontWeight.SemiBold,
+            color = if (connected) Good else Bad)
     }
 
-    // --- anything wrong, on either phone, as sentences ---------------------
-    if (alarmProblems.isNotEmpty() || peerBlockers.isNotEmpty()) {
+    // --- anything wrong, as sentences ----------------------------------------
+    if (problems.isNotEmpty() || peerMissing.isNotEmpty()) {
         Spacer(Modifier.height(S.sm))
         Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
             Column(Modifier.padding(S.md)) {
-                Text(if (alarmProblems.isNotEmpty()) "The alarm will not ring" else "Needs attention",
+                Text(if (problems.isNotEmpty()) "The alarm will not ring" else "Needs attention",
                     fontSize = T.body, fontWeight = FontWeight.Bold, color = Color.Black)
-                alarmProblems.forEach { Text(it, fontSize = T.label, color = Color.Black) }
-                peerBlockers.forEach { Text("Controller: missing $it", fontSize = T.label, color = Color.Black) }
+                problems.forEach { Text(it, fontSize = T.label, color = Color.Black) }
+                peerMissing.forEach { Text("Controller is missing: $it", fontSize = T.label, color = Color.Black) }
             }
         }
     }
 
-    // --- one-off changes ----------------------------------------------------
-    if (s.tomorrow.kind != "NONE" || s.nap.armed) {
+    if (s.warnings.isNotEmpty()) {
         Spacer(Modifier.height(S.sm))
-        if (s.tomorrow.kind == "SKIP") {
-            Fact("tomorrow", "skipped")
-        } else if (s.tomorrow.kind != "NONE") {
-            Fact("tomorrow", s.tomorrow.timeMs?.let { Fmt.absolute(it) } ?: "?")
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(S.md)) {
+                s.warnings.forEach { Text(it, fontSize = T.label, color = MaterialTheme.colorScheme.onSurface) }
+            }
         }
-        if (s.nap.armed) Fact("nap", s.nap.atMs?.let { Fmt.until(it, nowMs) } ?: "?")
     }
 
-    val iAmAlarm = s.self.role == Role.ALARM
-    Section("This phone")
-    Fact("role", s.self.role?.name ?: "not set", s.self.role != null)
-    Fact("battery", Fmt.battery(s.self.batteryPct, s.self.plugged), s.self.batteryPct >= 20)
-    // s.ap always describes the ALARM phone, so only show it as "this phone" there.
-    if (iAmAlarm) {
-        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
-        Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
+    // --- one-off changes in force ---------------------------------------------
+    if (s.tomorrow.kind == "SKIP") {
+        Spacer(Modifier.height(S.sm))
+        Text("Next alarm skipped", fontSize = T.body, color = MaterialTheme.colorScheme.primary)
+    } else if (s.tomorrow.kind != "NONE") {
+        Spacer(Modifier.height(S.sm))
+        Text("Next alarm moved once, to " + (s.tomorrow.timeMs?.let { Fmt.absolute(it) } ?: "?"),
+            fontSize = T.body, color = MaterialTheme.colorScheme.primary)
+    }
+    if (s.nap.armed) {
+        Text("Nap: rings " + (s.nap.atMs?.let { Fmt.until(it, nowMs) } ?: "?"),
+            fontSize = T.body, color = MaterialTheme.colorScheme.primary)
     }
 
-    Section("Other phone")
-    if (s.peer == null) {
-        Fact("status", "not connected", false)
-    } else {
-        Fact("status",
-            if (connected) "connected" else "last heard ${Fmt.age(s.peer!!.lastSeenMs, nowMs)}",
-            connected)
-        Fact("role", s.peer!!.role?.name ?: "unknown", s.peer!!.role != null)
-        Fact("last heartbeat",
-            if (s.lastHeartbeatMs == 0L) "never" else Fmt.age(s.lastHeartbeatMs, nowMs),
-            connected)
-        Fact("battery", Fmt.battery(s.peer!!.batteryPct, s.peer!!.plugged),
-            s.peer!!.batteryPct >= 20)
+    // --- what happened last time -------------------------------------------
+    s.lastOutcome?.let {
+        Spacer(Modifier.height(S.sm))
+        val what = when (it.kind) {
+            Outcome.DISMISSED_LOCAL -> "stopped on the alarm phone"
+            Outcome.DISMISSED_REMOTE -> "stopped from the controller"
+            Outcome.CAPPED -> "rang for the full time and was never stopped"
+            Outcome.MISSED -> "was missed"
+            Outcome.SKIPPED -> "was skipped"
+            Outcome.SUPERSEDED -> "was replaced"
+        }
+        Text("Last alarm ${Fmt.absolute(it.atMs)} $what" +
+                (if (it.snoozeCount > 0) ", snoozed ${it.snoozeCount}×" else ""),
+            fontSize = T.label, color = if (it.kind == Outcome.CAPPED || it.kind == Outcome.MISSED) Bad else Muted)
     }
-    if (!iAmAlarm) {
-        Fact("group", if (s.ap.running) "on · ${s.ap.clientCount} connected" else "off", s.ap.running)
-        Fact("name", s.ap.ssid ?: "not set", s.ap.ssid != null)
-    }
-
-    Section("Alarm")
-    Fact("last result", s.lastOutcome?.let {
-        "${it.kind.name.lowercase().replace('_', ' ')} · ${Fmt.absolute(it.atMs)}"
-    } ?: "nothing yet")
-    Fact("ringtone", if (s.settings.ringtoneUri != null) "your file" else "built-in",
-        s.gates.audioPlayable)
-    Fact("volume", "${s.settings.alarmVolumePercent}%" +
-            (if (!s.gates.volumeNotFixed) " · MUTED" else "") +
-            (if (s.settings.vibrate) " · vibrate" else ""), s.gates.volumeNotFixed)
-    Fact("clock synced",
-        if (s.clock.lastSyncOkMs == 0L) "never" else Fmt.age(s.clock.lastSyncOkMs, nowMs),
-        s.clock.lastSyncOkMs != 0L)
 }

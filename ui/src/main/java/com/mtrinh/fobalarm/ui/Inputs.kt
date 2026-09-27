@@ -189,52 +189,60 @@ fun DurationSetting(
     onSet: (Int) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
-        verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
         TextButton(onClick = { open = true }) {
-            Text(Fmt.duration(totalSeconds * 1000L), fontSize = T.body,
-                fontWeight = FontWeight.SemiBold)
+            Text(Fmt.duration(totalSeconds * 1000L), fontSize = T.button, fontWeight = FontWeight.SemiBold)
         }
     }
+    if (open) DurationDialog(label, totalSeconds, minSeconds, maxSeconds, allowSeconds,
+        onCancel = { open = false }) { onSet(it); open = false }
+}
 
-    if (open) {
-        var h by remember { mutableStateOf((totalSeconds / 3600).toString()) }
-        var m by remember { mutableStateOf(((totalSeconds % 3600) / 60).toString()) }
-        var sec by remember { mutableStateOf((totalSeconds % 60).toString()) }
-        var err by remember { mutableStateOf<String?>(null) }
-
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text(label) },
-            text = {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        NumberBox(h, "h") { h = it; err = null }
-                        NumberBox(m, "m") { m = it; err = null }
-                        if (allowSeconds) NumberBox(sec, "s") { sec = it; err = null }
-                    }
-                    Spacer(Modifier.height(S.sm))
-                    Text("Between ${Fmt.duration(minSeconds * 1000L)} and " +
-                         "${Fmt.duration(maxSeconds * 1000L)}", fontSize = T.caption, color = Muted)
-                    err?.let { Text(it, color = Bad, fontSize = T.caption) }
+/** Hours and minutes, bounded with the limit stated rather than silently clamped. */
+@Composable
+fun DurationDialog(
+    title: String,
+    initialSeconds: Int,
+    minSeconds: Int,
+    maxSeconds: Int,
+    allowSeconds: Boolean = false,
+    onCancel: () -> Unit,
+    onSet: (Int) -> Unit,
+) {
+    var h by remember { mutableStateOf((initialSeconds / 3600).toString()) }
+    var m by remember { mutableStateOf(((initialSeconds % 3600) / 60).toString()) }
+    var sec by remember { mutableStateOf((initialSeconds % 60).toString()) }
+    var err by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(title) },
+        text = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NumberBox(h, "h") { h = it; err = null }
+                    NumberBox(m, "m") { m = it; err = null }
+                    if (allowSeconds) NumberBox(sec, "s") { sec = it; err = null }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val total = (h.toIntOrNull() ?: 0) * 3600 +
-                            (m.toIntOrNull() ?: 0) * 60 +
-                            (if (allowSeconds) sec.toIntOrNull() ?: 0 else 0)
-                    when {
-                        total < minSeconds -> err = "Too short. Minimum is ${Fmt.duration(minSeconds * 1000L)}."
-                        total > maxSeconds -> err = "Too long. Maximum is ${Fmt.duration(maxSeconds * 1000L)}."
-                        else -> { onSet(total); open = false }
-                    }
-                }) { Text("Set") }
-            },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
-        )
-    }
+                Spacer(Modifier.height(S.sm))
+                Text("Between ${Fmt.duration(minSeconds * 1000L)} and ${Fmt.duration(maxSeconds * 1000L)}",
+                    fontSize = T.caption, color = Muted)
+                err?.let { Text(it, color = Bad, fontSize = T.caption) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val total = (h.toIntOrNull() ?: 0) * 3600 + (m.toIntOrNull() ?: 0) * 60 +
+                        (if (allowSeconds) sec.toIntOrNull() ?: 0 else 0)
+                when {
+                    total < minSeconds -> err = "Too short. Minimum is ${Fmt.duration(minSeconds * 1000L)}."
+                    total > maxSeconds -> err = "Too long. Maximum is ${Fmt.duration(maxSeconds * 1000L)}."
+                    else -> onSet(total)
+                }
+            }) { Text("Set") }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
 }
 
 @Composable

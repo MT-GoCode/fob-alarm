@@ -432,6 +432,9 @@ class ZombieSessionTest {
             "the stale session absorbed the trigger: the alarm rings for a fraction of a " +
             "second and stops, every morning, forever")
         assertTrue(next.events.none { it.type == "trigger_absorbed" })
+        assertTrue(next.events.any { it.type == "capped" }, "r1 must be recorded as capped")
+        assertTrue(next.state.latches.any { it.id.localDate == "2026-09-26" },
+            "the day r1 belonged to must be latched, or it re-fires")
     }
 
     @Test fun `recompute closes a session that outlived its cap`() {
@@ -446,5 +449,7 @@ class ZombieSessionTest {
         assertNull(r.state.session, "an expired session must be reaped")
         assertEquals(Outcome.CAPPED, r.state.lastOutcome?.kind)
         assertNotNull(r.nextFire)
+        assertNull(r.fireNow, "a reaped session must not ring again today")
+        assertTrue(r.events.none { it.type == "missed" }, "capped is not missed")
     }
 }

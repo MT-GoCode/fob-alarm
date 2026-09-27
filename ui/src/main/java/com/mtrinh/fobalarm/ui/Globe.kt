@@ -29,7 +29,6 @@ fun RotationInstrument(
     degrees: Double,
     threshold: Int,
     quaternion: DoubleArray?,
-    stale: Boolean,
     snoozed: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -119,7 +118,6 @@ fun RotationInstrument(
                 // Always legible: `active` is for the arc and the trail, not the numeral.
                 color = if (crossed || snoozed) Good else MaterialTheme.colorScheme.onSurface)
             Text("of $threshold", fontSize = T.caption, color = Muted)
-            if (stale) Text("SENSOR STALE", fontSize = T.caption, color = Bad)
         }
     }
 }

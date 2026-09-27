@@ -73,6 +73,8 @@ class LinkService : Service() {
             wakeLock = getSystemService(android.os.PowerManager::class.java)
                 .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:watch")
                 .also { it.acquire() }
+        } else if (Svc.settings.role != Role.CONTROLLER && wakeLock != null) {
+            runCatching { wakeLock?.release() }; wakeLock = null
         }
         runCatching { startForeground(NOTIF_ID, notification()) }
             .onFailure { Svc.log("link_fgs_failed", "error" to it.toString()) }

@@ -222,8 +222,10 @@ data class Snapshot(
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */
     val testUntilMs: Long = 0,
-    /** Human sentences. Empty means healthy. Same list `/v1/health` serves. */
+    /** Sentences that mean the alarm will NOT ring. Empty means it will. */
     val problems: List<String> = emptyList(),
+    /** Sentences worth attention that do not stop the ring (link, power). */
+    val warnings: List<String> = emptyList(),
 ) {
     companion object {
         /** mode is DERIVED, never stored. An open session outranks everything. */

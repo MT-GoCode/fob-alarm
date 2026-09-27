@@ -19,19 +19,15 @@ object Crash {
         }
     }
 
-    @Volatile var pending: String? = null
-
+    /** Log the trace into the event log, then delete it. It has been reported. */
     fun reportPending(ctx: Context) {
-        com.mtrinh.fobalarm.service.Crash.refresh(ctx)
         val f = file(ctx)
         if (!f.exists()) return
-        pending = runCatching { f.readText() }.getOrNull()
-        Svc.log("crash_recovered")
-    }
-
-    fun clear(ctx: Context) {
-        runCatching { file(ctx).delete() }
-        pending = null
+        val trace = runCatching { f.readText() }.getOrNull() ?: ""
+        Svc.log("crash", "trace" to trace.take(2000))
+        runCatching { f.delete() }
         com.mtrinh.fobalarm.service.Crash.pending = false
     }
+
+
 }

@@ -165,7 +165,7 @@ object Server {
             }).toString(2)
         }
         path.startsWith("/v1/health") -> {
-            val problems = Health.problems()
+            val problems = Health.everything()
             (if (problems.isEmpty()) 200 else 503) to JSONObject()
                 .put("ok", problems.isEmpty()).put("problems", JSONArray(problems)).toString(2)
         }

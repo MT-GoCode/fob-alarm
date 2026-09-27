@@ -41,9 +41,15 @@ object Nag {
         return Reason.NONE
     }
 
+    fun headline(r: Reason): String = when (r) {
+        Reason.SILENT_FAILURE -> "THE ALARM DID NOT RING"
+        Reason.NO_CONTACT -> "Can't reach the alarm phone"
+        Reason.NONE -> ""
+    }
+
     fun message(r: Reason): String = when (r) {
-        Reason.SILENT_FAILURE -> "The alarm should have rung and did not. Go wake up."
-        Reason.NO_CONTACT -> "No contact with the alarm phone for 20 minutes."
+        Reason.SILENT_FAILURE -> "It was due and never started. Go and check it."
+        Reason.NO_CONTACT -> "Nothing heard for 20 minutes. It still rings on its own."
         Reason.NONE -> ""
     }
 }

@@ -81,6 +81,7 @@ object Wire {
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
         put("problems", JSONArray(s.problems))
+        put("warnings", JSONArray(s.warnings))
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -236,6 +237,7 @@ object Wire {
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
             problems = o.optJSONArray("problems")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+            warnings = o.optJSONArray("warnings")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         )
     }
 

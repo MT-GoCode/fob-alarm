@@ -16,39 +16,23 @@ import com.mtrinh.fobalarm.core.Snapshot
 fun SettingsScreen(
     app: AppState,
     s: Snapshot,
-    deviceSettings: (@Composable () -> Unit)?,
+    isAlarmRole: Boolean,
+    deviceSettings: (@Composable () -> Unit)?,   // alarm phone only: pairing, ringtone, password
+    roleSwitcher: @Composable () -> Unit,        // both phones
 ) {
     var showUnlock by remember { mutableStateOf(false) }
     val hasPassword = s.settings.hasPassword
-    val locked = hasPassword && app.token == null
+    val locked = hasPassword && !app.unlocked
 
-    // No status fields here: Status is its own screen.
     Page(title = "Settings", snapshot = s) {
 
-        // One explanation for the whole screen, instead of a caption under every row.
-        Card(colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Text(
-                "Changes save immediately and sync to the other phone. Setting a password " +
-                "locks the settings that could stop the alarm. Dismissing never needs one.",
-                fontSize = T.caption, color = Muted, modifier = Modifier.padding(14.dp))
-        }
-
-        Spacer(Modifier.height(S.md))
-
-        // --- password first, because it decides what else is editable ---
+        // Lock state first, because it decides what else can be changed.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
-                    fontSize = T.button, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = if (locked) Bad else Good)
-                Text(
-                    if (!hasPassword) "Anything below can be changed by anyone."
-                    else if (locked) "Unlock to change the locked settings."
-                    else "Locks again after a couple of minutes.",
-                    fontSize = T.caption, color = Muted)
-                if (s.settings.usingDefaultPassword) {
-                    Text("Still using the default password 12345678. Change it below.",
+                Text(if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
+                    fontSize = T.button, color = if (locked) Bad else Good)
+                if (isAlarmRole && s.settings.usingDefaultPassword) {
+                    Text("Using the default password 12345678. Change it below.",
                         fontSize = T.caption, color = Bad)
                 }
             }
@@ -71,46 +55,40 @@ fun SettingsScreen(
             ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch("Vibrate") { it.copy(vibrate = v) } }
         }
         LockedRow(locked) {
-            DurationSetting("Give up after", s.settings.maxRingMinutes * 60,
+            DurationSetting("Stop ringing after", s.settings.maxRingMinutes * 60,
                 minSeconds = 5 * 60, maxSeconds = 120 * 60) { secs ->
-                app.patch("Give up after") { it.copy(maxRingMinutes = secs / 60) }
+                app.patch("Stop ringing after") { it.copy(maxRingMinutes = secs / 60) }
             }
         }
 
-        Section("Snooze", "Turn the phone this far to snooze it.")
+        Section("Snooze")
         LockedRow(locked) {
             DurationSetting("Snooze for", s.settings.snoozeSeconds,
                 minSeconds = 10, maxSeconds = Settings.SNOOZE_CEILING_S,
                 allowSeconds = true) { secs ->
-                app.patch("Snooze length") { it.copy(snoozeSeconds = secs) }
+                app.patch("Snooze for") { it.copy(snoozeSeconds = secs) }
             }
         }
         LockedRow(locked) {
-            ChoiceSetting("Rotation", null,
-                listOf("90°" to 90, "120°" to 120, "180°" to 180, "360°" to 360),
+            ChoiceSetting("Turn the phone to snooze", null,
+                listOf("quarter turn" to 90, "half turn" to 180, "full turn" to 360),
                 s.settings.snoozeThresholdDegrees) { v ->
-                app.patch("Rotation") { it.copy(snoozeThresholdDegrees = v) }
+                app.patch("Turn the phone to snooze") { it.copy(snoozeThresholdDegrees = v) }
             }
         }
 
-        Section("Test",
-            if (s.self.role?.name == "CONTROLLER") "Rings the alarm phone now."
-            else "Rings this phone now.")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) {
-                Text("Test ring")
-            }
-            OutlinedButton(onClick = { app.testRing(true) }, modifier = Modifier.weight(1f)) {
-                Text("Silent")
-            }
+        Section("Test", if (isAlarmRole) "Rings this phone now." else "Rings the alarm phone now, for up to a minute.")
+        Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
+            Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) { Text("Test ring") }
+            OutlinedButton(onClick = { app.testRing(true) }, modifier = Modifier.weight(1f)) { Text("Silent test") }
         }
         app.testMessage?.let {
             Spacer(Modifier.height(S.sm))
-            Text(it, fontSize = T.label,
-                color = if (app.testOk) MaterialTheme.colorScheme.primary else Bad)
+            Text(it, fontSize = T.label, color = if (app.testOk) MaterialTheme.colorScheme.primary else Bad)
         }
 
         deviceSettings?.invoke()
+        roleSwitcher()
     }
 
     if (showUnlock) {
@@ -145,8 +123,7 @@ fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
 
 @Composable
 fun ToggleSetting(label: String, value: Boolean, onSet: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
-        verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
         Switch(checked = value, onCheckedChange = onSet)
     }

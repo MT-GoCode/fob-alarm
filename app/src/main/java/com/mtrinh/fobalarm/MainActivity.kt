@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity() {
         // Draw edge to edge; Page() then insets every screen once, centrally.
         enableEdgeToEdge()
         Boot.ensure(this)
-        requestRuntimePermissions()
 
         setContent {
             FobTheme {
@@ -165,7 +164,9 @@ class MainActivity : ComponentActivity() {
                             RootScreen(
                                 app = app,
                                 isAlarmRole = role == Role.ALARM,
+                                pairing = { Pairing(role!!) },
                                 deviceSettings = if (role == Role.ALARM) ({ DeviceSettings() }) else null,
+                                roleSwitcher = { RoleSwitcher() },
                                 onFixGate = { fix(it) },
                                 onRepair = {
                                     runCatching {
@@ -305,51 +306,96 @@ class MainActivity : ComponentActivity() {
 
     // ---- role-conditional UI ------------------------------------------------
 
+    /**
+     * Pairing. On the alarm phone: a name and passphrase to invent, shown large once set,
+     * with the instruction to type them on the other phone. On the controller: what it is
+     * paired to, and a way to pair again. Same words on both phones.
+     */
+    @Composable
+    private fun Pairing(role: Role) {
+        val snap = if (::app.isInitialized) app.snapshot else null
+        val set = !snap?.settings?.passphrase.isNullOrBlank()
+        if (role == Role.CONTROLLER) {
+            Section("Pairing")
+            Text(if (set) "Paired to ${snap?.settings?.ssid ?: ""}" else "Not paired",
+                fontSize = T.body, color = if (set) Good else Bad)
+            Spacer(Modifier.height(S.sm))
+            OutlinedButton(onClick = {
+                runCatching {
+                    Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
+                        java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
+                }
+                recreate()
+            }) { Text("Pair again") }
+            return
+        }
+
+        val locked = (snap?.settings?.hasPassword ?: true) && !app.unlocked
+        var name by remember(snap?.settings?.ssid) { mutableStateOf(snap?.settings?.ssid ?: "DIRECT-fa-alarm") }
+        var pass by remember(snap?.settings?.passphrase) { mutableStateOf(snap?.settings?.passphrase ?: "") }
+        var editing by remember { mutableStateOf(!set) }
+        var confirm by remember { mutableStateOf(false) }
+
+        if (set && !editing) {
+            Text("Type these on the other phone:", fontSize = T.label, color = Muted)
+            Spacer(Modifier.height(S.xs))
+            Text(snap?.settings?.ssid ?: "", fontSize = T.headline,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Text(snap?.settings?.passphrase ?: "", fontSize = T.headline,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Spacer(Modifier.height(S.sm))
+            OutlinedButton(enabled = !locked, onClick = { editing = true }) {
+                Text(if (locked) "Unlock to change" else "Change")
+            }
+            return
+        }
+
+        OutlinedTextField(name, { name = it }, label = { Text("Name", fontSize = T.caption) },
+            supportingText = { Text("Must start with DIRECT-", fontSize = T.caption) },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(S.sm))
+        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
+            supportingText = { Text("8 to 63 characters", fontSize = T.caption) },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(S.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
+            Button(onClick = { if (set) confirm = true else applyPairing(name, pass) { editing = false } },
+                enabled = !locked && pass.length in 8..63 && name.startsWith("DIRECT-")) {
+                Text(if (locked) "Unlock to change" else "Save")
+            }
+            if (set) OutlinedButton(onClick = { editing = false }) { Text("Cancel") }
+        }
+        if (confirm) {
+            AlertDialog(
+                onDismissRequest = { confirm = false },
+                title = { Text("Change the pairing?") },
+                text = { Text("The other phone will disconnect until you type the new " +
+                        "name and passphrase into it.", fontSize = T.label) },
+                confirmButton = {
+                    TextButton(onClick = { confirm = false; applyPairing(name, pass) { editing = false } }) { Text("Change") }
+                },
+                dismissButton = { TextButton(onClick = { confirm = false }) { Text("Keep") } })
+        }
+    }
+
+    private fun applyPairing(name: String, pass: String, onDone: () -> Unit) {
+        runCatching {
+            Svc.patchSettings(-1, Svc.settings.copy(ssid = name.trim(), passphrase = pass),
+                java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
+        }.onSuccess { onDone(); refreshGates() }
+            .onFailure {
+                Toast.makeText(this, "Not saved. " + (if (it is com.mtrinh.fobalarm.data.ClientError.Forbidden)
+                    "Unlock settings first." else "Check the name and passphrase."), Toast.LENGTH_LONG).show()
+            }
+    }
+
     @Composable
     private fun DeviceSettings() {
         // Driven by observable snapshot state, not by Svc globals: reading those meant
         // the subtree did not recompose after an unlock or a ringtone change.
         val snap = if (::app.isInitialized) app.snapshot else null
         val locked = (snap?.settings?.hasPassword ?: true) && app.token == null
-        var ssid by remember(snap?.settings?.ssid) {
-            mutableStateOf(snap?.settings?.ssid ?: "DIRECT-fa-alarm")
-        }
-        var pass by remember(snap?.settings?.passphrase) {
-            mutableStateOf(snap?.settings?.passphrase ?: "")
-        }
-        var confirm by remember { mutableStateOf(false) }
         var pw by remember { mutableStateOf("") }
-
-        Section("Pairing", "Both phones must use the same name and passphrase.")
-        Spacer(Modifier.height(S.sm))
-        OutlinedTextField(ssid, { ssid = it }, label = { Text("Name (starts DIRECT-)", fontSize = T.caption) },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(S.sm))
-        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase (8-63)", fontSize = T.caption) },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(S.sm))
-        Button(onClick = { confirm = true },
-            enabled = !locked && pass.length in 8..63 && ssid.isNotBlank()) {
-            Text(if (locked) "Unlock to change" else "Apply credentials")
-        }
-
-        if (confirm) {
-            AlertDialog(
-                onDismissRequest = { confirm = false },
-                title = { Text("Change group credentials?") },
-                text = { Text("This will disconnect the controller. You must re-enter the same " +
-                        "values there before the two phones can talk again.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        confirm = false
-                        runCatching {
-                            Svc.patchSettings(-1, Svc.settings.copy(ssid = ssid, passphrase = pass),
-                                java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
-                        }
-                    }) { Text("Change") }
-                },
-                dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
-        }
 
         Spacer(Modifier.height(S.sm))
         Section("Ringtone", "A built-in tone is used unless you choose a file.")
@@ -430,17 +476,20 @@ class MainActivity : ComponentActivity() {
         var rolePw by remember { mutableStateOf("") }
         var roleErr by remember { mutableStateOf<String?>(null) }
         Section("Role")
-        Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = T.caption)
-        OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = T.caption) }
+        OutlinedButton(onClick = { asking = true }) {
+            Text(if (Svc.settings.role == Role.ALARM) "Make this the controller" else "Make this the alarm phone")
+        }
         if (asking) {
             val target = if (Svc.settings.role == Role.ALARM) Role.CONTROLLER else Role.ALARM
             AlertDialog(
                 onDismissRequest = { asking = false },
-                title = { Text("Change role to ${target.name}?") },
+                title = { Text(if (target == Role.ALARM) "Make this the alarm phone?" else "Make this the controller?") },
                 text = {
                     Column {
-                        Text("This clears the pairing. Switching the alarm phone to " +
-                             "CONTROLLER stops it ringing entirely.", fontSize = T.caption)
+                        Text(if (target == Role.CONTROLLER)
+                                "This phone will stop ringing entirely. The pairing is cleared."
+                             else "This phone will ring at the alarm time. The pairing is cleared.",
+                            fontSize = T.label)
                         Spacer(Modifier.height(S.sm))
                         Text("Type ${target.name} to confirm:", fontSize = T.caption, color = Muted)
                         OutlinedTextField(typed, { typed = it }, singleLine = true)
@@ -481,67 +530,69 @@ class MainActivity : ComponentActivity() {
         var pass by remember { mutableStateOf("") }
         val hasPerm = checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
+        var asked by remember { mutableStateOf(0) }
         Page(
             title = "Pair with the alarm phone",
-            subtitle = "Enter the same group name and passphrase set on the alarm phone.",
+            subtitle = "Type the name and passphrase shown on the alarm phone's Setup screen.",
             applyInsets = true,
         ) {
-            Spacer(Modifier.height(S.sm))
-            Fact("nearby devices", if (hasPerm) "granted" else "required", hasPerm)
             if (!hasPerm) {
+                Spacer(Modifier.height(S.sm))
+                Text("Nearby devices permission is needed to connect.", fontSize = T.label, color = Bad)
                 Spacer(Modifier.height(S.xs))
-                Button(onClick = { requestRuntimePermissions() }) { Text("Grant") }
+                Button(onClick = {
+                    asked++
+                    // After two denials Android stops showing the dialog; send them to
+                    // the page that can still grant it instead of a button that does nothing.
+                    if (asked <= 2) perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
+                        Manifest.permission.ACCESS_FINE_LOCATION))
+                    else startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$packageName")))
+                }) { Text(if (asked <= 2) "Allow" else "Open settings") }
             }
             Spacer(Modifier.height(S.sm))
-            OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID", fontSize = T.caption) },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
+            OutlinedTextField(ssid, { ssid = it }, label = { Text("Name", fontSize = T.caption) },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(S.sm))
+            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(S.md))
             Button(onClick = { onSet(ssid.trim(), pass) },
                 enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()) { Text("Join group") }
-            Fact("status", P2pJoin.status)
-            Spacer(Modifier.height(S.md))
-            OutlinedButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
-                Text("This is actually the alarm phone", fontSize = T.caption)
+                modifier = Modifier.fillMaxWidth()) { Text("Connect") }
+            Spacer(Modifier.height(S.lg))
+            TextButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
+                Text("This is actually the alarm phone")
             }
         }
     }
 
     @Composable
     private fun RolePicker(onPick: (Role) -> Unit) {
+        var chosen by remember { mutableStateOf<Role?>(null) }
         Column(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(S.page),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("Which phone is this?", fontSize = T.title, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(S.lg))
-            Button(onClick = { onPick(Role.ALARM) }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
-                Text("ALARM — lives in the box", fontSize = T.button)
+            Button(onClick = { chosen = Role.ALARM }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
+                Text("The alarm phone, in the box", fontSize = T.button)
             }
             Spacer(Modifier.height(S.sm))
-            Button(onClick = { onPick(Role.CONTROLLER) }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
-                Text("CONTROLLER — the other room", fontSize = T.button)
+            Button(onClick = { chosen = Role.CONTROLLER }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
+                Text("The controller, in the other room", fontSize = T.button)
             }
-            Spacer(Modifier.height(S.md))
-            Spacer(Modifier.height(S.sm))
-            Text(BuildConfig.VERSION_NAME,
-                fontSize = T.caption, color = Muted,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
-    }
-
-    @Composable
-    private fun CrashScreen() {
-        Page(title = "The app crashed", applyInsets = true) {
-            Text(BuildConfig.VERSION_NAME,
-                fontSize = T.caption, color = Muted)
-            Spacer(Modifier.height(S.sm))
-            Text(Crash.pending ?: "", fontSize = T.caption, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.height(S.md))
-            Button(onClick = { Crash.clear(this@MainActivity); recreate() }) { Text("Dismiss") }
+        chosen?.let { r ->
+            AlertDialog(
+                onDismissRequest = { chosen = null },
+                title = { Text(if (r == Role.ALARM) "This phone will ring" else "This phone will not ring") },
+                text = { Text(if (r == Role.ALARM) "It lives in the box and rings at the alarm time."
+                              else "It watches the alarm phone and can stop it.", fontSize = T.label) },
+                confirmButton = { TextButton(onClick = { onPick(r); chosen = null }) { Text("Yes") } },
+                dismissButton = { TextButton(onClick = { chosen = null }) { Text("No") } })
         }
     }
 }

@@ -15,6 +15,8 @@ object Fmt {
     @Volatile var use24h: Boolean = true
 
     fun clock(ms: Long): String = f(if (use24h) "HH:mm" else "h:mm a").format(Date(ms))
+    /** Always HH:mm, for seeding pickers. `clock` may be 12-hour and does not parse. */
+    fun hhmm(ms: Long): String = f("HH:mm").format(Date(ms))
     fun absolute(ms: Long): String =
         f(if (use24h) "EEE d MMM HH:mm" else "EEE d MMM h:mm a").format(Date(ms))
 

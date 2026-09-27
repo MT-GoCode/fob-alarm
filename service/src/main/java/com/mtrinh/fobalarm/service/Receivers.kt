@@ -20,7 +20,9 @@ class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Boot.ensure(ctx)
         if (intent.action == ControllerWatch.ACTION_REMOTE_DISMISS) {
-            Thread { ControllerWatch.dismissNow(ctx) }.start()
+            // goAsync keeps the broadcast's wake lock until the work is done.
+            val pending = goAsync()
+            Thread { try { ControllerWatch.dismissNow(ctx) } finally { pending.finish() } }.start()
             return
         }
         if (Svc.settings.role != Role.ALARM) return      // controller never fires alarms
@@ -52,12 +54,13 @@ class AlarmReceiver : BroadcastReceiver() {
                 // From the notification action: works even with no activity on screen.
                 Scheduler.ACTION_DISMISS -> {
                     val open = Svc.session
-                    if (open != null) {
-                        runCatching {
-                            Svc.dismiss(open.ringId, java.util.UUID.randomUUID().toString(),
-                                Actor.ALARM)
+                    when {
+                        open != null -> runCatching {
+                            Svc.dismiss(open.ringId, java.util.UUID.randomUUID().toString(), Actor.ALARM)
                         }
-                    } else RingService.stop(ctx)
+                        Svc.testActive -> Svc.stopTest()
+                        else -> RingService.stop(ctx)
+                    }
                 }
             }
         } finally {

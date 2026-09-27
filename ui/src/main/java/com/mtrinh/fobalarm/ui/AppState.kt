@@ -33,9 +33,11 @@ class AppState(
 
     var snapshot by mutableStateOf<Snapshot?>(null); private set
     var lastOkMs by mutableLongStateOf(0L); private set
-    var lastError by mutableStateOf<String?>(null); private set
     var dismissUi by mutableStateOf<DismissUi>(DismissUi.Idle); private set
     var token by mutableStateOf<String?>(null); internal set
+    private var unlockedAtMs by mutableLongStateOf(0L)
+    /** Matches the server's two-minute window, so the screen never claims a dead unlock. */
+    val unlocked: Boolean get() = token != null && nowMs - unlockedAtMs < 115_000
     var history by mutableStateOf<List<Event>>(emptyList()); private set
     /** This phone's own gates, even when the snapshot describes the other phone. */
     var localGates by mutableStateOf<Gates?>(null)
@@ -90,9 +92,9 @@ class AppState(
                     lastRingId = s.ring?.ringId
                 }
                 snapshot = if (isLocal) s else s.copy(lastHeartbeatMs = System.currentTimeMillis())
-                lastOkMs = System.currentTimeMillis(); lastError = null
+                lastOkMs = System.currentTimeMillis()
             }
-            .onFailure { lastError = it.message }
+            .onFailure { }
     }
 
     fun dismiss() {
@@ -118,15 +120,23 @@ class AppState(
                     // 409 is NEVER retried: the alarm phone is healthy, the ring just changed.
                     is ClientError.StaleRing -> {
                         snapshot = e.snapshot; lastOkMs = System.currentTimeMillis()
-                        dismissUi = DismissUi.RingChanged("Alarm changed — press again")
+                        if (e.snapshot.ring == null) {
+                            // Already stopped, by the other button or the other phone.
+                            ringEndMessage = "Alarm dismissed"
+                            dismissUi = DismissUi.Dismissed
+                            delay(2000); dismissUi = DismissUi.Idle
+                        } else {
+                            dismissUi = DismissUi.RingChanged("The alarm changed. Press again.")
+                        }
                         return@launch
                     }
                     is ClientError.Forbidden -> {
-                        dismissUi = DismissUi.RingChanged("Rejected"); return@launch
+                        dismissUi = DismissUi.Unreachable("Could not stop it from here. Use the key.")
+                        return@launch
                     }
                     else -> {
                         if (System.currentTimeMillis() - startedAt > 10_000) {
-                            dismissUi = DismissUi.Unreachable("Can't reach alarm phone — use the key")
+                            dismissUi = DismissUi.Unreachable("Can't reach the alarm phone. Use the key.")
                             return@launch
                         }
                         delay(700)
@@ -143,13 +153,13 @@ class AppState(
     fun testRing(silent: Boolean) {
         scope.launch {
             testOk = true
-            testMessage = "Ringing…"
+            testMessage = "Ringing"
             client.testRing(silent, UUID.randomUUID().toString())
                 .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
                 .onFailure {
                     testOk = false
                     testMessage = if (it is ClientError.Transport)
-                        "Could not reach the alarm phone" else "Already ringing"
+                        "Can't reach the alarm phone" else "It is already ringing"
                 }
             delay(11_000); testMessage = null
         }
@@ -160,9 +170,9 @@ class AppState(
 
     fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
     fun clearNap() = act("Nap") { client.clearNap(UUID.randomUUID().toString()) }
-    fun overrideTime(hhmm: String) = act("Tomorrow") { client.setOverride("TIME", hhmm, UUID.randomUUID().toString()) }
-    fun overrideSkip() = act("Skip tomorrow") { client.setOverride("SKIP", null, UUID.randomUUID().toString()) }
-    fun clearOverride() = act("Tomorrow") { client.clearOverride(UUID.randomUUID().toString()) }
+    fun overrideTime(hhmm: String) = act("Next alarm") { client.setOverride("TIME", hhmm, UUID.randomUUID().toString()) }
+    fun overrideSkip() = act("Skip") { client.setOverride("SKIP", null, UUID.randomUUID().toString()) }
+    fun clearOverride() = act("Undo") { client.clearOverride(UUID.randomUUID().toString()) }
 
     fun patch(label: String = "Setting", edit: (Settings) -> Settings) {
         val s = snapshot ?: return
@@ -174,7 +184,7 @@ class AppState(
     fun unlock(secret: String, onResult: (Boolean) -> Unit) {
         scope.launch {
             client.unlock(secret)
-                .onSuccess { token = it; onResult(true) }
+                .onSuccess { token = it; unlockedAtMs = System.currentTimeMillis(); onResult(true) }
                 .onFailure { onResult(false) }
         }
     }
@@ -189,20 +199,20 @@ class AppState(
 
     private fun act(label: String = "Setting", block: suspend () -> Result<Snapshot>) {
         scope.launch {
-            syncMessage = "$label…"; syncOk = true
+            syncMessage = "Saving $label"; syncOk = true
             // 5s deadline: a change that has not landed by then is reported as failed
             // rather than left spinning.
             val timeout = launch {
                 delay(5000)
-                if (syncMessage != null && syncMessage!!.endsWith("…")) {
-                    syncOk = false; syncMessage = "$label not saved, no reply"
+                if (syncMessage?.startsWith("Saving") == true) {
+                    syncOk = false; syncMessage = "$label not saved. No reply from the alarm phone."
                 }
             }
             block()
                 .onSuccess {
                     timeout.cancel()
-                    snapshot = it; lastOkMs = System.currentTimeMillis(); lastError = null
-                    syncOk = true; syncMessage = "$label synced"
+                    snapshot = it; lastOkMs = System.currentTimeMillis()
+                    syncOk = true; syncMessage = "$label saved"
                     delay(1800); syncMessage = null
                 }
                 .onFailure { e ->
@@ -210,9 +220,9 @@ class AppState(
                     syncOk = false
                     if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
-                        is ClientError.Forbidden -> "$label not saved, unlock first"
-                        is ClientError.Conflict -> "$label not saved, changed elsewhere"
-                        else -> "$label not saved, other phone unreachable"
+                        is ClientError.Forbidden -> "$label not saved. Unlock first."
+                        is ClientError.Conflict -> "$label not saved. It was changed on the other phone."
+                        else -> "$label not saved. Can't reach the alarm phone."
                     }
                     if (e is ClientError.Conflict) snapshot = e.snapshot
                     delay(5000); syncMessage = null

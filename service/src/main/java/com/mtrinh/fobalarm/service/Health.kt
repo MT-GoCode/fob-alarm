@@ -44,23 +44,36 @@ object Health {
             lastProbeOk = result.isSuccess
             lastProbeError = result.exceptionOrNull()?.let { it.javaClass.simpleName + ": " + it.message }
             if (result.isSuccess) Svc.log("probe_ok")
-            else Svc.log("probe_fail", "error" to (lastProbeError ?: "?"))
+            else {
+                Svc.log("probe_fail", "error" to (lastProbeError ?: "?"))
+                Server.closeControl()          // heal, not just detect: force a rebind
+            }
         }, "self-probe").start()
     }
 
-    /** Empty means healthy. Each entry is a sentence a human can act on. */
+    /** Only things that mean the alarm will NOT ring. Empty means it will. */
     fun problems(): List<String> = buildList {
         val s = Svc.settings
         if (s.role == com.mtrinh.fobalarm.core.Role.ALARM) {
             if (Svc.lastNextFire == null) add("No alarm is scheduled")
             if (!Scheduler.fireArmed) add("The alarm is not registered with Android")
-            Svc.session?.let { if (it.endsByMs < System.currentTimeMillis()) add("A ring session is stuck open") }
-            if (lastProbeOk == false) add("Control port self-test failed: $lastProbeError")
-            if (!s.ssid.isNullOrBlank() && !Group.running) add("The pairing group is down")
+            Svc.session?.let { if (it.endsByMs < System.currentTimeMillis()) add("A ring is stuck open") }
         }
         val gates = GateEval.current(Svc.app, s, Svc.lastNextFire != null)
         gates.failing().filter { GateInfo.of(it)?.blocking == true }
-            .forEach { add("Missing: " + (GateInfo.of(it)?.label ?: it)) }
-        if (Crash.hasPending(Svc.app)) add("The app crashed since it was last opened")
+            .forEach { add("Missing permission: " + (GateInfo.of(it)?.label ?: it)) }
     }
+
+    /** Worth attention, but the alarm still rings. Never drives the red headline. */
+    fun warnings(): List<String> = buildList {
+        val s = Svc.settings
+        if (s.role == com.mtrinh.fobalarm.core.Role.ALARM) {
+            if (lastProbeOk == false) add("Remote dismiss self-test failed")
+            if (!s.ssid.isNullOrBlank() && !Group.running && !SyncWindow.running) add("Not reachable by the controller right now")
+            if (!Svc.selfDevice().plugged) add("Alarm phone is not plugged in")
+        }
+    }
+
+    /** The `/v1/health` verdict: problems OR warnings is a 503. */
+    fun everything(): List<String> = problems() + warnings()
 }

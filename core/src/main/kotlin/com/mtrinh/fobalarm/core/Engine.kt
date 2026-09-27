@@ -315,11 +315,15 @@ object Engine {
             return recompute(st1, ts, "trigger_absorbed").let { it.copy(events = events + it.events) }
         }
 
-        // An expired session is not a session: drop it and open a fresh one.
-        if (st1.session?.let { it.endsByMs <= now } == true) {
-            events += PendingEvent("capped", mapOf("ringId" to st1.session!!.ringId,
-                "reason" to "expired_at_trigger"))
-            st1 = st1.copy(session = null)
+        // An expired session is not a session: record it as CAPPED and open a fresh one.
+        st1.session?.takeIf { it.endsByMs <= now }?.let { dead ->
+            events += PendingEvent("capped", mapOf("ringId" to dead.ringId, "reason" to "expired_at_trigger"))
+            st1 = st1.copy(
+                session = null,
+                lastOutcome = LastOutcome(Outcome.CAPPED, dead.endsByMs, dead.occurrenceId.toString(),
+                    dead.ringId, dead.snoozeCount),
+                latches = if (st1.latches.none { it.id == dead.occurrenceId } && dead.trigger != OccurrenceSource.NAP)
+                    st1.latches + Latch(dead.occurrenceId, LatchReason.MISSED, dead.endsByMs) else st1.latches)
         }
 
         val occId = when (source) {

@@ -71,8 +71,16 @@ object ControllerWatch {
 
     /** The DISMISS action from the lock-screen notification. Idempotent by content. */
     fun dismissNow(ctx: Context) {
+        // After a process restart we may know nothing yet; find out before giving up.
+        if (lastSnapshot == null) runCatching { pollOnce(ctx) }
         val ringId = lastSnapshot?.ring?.ringId ?: return
-        val r = runBlocking { client.dismiss(ringId, UUID.randomUUID().toString()) }
+        val requestId = UUID.randomUUID().toString()         // same id: idempotent retries
+        var r = runBlocking { client.dismiss(ringId, requestId) }
+        var tries = 0
+        while (r.exceptionOrNull() is com.mtrinh.fobalarm.data.ClientError.Transport && tries++ < 2) {
+            Thread.sleep(1500)
+            r = runBlocking { client.dismiss(ringId, requestId) }
+        }
         r.onSuccess { s ->
             lastSnapshot = s; lastOkMs = System.currentTimeMillis()
             alertShownFor = null

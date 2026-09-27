@@ -66,7 +66,9 @@ object Group {
         runCatching {
             m.requestGroupInfo(ch) { g: WifiP2pGroup? ->
                 reportedClients = g?.clientList?.size ?: 0
+                val was = running
                 running = g != null
+                if (was && !running) Server.closeControl()     // socket bound to a dead address
                 ownerAddress = "192.168.49.1"
             }
         }
