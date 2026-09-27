@@ -15,17 +15,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -40,8 +36,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var app: AppState
     private val perms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()) { refreshGates() }
+    /** Bumped whenever permissions may have changed, so screens without an AppState still react. */
+    private var permTick by mutableIntStateOf(0)
 
     private fun refreshGates() {
+        permTick++
         GateEval.invalidateSlowChecks()
         GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
         // The controller renders the ALARM phone's snapshot, so its own permission
@@ -136,8 +135,7 @@ class MainActivity : ComponentActivity() {
                                     P2pJoin.join(this@MainActivity, ssid, pass)
                                     recreate()
                                 }.onFailure {
-                                    Toast.makeText(this@MainActivity,
-                                        "Could not save: ${it.message}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                                 }
                             }
                         else -> {
@@ -173,11 +171,9 @@ class MainActivity : ComponentActivity() {
                                         Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
                                             java.util.UUID.randomUUID().toString(),
                                             Svc.unlockToken, Actor.CONTROLLER)
-                                    }.onFailure {
-                                        Toast.makeText(this@MainActivity,
-                                            "Could not reset: ${it.message}", Toast.LENGTH_LONG).show()
+                                    }.onSuccess { recreate() }.onFailure {
+                                        Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                                     }
-                                    recreate()
                                 },
                             )
                         }
@@ -324,8 +320,9 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
                         java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
+                }.onSuccess { recreate() }.onFailure {
+                    Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                 }
-                recreate()
             }) { Text("Pair again") }
             return
         }
@@ -335,6 +332,14 @@ class MainActivity : ComponentActivity() {
         var pass by remember(snap?.settings?.passphrase) { mutableStateOf(snap?.settings?.passphrase ?: "") }
         var editing by remember { mutableStateOf(!set) }
         var confirm by remember { mutableStateOf(false) }
+        var showUnlock by remember { mutableStateOf(false) }
+
+        Section("Pair the other phone")
+        if (showUnlock) {
+            PasswordDialog(title = "Unlock settings",
+                onSubmit = { secret, result -> app.unlock(secret, result) },
+                onDismiss = { showUnlock = false })
+        }
 
         if (set && !editing) {
             Text("Type these on the other phone:", fontSize = T.label, color = Muted)
@@ -344,7 +349,7 @@ class MainActivity : ComponentActivity() {
             Text(snap?.settings?.passphrase ?: "", fontSize = T.headline,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
             Spacer(Modifier.height(S.sm))
-            OutlinedButton(enabled = !locked, onClick = { editing = true }) {
+            OutlinedButton(onClick = { if (locked) showUnlock = true else editing = true }) {
                 Text(if (locked) "Unlock to change" else "Change")
             }
             return
@@ -359,9 +364,13 @@ class MainActivity : ComponentActivity() {
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(S.sm))
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
-            Button(onClick = { if (set) confirm = true else applyPairing(name, pass) { editing = false } },
-                enabled = !locked && pass.length in 8..63 && name.startsWith("DIRECT-")) {
-                Text(if (locked) "Unlock to change" else "Save")
+            Button(onClick = {
+                    if (locked) showUnlock = true
+                    else if (set) confirm = true
+                    else applyPairing(name, pass) { editing = false }
+                },
+                enabled = locked || (pass.length in 8..63 && name.startsWith("DIRECT-"))) {
+                Text(if (locked) "Unlock to save" else "Save")
             }
             if (set) OutlinedButton(onClick = { editing = false }) { Text("Cancel") }
         }
@@ -394,7 +403,7 @@ class MainActivity : ComponentActivity() {
         // Driven by observable snapshot state, not by Svc globals: reading those meant
         // the subtree did not recompose after an unlock or a ringtone change.
         val snap = if (::app.isInitialized) app.snapshot else null
-        val locked = (snap?.settings?.hasPassword ?: true) && app.token == null
+        val locked = (snap?.settings?.hasPassword ?: true) && !app.unlocked
         var pw by remember { mutableStateOf("") }
 
         Spacer(Modifier.height(S.sm))
@@ -458,10 +467,6 @@ class MainActivity : ComponentActivity() {
                 ) { Text("Remove", fontSize = T.label) }
             }
         }
-
-        Spacer(Modifier.height(S.sm))
-        RoleSwitcher()
-
     }
 
     /**
@@ -528,9 +533,11 @@ class MainActivity : ComponentActivity() {
     private fun ControllerSetup(onSet: (String, String) -> Unit) {
         var ssid by remember { mutableStateOf("DIRECT-fa-alarm") }
         var pass by remember { mutableStateOf("") }
-        val hasPerm = checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        var asked by remember { mutableStateOf(0) }
+        val hasPerm = remember(permTick) {
+            checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        var asked by remember { mutableIntStateOf(0) }
         Page(
             title = "Pair with the alarm phone",
             subtitle = "Type the name and passphrase shown on the alarm phone's Setup screen.",
@@ -540,15 +547,15 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(S.sm))
                 Text("Nearby devices permission is needed to connect.", fontSize = T.label, color = Bad)
                 Spacer(Modifier.height(S.xs))
+                // After two denials Android stops showing the dialog; send them to
+                // the page that can still grant it instead of a button that does nothing.
+                val exhausted = asked >= 2
                 Button(onClick = {
-                    asked++
-                    // After two denials Android stops showing the dialog; send them to
-                    // the page that can still grant it instead of a button that does nothing.
-                    if (asked <= 2) perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
-                        Manifest.permission.ACCESS_FINE_LOCATION))
-                    else startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    if (exhausted) startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:$packageName")))
-                }) { Text(if (asked <= 2) "Allow" else "Open settings") }
+                    else { asked++; perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
+                        Manifest.permission.ACCESS_FINE_LOCATION)) }
+                }) { Text(if (exhausted) "Open settings" else "Allow") }
             }
             Spacer(Modifier.height(S.sm))
             OutlinedTextField(ssid, { ssid = it }, label = { Text("Name", fontSize = T.caption) },

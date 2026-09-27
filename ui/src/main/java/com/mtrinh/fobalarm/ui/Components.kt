@@ -7,7 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.mtrinh.fobalarm.core.Snapshot
@@ -24,32 +23,28 @@ import com.mtrinh.fobalarm.core.Snapshot
 fun Page(
     title: String? = null,
     subtitle: String? = null,
-    subtitleColor: Color = Muted,
-    scroll: Boolean = true,
+    /** Shown as a version line at the bottom, so you can always tell which build is running. */
     snapshot: Snapshot? = null,
     /** False when hosted in a Scaffold, which has already applied them. */
     applyInsets: Boolean = false,
-    /** Role + build, shown on every screen. */
-    identity: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val base = Modifier
+    Column(Modifier
         .fillMaxSize()
         .then(if (applyInsets) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
         .padding(horizontal = S.page)
-
-    Column(if (scroll) base.verticalScroll(rememberScrollState()) else base) {
+        .verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(S.md))
         title?.let {
             Text(it, fontSize = T.title, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(S.xs))
         }
         subtitle?.let {
-            Text(it, fontSize = T.label, color = subtitleColor)
+            Text(it, fontSize = T.label, color = Muted)
             Spacer(Modifier.height(S.xs))
         }
         content()
-        if (identity && snapshot != null) {
+        if (snapshot != null) {
             Spacer(Modifier.height(S.lg))
             VersionBar(snapshot)
         }
@@ -57,44 +52,16 @@ fun Page(
     }
 }
 
-/**
- * Build identity, on every screen. You asked to be able to confirm what is running
- * without guessing, and after a sideload-heavy workflow that is not a nicety.
- * Shows BOTH phones, because a version mismatch between them is a real failure mode.
- */
+/** Which build is running, and whether the other phone runs the same one. */
 @Composable
 fun VersionBar(s: Snapshot) {
+    val peer = s.peer
+    val mismatch = peer != null && peer.appVersion != s.self.appVersion
     HorizontalDivider(color = Color(0xFF151A1F))
     Spacer(Modifier.height(S.xs))
-    val self = s.self
-    val peer = s.peer
-    val mismatch = peer != null && peer.appVersion != self.appVersion
-    Column {
-        Text("THIS PHONE · ${self.role?.name ?: "NO ROLE"} · ${self.appVersion}",
-            fontSize = T.caption, color = Muted, fontFamily = FontFamily.Monospace)
-        Text(
-            if (peer == null) "OTHER PHONE · not connected"
-            else "OTHER PHONE · ${peer.role?.name ?: "?"} · ${peer.appVersion}",
-            fontSize = T.caption, color = if (mismatch) Bad else Muted,
-            fontFamily = FontFamily.Monospace)
-        if (mismatch) Text("versions differ, update the older phone", fontSize = T.caption, color = Bad)
-    }
-}
-
-/** One label/value row, used for every status fact. */
-@Composable
-fun Fact(key: String, value: String, ok: Boolean? = null) {
-    ListItem(
-        overlineContent = { Text(key, color = Muted) },
-        headlineContent = {
-            Text(value, color = when (ok) {
-                true -> Good
-                false -> Bad
-                null -> MaterialTheme.colorScheme.onSurface
-            })
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    )
+    Text("Version ${s.self.appVersion}", fontSize = T.caption, color = Muted)
+    if (mismatch) Text("The other phone has ${peer!!.appVersion}. Update the older one.",
+        fontSize = T.caption, color = Bad)
 }
 
 /** One password prompt, used by unlock, role change and anything else that gates. */

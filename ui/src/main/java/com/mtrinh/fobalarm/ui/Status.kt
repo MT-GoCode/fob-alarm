@@ -19,7 +19,7 @@ import com.mtrinh.fobalarm.core.*
 fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Unit) {
     val iAmAlarm = s.self.role == Role.ALARM
     val problems = s.problems
-    val peerMissing = s.peerBlockers.map { GateInfo.of(it)?.label ?: it }
+    val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
     val willRing = problems.isEmpty() && s.nextFire != null
 
     // --- will it ring, and when ------------------------------------------
@@ -75,14 +75,12 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
     if (s.tomorrow.kind == "SKIP") {
         Spacer(Modifier.height(S.sm))
         Text("Next alarm skipped", fontSize = T.body, color = MaterialTheme.colorScheme.primary)
-    } else if (s.tomorrow.kind != "NONE") {
+    } else if (s.tomorrow.kind != "NONE") s.tomorrow.timeMs?.let {
         Spacer(Modifier.height(S.sm))
-        Text("Next alarm moved once, to " + (s.tomorrow.timeMs?.let { Fmt.absolute(it) } ?: "?"),
-            fontSize = T.body, color = MaterialTheme.colorScheme.primary)
+        Text("Next alarm moved once, to ${Fmt.absolute(it)}", fontSize = T.body, color = MaterialTheme.colorScheme.primary)
     }
-    if (s.nap.armed) {
-        Text("Nap: rings " + (s.nap.atMs?.let { Fmt.until(it, nowMs) } ?: "?"),
-            fontSize = T.body, color = MaterialTheme.colorScheme.primary)
+    if (s.nap.armed) s.nap.atMs?.let {
+        Text("Nap: rings ${Fmt.until(it, nowMs)}", fontSize = T.body, color = MaterialTheme.colorScheme.primary)
     }
 
     // --- what happened last time -------------------------------------------

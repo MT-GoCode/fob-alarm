@@ -16,14 +16,13 @@ import com.mtrinh.fobalarm.service.Svc
  */
 object P2pJoin {
     @Volatile var network: Network? = null
-    @Volatile var status: String = "idle"
     private var cm: ConnectivityManager? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
 
     fun join(ctx: Context, ssid: String, passphrase: String) {
         // The approval store is credential-encrypted, so gate the join on unlock.
         val um = ctx.getSystemService(UserManager::class.java)
-        if (!um.isUserUnlocked) { status = "waiting for unlock"; return }
+        if (!um.isUserUnlocked) return
 
         stop()
         val spec = WifiNetworkSpecifier.Builder()
@@ -39,23 +38,23 @@ object P2pJoin {
         cm = c
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(n: Network) {
-                network = n; status = "connected"
+                network = n
                 Svc.log("p2p_joined")
             }
             override fun onLost(n: Network) {
-                network = null; status = "lost"
+                network = null
                 Svc.log("p2p_lost")
             }
             override fun onUnavailable() {
                 // ~30s / 3-scan cliff after which the request dies and does NOT resume
                 // scanning, so the poll loop must re-request rather than wait.
-                network = null; status = "unavailable"
+                network = null
                 Svc.log("p2p_unavailable")
             }
         }
         callback = cb
         runCatching { c.requestNetwork(req, cb) }
-            .onFailure { status = "request failed: ${it.message}" }
+            .onFailure { Svc.log("p2p_request_failed", "error" to it.toString()) }
     }
 
     fun stop() {

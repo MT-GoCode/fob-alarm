@@ -27,6 +27,7 @@ fun TimeSetting(
     label: String,
     value: String,                 // "HH:mm"
     help: String? = null,
+    enabled: Boolean = true,
     onSet: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -41,7 +42,7 @@ fun TimeSetting(
             Text(label, fontSize = T.label)
             help?.let { Text(it, fontSize = T.caption, color = Muted) }
         }
-        TextButton(onClick = { open = true }) {
+        TextButton(enabled = enabled, onClick = { open = true }) {
             Text(value, fontSize = T.headline, fontWeight = FontWeight.SemiBold)
         }
     }
@@ -76,6 +77,7 @@ fun ChoiceSetting(
     help: String? = null,
     options: List<Pair<String, Int>>,
     value: Int,
+    enabled: Boolean = true,
     onSet: (Int) -> Unit,
 ) {
     Column(Modifier.padding(vertical = S.sm)) {
@@ -87,11 +89,11 @@ fun ChoiceSetting(
                 // Selected is still tappable: for actions like "nap 20m" the selected
                 // value is exactly the one you want to press again.
                 if (v == value) {
-                    Button(onClick = { onSet(v) },
+                    Button(onClick = { onSet(v) }, enabled = enabled,
                         contentPadding = PaddingValues(horizontal = 14.dp),
                         modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
                 } else {
-                    OutlinedButton(onClick = { onSet(v) },
+                    OutlinedButton(onClick = { onSet(v) }, enabled = enabled,
                         contentPadding = PaddingValues(horizontal = 14.dp),
                         modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
                 }
@@ -114,6 +116,7 @@ fun SliderSetting(
     step: Int,
     suffix: String,
     help: String? = null,
+    enabled: Boolean = true,
     onSet: (Int) -> Unit,
 ) {
     var live by remember { mutableIntStateOf(value) }
@@ -135,6 +138,7 @@ fun SliderSetting(
             onValueChangeFinished = { if (live != value) onSet(live) },
             valueRange = min.toFloat()..max.toFloat(),
             steps = steps,
+            enabled = enabled,
         )
     }
 }
@@ -185,12 +189,13 @@ fun DurationSetting(
     minSeconds: Int,
     maxSeconds: Int,
     allowSeconds: Boolean = false,
+    enabled: Boolean = true,
     onSet: (Int) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
-        TextButton(onClick = { open = true }) {
+        TextButton(enabled = enabled, onClick = { open = true }) {
             Text(Fmt.duration(totalSeconds * 1000L), fontSize = T.button, fontWeight = FontWeight.SemiBold)
         }
     }

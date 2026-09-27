@@ -452,4 +452,75 @@ class ZombieSessionTest {
         assertNull(r.fireNow, "a reaped session must not ring again today")
         assertTrue(r.events.none { it.type == "missed" }, "capped is not missed")
     }
+
+    // --- what a trigger is FOR ----------------------------------------------
+
+    @Test fun `a trigger for an occurrence that already rang is dropped`() {
+        val c = FakeClock(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00", maxRingMinutes = 60),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        c.set("2026-09-26T04:05:00-07:00[America/Los_Angeles]")
+        val done = Engine.endSession(ringing, c, Outcome.DISMISSED_LOCAL).state
+
+        c.set("2026-09-26T04:06:00-07:00[America/Los_Angeles]")
+        val r = Engine.onTrigger(done, c, OccurrenceSource.SCHEDULED, "r2")
+
+        assertNull(r.state.session, "a duplicate trigger must not ring a dismissed alarm again")
+        assertTrue(r.events.any { it.type == "trigger_stale" })
+        assertEquals(1, r.state.latches.count { it.id.localDate == "2026-09-26" })
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    @Test fun `a resurrect after the cap does not ring again`() {
+        val c = FakeClock(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00", maxRingMinutes = 60),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+
+        // The ring service dies; the watchdog delivers a trigger just after the cap.
+        c.set("2026-09-26T05:00:30-07:00[America/Los_Angeles]")
+        val r = Engine.onTrigger(ringing, c, OccurrenceSource.SCHEDULED, "r2")
+
+        assertNull(r.state.session, "the cap is the cap: no second ring for the same morning")
+        assertTrue(r.events.any { it.type == "capped" })
+        assertEquals(Outcome.CAPPED, r.state.lastOutcome?.kind)
+        assertTrue(r.state.latches.any { it.id.localDate == "2026-09-26" && it.reason == LatchReason.MISSED })
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    @Test fun `an alarm missed while the phone was dead rings for today, not tomorrow`() {
+        val c = FakeClock(at("2026-09-26T06:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-09-26T03:00:00-07:00[America/Los_Angeles]"))
+        val back = Engine.recompute(st, c, "boot")
+        assertEquals(OccurrenceSource.SCHEDULED, back.fireNow, "a missed alarm simply rings")
+
+        val r = Engine.onTrigger(back.state, c, OccurrenceSource.SCHEDULED, "r1")
+        assertEquals("2026-09-26", r.state.session!!.occurrenceId.localDate)
+
+        c.set("2026-09-26T06:03:00-07:00[America/Los_Angeles]")
+        val done = Engine.endSession(r.state, c, Outcome.DISMISSED_REMOTE)
+        assertEquals("2026-09-26/SCHEDULED", done.state.lastOutcome!!.occurrenceId)
+        assertEquals(1, done.state.latches.count { it.id.localDate == "2026-09-26" })
+        assertTrue(done.events.none { it.type == "latch_discarded" })
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), done.nextFire!!.atMs)
+    }
+
+    @Test fun `a stale trigger before the alarm time does not consume today`() {
+        val c = FakeClock(at("2026-09-25T04:00:00-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-09-25T03:00:00-07:00[America/Los_Angeles]"))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        c.set("2026-09-25T04:02:00-07:00[America/Los_Angeles]")
+        val done = Engine.endSession(ringing, c, Outcome.DISMISSED_LOCAL).state
+
+        c.set("2026-09-26T03:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.onTrigger(done, c, OccurrenceSource.SCHEDULED, "r2")
+
+        assertNull(r.state.session)
+        assertTrue(r.state.latches.none { it.id.localDate == "2026-09-26" },
+            "binding a stray ring to today would silently skip today's 04:00")
+        assertEquals(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
 }

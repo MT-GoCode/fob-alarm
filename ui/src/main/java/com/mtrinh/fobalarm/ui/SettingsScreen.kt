@@ -39,39 +39,39 @@ fun SettingsScreen(
         }
 
         Section("Alarm")
-        LockedRow(locked) {
-            TimeSetting("Alarm time", s.settings.defaultAlarmTime) { v ->
+        LockedRow(locked) { on ->
+            TimeSetting("Alarm time", s.settings.defaultAlarmTime, enabled = on) { v ->
                 app.patch("Alarm time") { it.copy(defaultAlarmTime = v) }
             }
         }
-        LockedRow(locked) {
+        LockedRow(locked) { on ->
             SliderSetting("Volume", s.settings.alarmVolumePercent,
-                min = Settings.VOLUME_FLOOR, max = 100, step = 5, suffix = "%") { v ->
+                min = Settings.VOLUME_FLOOR, max = 100, step = 5, suffix = "%", enabled = on) { v ->
                 app.patch("Volume") { it.copy(alarmVolumePercent = v) }
             }
         }
-        LockedRow(locked) {
-            ToggleSetting("Vibrate", s.settings.vibrate) { v -> app.patch("Vibrate") { it.copy(vibrate = v) } }
+        LockedRow(locked) { on ->
+            ToggleSetting("Vibrate", s.settings.vibrate, enabled = on) { v -> app.patch("Vibrate") { it.copy(vibrate = v) } }
         }
-        LockedRow(locked) {
+        LockedRow(locked) { on ->
             DurationSetting("Stop ringing after", s.settings.maxRingMinutes * 60,
-                minSeconds = 5 * 60, maxSeconds = 120 * 60) { secs ->
+                minSeconds = 5 * 60, maxSeconds = 120 * 60, enabled = on) { secs ->
                 app.patch("Stop ringing after") { it.copy(maxRingMinutes = secs / 60) }
             }
         }
 
         Section("Snooze")
-        LockedRow(locked) {
+        LockedRow(locked) { on ->
             DurationSetting("Snooze for", s.settings.snoozeSeconds,
                 minSeconds = 10, maxSeconds = Settings.SNOOZE_CEILING_S,
-                allowSeconds = true) { secs ->
+                allowSeconds = true, enabled = on) { secs ->
                 app.patch("Snooze for") { it.copy(snoozeSeconds = secs) }
             }
         }
-        LockedRow(locked) {
+        LockedRow(locked) { on ->
             ChoiceSetting("Turn the phone to snooze", null,
                 listOf("quarter turn" to 90, "half turn" to 180, "full turn" to 360),
-                s.settings.snoozeThresholdDegrees) { v ->
+                s.settings.snoozeThresholdDegrees, enabled = on) { v ->
                 app.patch("Turn the phone to snooze") { it.copy(snoozeThresholdDegrees = v) }
             }
         }
@@ -99,12 +99,12 @@ fun SettingsScreen(
     }
 }
 
-/** Locked settings stay readable; tapping says why rather than doing nothing. */
+/** Locked settings stay readable but look disabled; tapping says why rather than doing nothing. */
 @Composable
-fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
+fun LockedRow(locked: Boolean, content: @Composable (enabled: Boolean) -> Unit) {
     var explain by remember { mutableStateOf(false) }
     Box {
-        content()
+        content(!locked)
         if (locked) {
             Box(Modifier.matchParentSize().clickableNoRipple { explain = true })
             Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Muted,
@@ -121,9 +121,9 @@ fun LockedRow(locked: Boolean, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun ToggleSetting(label: String, value: Boolean, onSet: (Boolean) -> Unit) {
+fun ToggleSetting(label: String, value: Boolean, enabled: Boolean = true, onSet: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
-        Switch(checked = value, onCheckedChange = onSet)
+        Switch(checked = value, onCheckedChange = onSet, enabled = enabled)
     }
 }

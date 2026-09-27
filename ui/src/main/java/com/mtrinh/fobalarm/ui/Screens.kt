@@ -54,7 +54,8 @@ fun RootScreen(
 
     // ONE definition of "is setup done", used for both the tab label and its content.
     val myGates = app.localGates ?: s.gates
-    val setupDone = myGates.evaluatedAtMs != 0L && myGates.allPass
+    val setupDone = myGates.evaluatedAtMs != 0L &&
+            setupRows(myGates, isAlarmRole).none { it.first.blocking && !it.second }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -78,7 +79,7 @@ fun RootScreen(
     ) { pad ->
         Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
             when (tab) {
-                0 -> if (setupDone) WaitingScreen(app, s)
+                0 -> if (setupDone) WaitingScreen(app, s, isAlarmRole)
                      else SetupScreen(app, s, isAlarmRole, onFixGate, pairing)
                 1 -> SettingsScreen(app, s, isAlarmRole,
                         deviceSettings = deviceSettings?.let { ds -> { pairing(); ds() } },
@@ -97,9 +98,7 @@ fun RootScreen(
 
 @Composable
 private fun NotConnectedScreen(app: AppState, isAlarmRole: Boolean, onRepair: (() -> Unit)?) {
-    var waitedMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1000); waitedMs += 1000 } }
-    val stuck = !isAlarmRole && waitedMs > 60_000
+    val stuck = !isAlarmRole && app.nowMs - app.startedMs > 60_000
 
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         contentAlignment = Alignment.Center) {
@@ -189,7 +188,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Text(
                 when {
                     isTest -> "STOP TEST"
-                    sending -> "Sending to alarm phone"
+                    sending -> if (isAlarmRole) "Stopping" else "Sending to alarm phone"
                     isAlarmRole -> "PRESS TO DISMISS"
                     else -> "DISMISS IT"
                 },
@@ -214,7 +213,8 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Spacer(Modifier.weight(1f))
         }
         if (ring?.audible?.contains("muted=true") == true) {
-            Text("Sound is muted on the alarm phone. Vibration only.", fontSize = T.label, color = Bad)
+            Text(if (isAlarmRole) "Sound is muted. Vibration only."
+                 else "Sound is muted on the alarm phone. Vibration only.", fontSize = T.label, color = Bad)
         }
     }
 }
@@ -233,8 +233,9 @@ private fun RedCard(text: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun WaitingScreen(app: AppState, s: Snapshot) {
-    val nag = Nag.evaluate(s, app.lastOkMs, app.nowMs)
+private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
+    // The nag is the controller's job: "go and check it" makes no sense on the phone itself.
+    val nag = if (isAlarmRole) Nag.Reason.NONE else Nag.evaluate(s, app.lastOkMs, app.nowMs)
     var confirmSkip by remember { mutableStateOf(false) }
     var pickTime by remember { mutableStateOf(false) }
     var pickNap by remember { mutableStateOf(false) }
@@ -306,12 +307,12 @@ private fun SetupScreen(
         return
     }
 
-    val rows = g.entries().filter { it.first.kind == GateKind.PERMISSION }
-        .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
+    val rows = setupRows(g, isAlarmRole)
     val required = rows.filter { it.first.blocking }
     val optional = rows.filter { !it.first.blocking }
     val missing = required.count { !it.second }
     val compatMissing = g.entries().filter { it.first.kind == GateKind.COMPAT && !it.second }
+        .filter { isAlarmRole || it.first.key != "gyroscopePresent" }
 
     Page(title = "Setup", snapshot = s) {
         if (missing > 0) {
@@ -319,7 +320,7 @@ private fun SetupScreen(
                 Column(Modifier.padding(S.md)) {
                     Text(if (isAlarmRole) "The alarm cannot ring yet" else "Not ready yet",
                         fontSize = T.body, fontWeight = FontWeight.Bold, color = Color.Black)
-                    Text("Allow the $missing item${if (missing == 1) "" else "s"} marked below.",
+                    Text("See the $missing item${if (missing == 1) "" else "s"} marked below.",
                         fontSize = T.caption, color = Color.Black)
                 }
             }
@@ -337,19 +338,22 @@ private fun SetupScreen(
             Section("Recommended")
             optional.forEach { PermissionRow(it.first, it.second, required = false, onFix) }
         }
-        compatMissing.forEach { (info, _) ->
-            Section(info.label); Text(info.explain, fontSize = T.label, color = Bad)
+        if (compatMissing.isNotEmpty()) {
+            Section("This phone")
+            compatMissing.forEach { (info, _) -> Text(info.explain, fontSize = T.label, color = Muted) }
         }
 
-        if (isAlarmRole) {
-            Section("Pair the other phone")
-            pairing()
-        }
+        if (isAlarmRole) pairing()
     }
 }
 
 /** Permissions the CONTROLLER genuinely needs; the rest are alarm-phone concerns. */
 private val CONTROLLER_PERMISSIONS = setOf("foregroundService", "localNetworkPermission", "notHibernating")
+
+/** The permission rows THIS phone's Setup shows. Also decides when Setup is done. */
+private fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
+    g.entries().filter { it.first.kind == GateKind.PERMISSION }
+        .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
 
 @Composable
 private fun PermissionRow(info: GateInfo, ok: Boolean, required: Boolean, onFix: (String) -> Unit) {

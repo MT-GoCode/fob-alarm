@@ -43,7 +43,4 @@ object Fmt {
             else -> "${s / 86400}d ${(s % 86400) / 3600}h"
         }
     }
-
-    fun battery(pct: Int, plugged: Boolean): String =
-        if (pct < 0) "unknown" else "$pct% · ${if (plugged) "charging" else "on battery"}"
 }

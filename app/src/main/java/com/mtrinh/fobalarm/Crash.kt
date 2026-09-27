@@ -8,7 +8,6 @@ object Crash {
     private fun file(ctx: Context) = com.mtrinh.fobalarm.service.Crash.file(ctx)
 
     fun write(ctx: Context, thread: String, e: Throwable) {
-        com.mtrinh.fobalarm.service.Crash.pending = true
         runCatching {
             file(ctx).writeText(buildString {
                 appendLine("at ${System.currentTimeMillis()}")
@@ -25,8 +24,5 @@ object Crash {
         val trace = runCatching { f.readText() }.getOrNull() ?: ""
         Svc.log("crash", "trace" to trace.take(2000))
         runCatching { f.delete() }
-        com.mtrinh.fobalarm.service.Crash.pending = false
     }
-
-
 }

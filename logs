@@ -24,7 +24,7 @@ d=json.load(sys.stdin); s=d.get('self') or {}
 g=d.get('gates') or {}
 bad=[k for k,v in g.items() if v is False and k!='allPass']
 print(f\"  role={s.get('role')} device={(s.get('deviceId') or '')[:8]} mode={d.get('mode')} \"
-      f\"v{d.get('appVersion')} {s.get('variant')} battery={s.get('batteryPct')}% plugged={s.get('plugged')}\")
+      f\"v{d.get('appVersion')} battery={s.get('batteryPct')}% plugged={s.get('plugged')}\")
 print('  failing:', ', '.join(bad) if bad else 'nothing')
 " 2>/dev/null || echo "  (no answer)"
 }

@@ -306,6 +306,7 @@ object Engine {
         if (open != null && open.trigger == OccurrenceSource.NAP && source != OccurrenceSource.NAP) {
             events += PendingEvent("superseded", mapOf("oldRingId" to open.ringId))
             st1 = st1.copy(
+                session = null,
                 lastOutcome = LastOutcome(Outcome.SUPERSEDED, now, open.occurrenceId.toString(), open.ringId, open.snoozeCount),
                 latches = st1.latches + Latch(open.occurrenceId, LatchReason.SUPERSEDED, now),
             )
@@ -330,6 +331,12 @@ object Engine {
             OccurrenceSource.NAP -> OccurrenceId(localDateOf(now, ts.zone()), OccurrenceSource.NAP)
             else -> occurrenceBeingFired(st1, ts)
         }
+        if (occId == null) {
+            // Nothing is due and the last due occurrence already rang: a duplicate or a
+            // resurrect after the cap. Ringing now would be the surprise.
+            events += PendingEvent("trigger_stale")
+            return recompute(st1, ts, "trigger_stale").let { it.copy(events = events + it.events) }
+        }
         val session = RingSession(
             ringId = newRingId,
             occurrenceId = occId,
@@ -346,31 +353,36 @@ object Engine {
     }
 
     /**
-     * The occurrence this trigger is FOR. Alarms are delivered at or slightly after the
-     * instant, and may be minutes late after a Doze wake, so "the next one strictly in
-     * the future" is the wrong question -- it names tomorrow and latches today MISSED.
+     * The occurrence this trigger is FOR, or null when it is for nothing: the most recent
+     * scheduled instant at or before now, unless that one already rang (a duplicate, or
+     * a resurrect after the cap) or was skipped. Never a future occurrence: binding a
+     * ring to tomorrow latches tomorrow when it ends, and that is how a day gets lost.
+     * A late delivery, even hours late after the phone was dead, still names today.
      */
-    fun occurrenceBeingFired(st: EngineState, ts: TimeSource): OccurrenceId {
+    fun occurrenceBeingFired(st: EngineState, ts: TimeSource): OccurrenceId? {
         val now = ts.nowMs()
         val zone = ts.zone()
-        val tolerance = 60 * 60_000L        // generous: a late Doze delivery is normal
 
         // An override owns the instant if one is bound and due.
         st.override?.let { ov ->
             if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null &&
-                now >= ov.fireAtMs - 5_000 && now - ov.fireAtMs < tolerance) {
+                now >= ov.fireAtMs - 5_000 && now - ov.fireAtMs < 60 * 60_000L) {
                 return ov.boundOccurrenceId
             }
         }
-        // Otherwise the most recent unlatched scheduled occurrence at or just before now.
         var date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         repeat(2) {
             val id = OccurrenceId(date.format(DATE), OccurrenceSource.SCHEDULED)
             val at = scheduledInstant(date, st.settings.defaultAlarmTime, zone)
-            if (at <= now + 5_000 && now - at < tolerance && st.latches.none { it.id == id }) return id
+            if (at <= now + 5_000) {
+                val rang = st.lastOutcome?.occurrenceId == id.toString()
+                val latch = st.latches.firstOrNull { it.id == id }
+                val skipped = st.override?.let { it.boundOccurrenceId == id && it.kind == OverrideKind.SKIP } == true
+                return if (rang || skipped || (latch != null && latch.reason != LatchReason.MISSED)) null else id
+            }
             date = date.minusDays(1)
         }
-        return nextUnlatchedScheduled(st, ts).first
+        return null
     }
 
     fun snooze(st: EngineState, ts: TimeSource): RecomputeResult {

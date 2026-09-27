@@ -124,7 +124,11 @@ object Svc : AlarmHost {
             val d = Db.open(app)
             val loaded = Persist.load(d.dao())          // the read is the real test
             db = d
-            roomLoaded = true
+            // Everything logged before Room was readable (boot, crash traces) is only in
+            // memory. Flip the flag and take the backlog under the same lock log() uses,
+            // so no event is written twice and none is lost.
+            val backlog = synchronized(memTail) { roomLoaded = true; memTail.toList() }
+            backlog.forEach { persist(it) }
             synchronized(lock) {
                 // MERGE, never replace. An empty or wiped kv table returns a default
                 // EngineState whose role is null -- assigning it wholesale would throw
@@ -164,15 +168,17 @@ object Svc : AlarmHost {
     fun log(type: String, vararg kv: Pair<String, String>) {
         val e = Event(seqCounter.incrementAndGet(), System.currentTimeMillis(), type,
             Actor.ALARM, state.stateVersion, kv.toMap())
-        synchronized(memTail) {
+        val ready = synchronized(memTail) {
             memTail.addLast(e); while (memTail.size > 200) memTail.removeFirst()
+            dbReady
         }
-        if (!dbReady) return
-        io.execute {
-            runCatching {
-                db.dao().insertBlocking(EventRow(0, e.atMs, e.type, e.actor.name, e.stateVersion,
-                    JSONObject(e.detail as Map<*, *>).toString()))
-            }
+        if (ready) persist(e)
+    }
+
+    private fun persist(e: Event) = io.execute {
+        runCatching {
+            db.dao().insertBlocking(EventRow(0, e.atMs, e.type, e.actor.name, e.stateVersion,
+                JSONObject(e.detail as Map<*, *>).toString()))
         }
     }
 

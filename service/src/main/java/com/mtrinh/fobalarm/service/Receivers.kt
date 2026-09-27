@@ -40,9 +40,12 @@ class AlarmReceiver : BroadcastReceiver() {
                 // A test that arrives after its window has lapsed simply does nothing.
                 Scheduler.ACTION_TEST -> if (Svc.de.pendingTest) RingService.start(ctx)
                 Scheduler.ACTION_WATCHDOG -> {
-                    if (Svc.session != null) {
+                    val open = Svc.session
+                    if (open != null && open.endsByMs > System.currentTimeMillis()) {
                         Svc.log("watchdog_resurrect")
                         RingService.start(ctx)
+                    } else if (open != null) {
+                        Svc.recompute("watchdog_after_cap")     // reaps it as CAPPED
                     }
                 }
                 Scheduler.ACTION_TICK -> {
@@ -160,6 +163,10 @@ object SyncWindow {
     fun run(ctx: Context) {
         if (Svc.settings.role != Role.ALARM) { ClockObserver.poll(); return }
         if (Svc.session != null || Svc.testActive || running) return
+        // Never drop the group in the minutes before the alarm: the controller would
+        // still be rejoining when the ring starts, and remote dismiss would be dead.
+        val next = Svc.lastNextFire?.atMs ?: return
+        if (next - System.currentTimeMillis() < 10 * 60_000L) return
         running = true
         lastAttemptMs = System.currentTimeMillis()
         Thread({
@@ -193,13 +200,9 @@ object SyncWindow {
     }
 }
 
-/** The persisted crash file, shared with :app so health can report it. */
+/** The persisted crash file, in DE storage so it survives a reboot without unlock. */
 object Crash {
     fun file(ctx: Context) = java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")
-    /** Cached: read once at startup and on write/clear, never under the ring lock. */
-    @Volatile var pending: Boolean = false
-    fun refresh(ctx: Context) { pending = runCatching { file(ctx).exists() }.getOrDefault(false) }
-    fun hasPending(@Suppress("UNUSED_PARAMETER") ctx: Context) = pending
 }
 
 /** Hibernation and force-stop both cancel every PendingIntent. Make it visible. */

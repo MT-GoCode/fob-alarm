@@ -23,7 +23,7 @@ object Health {
      * dismiss in earlier builds -- on the actual device, every ten minutes, forever.
      */
     fun probe(ctx: Context) {
-        if (!Group.running) return                       // nothing to reach yet
+        if (Server.controlStatus != "listening") return  // nothing to reach yet
         if (System.currentTimeMillis() - lastProbeMs < 10 * 60_000) return
         lastProbeMs = System.currentTimeMillis()
         Thread({

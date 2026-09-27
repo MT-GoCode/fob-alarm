@@ -73,7 +73,10 @@ object ControllerWatch {
     fun dismissNow(ctx: Context) {
         // After a process restart we may know nothing yet; find out before giving up.
         if (lastSnapshot == null) runCatching { pollOnce(ctx) }
-        val ringId = lastSnapshot?.ring?.ringId ?: return
+        val ringId = lastSnapshot?.ring?.ringId ?: run {
+            Svc.log("remote_dismiss_no_ring", "reason" to if (lastSnapshot == null) "unreachable" else "not_ringing")
+            return
+        }
         val requestId = UUID.randomUUID().toString()         // same id: idempotent retries
         var r = runBlocking { client.dismiss(ringId, requestId) }
         var tries = 0

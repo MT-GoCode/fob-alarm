@@ -71,7 +71,7 @@ object Server {
                 else ServerSocket(port)
                 if (control) controlStatus = "listening" else logStatus = "listening"
                 Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())
-                backoffMs = 1_000L
+                backoffMs = 1_000L; quietFailures = 0
                 server.use { srv ->
                     while (true) {
                         val sock = srv.accept()

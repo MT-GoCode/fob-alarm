@@ -275,13 +275,47 @@ phone; a test during a real ring hijacked it and leaked a wake lock; a remote te
 escalate into a real ring that latched an occurrence; the group SSID still leaked via
 `ap.ssid`; and the instrument's primary numeral went grey at rest.
 
-## Priority order
+## Round 5 — the strategy review and the service layer
 
-1. Controller permission rows are dead controls (§5).
-2. Blocking vs non-blocking permissions must look different (§5).
-3. Default password `12345678` (§7).
-4. Typography and spacing scale (§3, §10, §11).
-5. Name the setting in sync messages (§9).
-6. `Fact` → `ListItem` (§11).
-7. Heartbeat on status (§4).
-8. Then: get it on a phone and test §12 rather than writing more code.
+The strategy review's conclusion: `:core` (tested) produced zero criticals across five
+rounds; the untested Android layer produced all of them. Done from it: zombie sessions
+reaped (test written failing first), updater and flavours deleted, controller dismiss
+moved into LinkService, a loopback self-probe of the control port every ten minutes,
+`/v1/health`, and ring-blocking problems split from warnings so red means "will not
+ring" and nothing else.
+
+## Round 6 — the UX rewrite, re-reviewed (19 UX + 6 service findings, all fixed)
+
+UX, in order of 4 AM confusion: last night's "Can't reach the alarm phone" card was
+still on screen when a new ring started (verdict now resets per ring); the controller
+could be stuck on Setup behind a green Done card because the tab used the alarm phone's
+gate list (one role-filtered list decides both); a fresh alarm phone could not pair from
+Setup because the default password locked the Save button with no Unlock in sight
+(Unlock button in place); the Role section rendered twice; the pairing block had no
+heading in Settings; the version bar printed enum names and duplicated the role line
+(now one "Version x" line, plus a mismatch warning); controller-only copy reached the
+alarm phone's ring screen; the ringtone buttons ignored the client-side lock expiry; the
+controller pairing screen never noticed a granted permission; the Allow label lagged the
+action by one tap; a missing gyroscope rendered red under a green Done; locked rows
+looked enabled; the nag evaluated on the alarm phone itself; raw exception text in two
+toasts; the Pair-again failure was swallowed; dead `Fact`, `Fmt.battery`, `syncOk`,
+`P2pJoin.status` and four imports.
+
+Service: the hourly sync window could drop the group in the minutes before the alarm
+(now skipped within ten minutes of the next fire); a crash trace logged before Room was
+readable was deleted without ever reaching history (the in-memory backlog is now flushed
+into Room when it opens, under the same lock, so nothing is lost or duplicated); the
+self-probe ran before the port had bound and raised a false 503 for ten minutes after
+every sync window; a notification dismiss with no snapshot returned silently; the
+`logs` script still printed `variant`.
+
+Engine: a trigger now binds to the most recent due occurrence, never a future one, and is
+dropped when that occurrence already rang or was skipped. Before, a watchdog resurrect
+after the cap rang again bound to tomorrow, and a stray trigger before the alarm time
+would have bound to today and silently consumed it. Four tests, written failing first:
+duplicate after dismiss, resurrect after cap, missed-while-dead rings for today, stale
+trigger before the alarm time. The watchdog receiver no longer resurrects a session past
+its cap. The ring service honours an engine "this trigger is for nothing" and only forces
+a session when the engine throws.
+
+`core tests=44 failures=0`. What remains is §12: hardware.

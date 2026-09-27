@@ -42,7 +42,7 @@ data class GateInfo(
                 "Needed to show the alarm screen and keep the link running.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.REQUEST),
             GateInfo("exactAlarm", "Exact alarms",
-                "Granted at install. Without it Android could delay the alarm.",
+                "Not granted. Reinstall the app to get it back.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.NONE),
             GateInfo("fullScreenIntent", "Show over the lock screen",
                 "Lets the ring screen appear without unlocking the phone.",
@@ -63,10 +63,10 @@ data class GateInfo(
 
             // ---- compatibility: facts, nothing to grant ----
             GateInfo("gyroscopePresent", "Gyroscope",
-                "Needed for rotate-to-snooze. The alarm rings either way.",
+                "No gyroscope, so turning the box will not snooze. The alarm rings either way.",
                 GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
             GateInfo("p2pSupported", "Wi-Fi Direct",
-                "Used for the phone-to-phone link.",
+                "No Wi-Fi Direct, so the two phones cannot link.",
                 GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
 
             // ---- conditions: tonight's state, never a setup step ----

@@ -122,12 +122,16 @@ class RingService : Service(), SensorEventListener {
             val src = runCatching { OccurrenceSource.valueOf(Svc.de.nextFireSource) }
                 .getOrDefault(OccurrenceSource.SCHEDULED)
             // A wrong latch beats silence: never let an engine throw stop the ring.
-            runCatching { Svc.onTrigger(src) }
+            val engine = runCatching { Svc.onTrigger(src) }
                 .onFailure { Svc.log("trigger_failed", "error" to it.toString()) }
             if (Svc.session == null) {
-                // The engine refused. Open a REAL session so the ring screen, the
-                // dismiss button, the watchdog and the DE mirror all behave normally --
-                // a parallel "sessionless" mode had none of those.
+                if (engine.isSuccess) {
+                    // The engine answered and the answer was "this trigger is for nothing"
+                    // (a duplicate, or a resurrect after the cap). Honour it.
+                    teardown(); return START_NOT_STICKY
+                }
+                // The engine threw. Open a REAL session so the ring screen, the dismiss
+                // button, the watchdog and the DE mirror all behave normally.
                 Svc.log("ring_without_session")
                 runCatching { Svc.forceSession(src) }
             }

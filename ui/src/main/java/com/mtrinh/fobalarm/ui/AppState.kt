@@ -12,7 +12,7 @@ import java.util.UUID
 /** The three remote-dismiss outcomes, never conflated. SPEC.md section 7. */
 sealed class DismissUi {
     object Idle : DismissUi()
-    data class Waiting(val attempt: Int) : DismissUi()
+    object Waiting : DismissUi()
     object Dismissed : DismissUi()
     data class RingChanged(val message: String) : DismissUi()
     data class Unreachable(val message: String) : DismissUi()
@@ -61,6 +61,8 @@ class AppState(
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
     var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
+    /** When this screen started trying, so "still not connected" is measured from a real attempt. */
+    val startedMs: Long = System.currentTimeMillis()
 
     fun startPolling(fastMs: Long = 500, idleMs: Long = 20_000) {
         scope.launch {
@@ -90,8 +92,10 @@ class AppState(
                         buttonLockedUntilMs = System.currentTimeMillis() + 1500
                     }
                     lastRingId = s.ring?.ringId
+                    // A new ring is a new question; last night's verdict must not answer it.
+                    dismissUi = DismissUi.Idle
                 }
-                snapshot = if (isLocal) s else s.copy(lastHeartbeatMs = System.currentTimeMillis())
+                snapshot = s
                 lastOkMs = System.currentTimeMillis()
             }
             .onFailure { }
@@ -102,11 +106,9 @@ class AppState(
         if (System.currentTimeMillis() < buttonLockedUntilMs) return
         val requestId = UUID.randomUUID().toString()
         scope.launch {
-            var attempt = 0
             val startedAt = System.currentTimeMillis()
             while (true) {
-                attempt++
-                dismissUi = DismissUi.Waiting(attempt)
+                dismissUi = DismissUi.Waiting
                 val r = client.dismiss(ringId, requestId)   // idempotent by content
                 r.onSuccess {
                     snapshot = it; lastOkMs = System.currentTimeMillis()
@@ -126,17 +128,19 @@ class AppState(
                             dismissUi = DismissUi.Dismissed
                             delay(2000); dismissUi = DismissUi.Idle
                         } else {
-                            dismissUi = DismissUi.RingChanged("The alarm changed. Press again.")
+                            dismissUi = DismissUi.RingChanged("The alarm changed. Press again in a moment.")
                         }
                         return@launch
                     }
                     is ClientError.Forbidden -> {
-                        dismissUi = DismissUi.Unreachable("Could not stop it from here. Use the key.")
+                        dismissUi = DismissUi.Unreachable(
+                            if (isLocal) "Could not stop it." else "Could not stop it from here. Use the key.")
                         return@launch
                     }
                     else -> {
                         if (System.currentTimeMillis() - startedAt > 10_000) {
-                            dismissUi = DismissUi.Unreachable("Can't reach the alarm phone. Use the key.")
+                            dismissUi = DismissUi.Unreachable(
+                                if (isLocal) "Could not stop it." else "Can't reach the alarm phone. Use the key.")
                             return@launch
                         }
                         delay(700)
@@ -195,29 +199,27 @@ class AppState(
 
     /** "Saved" / "Not saved" for every change, because the other phone may not have it. */
     var syncMessage by mutableStateOf<String?>(null); private set
-    var syncOk by mutableStateOf(true); private set
 
     private fun act(label: String = "Setting", block: suspend () -> Result<Snapshot>) {
         scope.launch {
-            syncMessage = "Saving $label"; syncOk = true
+            syncMessage = "Saving $label"
             // 5s deadline: a change that has not landed by then is reported as failed
             // rather than left spinning.
             val timeout = launch {
                 delay(5000)
                 if (syncMessage?.startsWith("Saving") == true) {
-                    syncOk = false; syncMessage = "$label not saved. No reply from the alarm phone."
+                    syncMessage = "$label not saved. No reply from the alarm phone."
                 }
             }
             block()
                 .onSuccess {
                     timeout.cancel()
                     snapshot = it; lastOkMs = System.currentTimeMillis()
-                    syncOk = true; syncMessage = "$label saved"
+                    syncMessage = "$label saved"
                     delay(1800); syncMessage = null
                 }
                 .onFailure { e ->
                     timeout.cancel()
-                    syncOk = false
                     if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
                         is ClientError.Forbidden -> "$label not saved. Unlock first."
