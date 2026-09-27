@@ -11,7 +11,9 @@ Two phones, one APK, `role` flag.
 3. **The alarm phone owns state.** Controller writes are *requests*; they apply only when the alarm phone acks with a new `stateVersion`.
 4. **Nothing fails silently.** Every gate, every link, every sync has a visible timestamp and an age. "Unknown" is rendered as a problem, never as "fine".
 5. **No nightly ritual.** Both devices live where they live. Arming is automatic.
-6. **The present state is always on screen.** Not just failures — the *normal* state is legible at a glance,
+6. **The present state is one glance away — on the first screen, with no navigation.** Neither phone keeps its
+   screen lit while idle (see §6); the invariant is about *zero navigation*, not about a permanently lit panel.
+   Not just failures — the *normal* state is legible at a glance,
    identically on both phones, with no navigation: next alarm (absolute + relative), link state + age, battery +
    charging for **both** devices, last clock sync, `lastOutcome` (dismissed / capped / missed, when, which device), AP state, active
    override or nap, snooze count. Anything with a timestamp renders as an **age**, and a field that is unknown
@@ -391,7 +393,22 @@ Consequences worth having:
 
 The **only** custom-drawn thing in the app is the rotation instrument (§7 RINGING). Everything else is off the shelf.
 
-Alarm phone: **screen always on, dimmed** (`FLAG_KEEP_SCREEN_ON` + low brightness, auto-dimmer after dark), so state is readable through the acrylic without touching anything. Full brightness on ring.
+**Neither phone keeps its screen on while idle.** `FLAG_KEEP_SCREEN_ON` applies **only during a ring session**
+(alarm phone: full brightness; controller: full brightness while the remote-dismiss button is live). Otherwise both
+phones use the normal system screen timeout: the screen comes on when you pick the phone up or unlock it, shows the
+status screen immediately, and sleeps again. Idle state is dark on both devices.
+
+Reason: ten years of a lit panel is ~87,600 hours against a typical 30–50 k hour LED backlight half-life — a
+consumable that dims gradually and silently, and a continuous heat source next to the battery in a closed box.
+
+**Two consequences that must not be lost:**
+- **The hibernation gate is now strictly load-bearing.** An earlier draft's always-on Activity was probably keeping
+  `lastTimeVisible` fresh and accidentally suppressing app hibernation. That accident is gone, so the INIT/22:00
+  gate on `getUnusedAppRestrictionsStatus()` is the *only* thing standing between the zero-touch design and a
+  hibernation-induced force-stop. It is not optional.
+- **The ring Activity must turn the screen on by itself**, from locked and from fully asleep:
+  `setShowWhenLocked(true)` + `setTurnScreenOn(true)` + the full-screen intent, plus the wake lock in §3. It can no
+  longer inherit an already-awake screen.
 
 ## 7. Screens
 
