@@ -61,6 +61,11 @@ object GateEval {
             powerOk = plugged && pct > 50,
             vibrationEnabled = vibrationEnabled(ctx),
             freeDiskOk = freeBytes(ctx) > 50L * 1024 * 1024,
+            // A bathroom speaker auto-connecting at 03:00 routes the alarm out of the box.
+            noBluetoothAudio = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).none {
+                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+            },
         )
     }
 

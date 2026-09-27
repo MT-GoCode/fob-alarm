@@ -48,9 +48,34 @@ class MainActivity : ComponentActivity() {
                     when {
                         Crash.pending != null -> CrashScreen()
                         role == null -> RolePicker { chosen -> Svc.setRole(chosen); role = chosen }
+                        // CONTROLLER INIT: its own thinner gates -- nearby-devices
+                        // permission, credentials entered, AP reachable once. Without
+                        // this a fresh controller can never join and would sit on
+                        // "connecting" forever with nowhere to type the credentials.
+                        role == Role.CONTROLLER && Svc.settings.passphrase.isNullOrBlank() ->
+                            ControllerSetup { ssid, pass ->
+                                runCatching {
+                                    Svc.patchSettings(-1, Svc.settings.copy(ssid = ssid, passphrase = pass),
+                                        java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
+                                }
+                                P2pJoin.join(this@MainActivity, ssid, pass)
+                                recreate()
+                            }
                         else -> {
                             val client = remember(role) { buildClient(role!!) }
-                            app = remember(client) { AppState(client, lifecycleScope).also { it.startPolling() } }
+                            app = remember(client) {
+                                AppState(
+                                    client, lifecycleScope,
+                                    // Controller keeps its own copy: the alarm phone is
+                                    // the sole source of truth and it will eventually die.
+                                    onExport = if (role == Role.CONTROLLER) ({ b ->
+                                        runCatching {
+                                            File(filesDir, "peer-export.json").writeText(
+                                                com.mtrinh.fobalarm.data.Wire.backupToJson(b).toString())
+                                        }
+                                    }) else null,
+                                ).also { it.startPolling() }
+                            }
                             RootScreen(
                                 app = app,
                                 isAlarmRole = role == Role.ALARM,
@@ -208,9 +233,53 @@ class MainActivity : ComponentActivity() {
                 confirmButton = { TextButton(onClick = { recovery = null }) { Text("I wrote it down") } })
         }
 
+        Spacer(Modifier.height(8.dp))
+        RoleSwitcher()
+
         if (BuildConfig.DEV_CHANNEL) {
             Spacer(Modifier.height(8.dp))
             DevChannel()
+        }
+    }
+
+    /**
+     * Flipping the alarm phone to CONTROLLER is a one-tap total silencer where every log
+     * entry looks legal. So: typed confirmation rather than a toggle, rejected outright
+     * while a session is open, clears the pairing, and writes an event.
+     */
+    @Composable
+    private fun RoleSwitcher() {
+        var asking by remember { mutableStateOf(false) }
+        var typed by remember { mutableStateOf("") }
+        Text("Role", fontSize = 12.sp, color = Muted)
+        Text("currently ${Svc.settings.role?.name ?: "unset"}", fontSize = 12.sp)
+        OutlinedButton(onClick = { asking = true }) { Text("Change role", fontSize = 12.sp) }
+        if (asking) {
+            val target = if (Svc.settings.role == Role.ALARM) Role.CONTROLLER else Role.ALARM
+            AlertDialog(
+                onDismissRequest = { asking = false },
+                title = { Text("Change role to ${target.name}?") },
+                text = {
+                    Column {
+                        Text("This clears the pairing. Switching the alarm phone to " +
+                             "CONTROLLER stops it ringing entirely.", fontSize = 12.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Type ${target.name} to confirm:", fontSize = 12.sp, color = Muted)
+                        OutlinedTextField(typed, { typed = it }, singleLine = true)
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = typed.trim().uppercase() == target.name && Svc.session == null,
+                        onClick = {
+                            P2pJoin.stop()
+                            Group.stop(this@MainActivity)
+                            Svc.setRole(target)
+                            asking = false; typed = ""
+                            recreate()
+                        }) { Text("Change") }
+                },
+                dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } })
         }
     }
 
@@ -223,11 +292,35 @@ class MainActivity : ComponentActivity() {
                 Fmt.duration(Updater.devModeUntilMs - System.currentTimeMillis())
              else "OFF — the phone does not listen for builds", fontSize = 11.sp,
             color = if (Updater.devModeOn) Good else Muted)
+        var askPw by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { Updater.enableDevMode(); Updater.discover(this@MainActivity) }) {
-                Text("Enable 60m", fontSize = 12.sp)
-            }
+            Button(onClick = { askPw = true }) { Text("Enable 60m", fontSize = 12.sp) }
             OutlinedButton(onClick = { Updater.disableDevMode() }) { Text("Off", fontSize = 12.sp) }
+        }
+        if (askPw) {
+            var secret by remember { mutableStateOf("") }
+            var bad by remember { mutableStateOf(false) }
+            AlertDialog(
+                onDismissRequest = { askPw = false },
+                title = { Text("Open the dev channel?") },
+                text = {
+                    Column {
+                        Text("The phone will listen for builds for 60 minutes.",
+                            fontSize = 12.sp)
+                        OutlinedTextField(secret, { secret = it; bad = false },
+                            label = { Text("Password", fontSize = 12.sp) },
+                            visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                        if (bad) Text("Rejected", color = Bad, fontSize = 12.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (Updater.enableDevMode(secret)) {
+                            Updater.discover(this@MainActivity); askPw = false
+                        } else bad = true
+                    }) { Text("Enable") }
+                },
+                dismissButton = { TextButton(onClick = { askPw = false }) { Text("Cancel") } })
         }
         OutlinedTextField(ip, { ip = it; Updater.useHost(it) },
             label = { Text("Mac IP (primary)", fontSize = 12.sp) }, singleLine = true,
@@ -238,6 +331,37 @@ class MainActivity : ComponentActivity() {
         Text("last check ${Fmt.age(Updater.lastCheckAtMs)} · remote vc ${Updater.remoteVersionCode}",
             fontSize = 10.sp, color = Muted)
         Text("logs: http://<this phone>:8766/v1/logs  [${Server.logStatus}]", fontSize = 10.sp, color = Muted)
+    }
+
+    /** Controller-side pairing. Must match the alarm phone's group byte for byte. */
+    @Composable
+    private fun ControllerSetup(onSet: (String, String) -> Unit) {
+        var ssid by remember { mutableStateOf("DIRECT-fa-alarm") }
+        var pass by remember { mutableStateOf("") }
+        val hasPerm = checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Pair with the alarm phone", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Enter exactly the group name and passphrase set on the alarm phone.",
+                fontSize = 12.sp, color = Muted)
+            Fact("nearby devices", if (hasPerm) "granted" else "REQUIRED", hasPerm)
+            if (!hasPerm) {
+                Button(onClick = { requestRuntimePermissions() }) { Text("Grant") }
+            }
+            OutlinedTextField(ssid, { ssid = it }, label = { Text("SSID", fontSize = 12.sp) },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = 12.sp) },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { onSet(ssid.trim(), pass) },
+                enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()) { Text("Join group") }
+            Text("Status: ${P2pJoin.status}", fontSize = 11.sp, color = Muted)
+            Spacer(Modifier.height(20.dp))
+            OutlinedButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
+                Text("This is actually the alarm phone", fontSize = 12.sp)
+            }
+        }
     }
 
     @Composable

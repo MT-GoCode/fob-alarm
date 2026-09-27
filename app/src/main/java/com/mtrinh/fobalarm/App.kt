@@ -39,6 +39,7 @@ class App : Application() {
 
         ForceStopDetector.check(this)
         Crash.reportPending(this)
+        Audio.ensureBundled(this)
         ClockObserver.poll()
         Server.start(this)
         Svc.log("app_start", "version" to BuildConfig.VERSION_NAME, "variant" to BuildConfig.VARIANT)

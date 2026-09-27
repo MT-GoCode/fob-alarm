@@ -158,9 +158,25 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean,
 
 @Composable
 private fun WaitingScreen(app: AppState, s: Snapshot) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(1000) } }
+    val nag = Nag.evaluate(s, app.lastOkMs, now)
+
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LinkStrip(app.connected, app.linkAgeMs, s.ap.clientCount)
+
+        // The only cover for "the alarm phone died silently at 03:00", which the arm
+        // gate structurally cannot catch.
+        if (nag != Nag.Reason.NONE) {
+            Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("ALARM MAY HAVE FAILED", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        color = Color.Black)
+                    Text(Nag.message(nag), fontSize = 13.sp, color = Color.Black)
+                }
+            }
+        }
         StatusBlock(s, app.linkAgeMs)
 
         HorizontalDivider(color = Color(0xFF1A2026))
@@ -220,6 +236,7 @@ private fun InitScreen(app: AppState, s: Snapshot, onFix: (String) -> Unit) {
         "p2pSupported" to g.p2pSupported,
         "staApConcurrent" to g.staApConcurrent,
         "vibrationEnabled" to g.vibrationEnabled,
+        "noBluetoothAudio" to g.noBluetoothAudio,
         "powerOk" to g.powerOk,
         "thermalOk" to g.thermalOk,
     )
@@ -262,6 +279,7 @@ private fun explain(k: String) = when (k) {
     "p2pSupported" -> "This device does not support Wi-Fi Direct."
     "staApConcurrent" -> "Cannot host the group and stay on home WiFi at once — log pull and updates need a maintenance window."
     "vibrationEnabled" -> "Vibration is switched off, removing the last backstop."
+    "noBluetoothAudio" -> "A Bluetooth speaker is connected; audio could route out of the box."
     "powerOk" -> "Not plugged in, or below 50%."
     "thermalOk" -> "Device is too hot; audio may be throttled."
     else -> ""

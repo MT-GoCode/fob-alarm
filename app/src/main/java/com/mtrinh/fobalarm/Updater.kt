@@ -29,10 +29,19 @@ object Updater {
 
     val devModeOn: Boolean get() = System.currentTimeMillis() < devModeUntilMs
 
-    /** Password-gated, expires after 60 minutes. A phone's resting state is unreachable. */
-    fun enableDevMode(minutes: Int = 60) {
+    /**
+     * Password-gated, expires after 60 minutes. Until it is on, the phone does not listen
+     * for builds at all -- so at 06:00 you would need the password merely to OPEN the
+     * channel before you could serve it anything.
+     */
+    fun enableDevMode(secret: String, minutes: Int = 60): Boolean {
+        if (!com.mtrinh.fobalarm.core.Auth.accepts(Svc.settings, secret)) {
+            Svc.log("dev_mode_rejected")
+            return false
+        }
         devModeUntilMs = System.currentTimeMillis() + minutes * 60_000L
         Svc.log("dev_mode_enabled", "minutes" to minutes.toString())
+        return true
     }
 
     fun disableDevMode() { devModeUntilMs = 0 }

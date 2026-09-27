@@ -285,3 +285,53 @@ class AuthTest {
         assertTrue(Auth.accepts(Settings(), "anything"))
     }
 }
+
+class NagTest {
+    private fun snap(nextAtMs: Long, ringing: Boolean = false, skip: Boolean = false) = Snapshot(
+        stateVersion = 1, serverTimeMs = 0, bootedAtMs = 0, mode = Mode.WAITING,
+        gates = Gates(0, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, true),
+        armGate = null,
+        nextFire = NextFire(nextAtMs, OccurrenceSource.SCHEDULED, "scheduled"),
+        ring = if (ringing) RingView("r1", 0, OccurrenceSource.SCHEDULED, RingPhase.RINGING,
+            0, null, 0, 0.0, 120, 0.0, false, false, "ok") else null,
+        clock = ClockView(0, 0, 0, "x", 0),
+        ap = ApView(null, true, 1, 0, null),
+        self = DeviceView(90, true, "1", Variant.LIVE, Role.CONTROLLER, "d"),
+        peer = null, lastOutcome = null, appVersion = "1", settingsSchemaVersion = 1,
+        tomorrow = TomorrowView(if (skip) "SKIP" else "NONE", null, null),
+        nap = NapView(false, null), settings = Settings(), lastEvents = emptyList())
+
+    /** The headline case: alive, polling fine, silently did not ring. */
+    @Test fun `silent failure fires even while contact is perfect`() {
+        val now = 1_000_000_000L
+        val r = Nag.evaluate(snap(now - 200_000), lastOkMs = now - 1_000, nowMs = now)
+        assertEquals(Nag.Reason.SILENT_FAILURE, r,
+            "ANDing this with the no-contact condition made it unreachable")
+    }
+
+    @Test fun `no contact fires independently`() {
+        val now = 1_000_000_000L
+        val r = Nag.evaluate(snap(now + 3600_000), lastOkMs = now - 25 * 60_000, nowMs = now)
+        assertEquals(Nag.Reason.NO_CONTACT, r)
+    }
+
+    @Test fun `a deliberately skipped night never nags`() {
+        val now = 1_000_000_000L
+        assertEquals(Nag.Reason.NONE,
+            Nag.evaluate(snap(now - 200_000, skip = true), now - 1_000, now))
+        assertEquals(Nag.Reason.NONE,
+            Nag.evaluate(snap(now + 1000, skip = true), now - 25 * 60_000, now))
+    }
+
+    @Test fun `an actual ring session suppresses the nag`() {
+        val now = 1_000_000_000L
+        assertEquals(Nag.Reason.NONE,
+            Nag.evaluate(snap(now - 200_000, ringing = true), now - 1_000, now))
+    }
+
+    @Test fun `a healthy future alarm does not nag`() {
+        val now = 1_000_000_000L
+        assertEquals(Nag.Reason.NONE, Nag.evaluate(snap(now + 3600_000), now - 1_000, now))
+    }
+}

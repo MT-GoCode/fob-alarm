@@ -28,16 +28,39 @@ class Audio(private val ctx: Context) {
     companion object {
         const val BUNDLED = "bundled"
 
-        /** Fallback chain source. The user's pick is copied to app storage at pick time. */
+        /**
+         * Fallback chain: user copy -> bundled asset -> system alarm default -> tone.
+         * The user's pick is copied into app-private storage AT PICK TIME, so there is no
+         * READ_MEDIA at 04:00, no SAF grant to lose, and no file that can vanish.
+         *
+         * The bundled asset is mirrored into device-protected storage so it is readable
+         * after a reboot nobody unlocks -- a res/raw URI resolves through the package
+         * manager and is fine, but the DE copy removes any doubt.
+         */
         fun resolveUri(ctx: Context, ringtoneUri: String?): Uri? {
             if (ringtoneUri != null && ringtoneUri != BUNDLED) {
                 val f = File(ctx.filesDir, "ringtone.bin")
                 if (f.exists()) return Uri.fromFile(f)
             }
-            val bundled = File(ctx.filesDir, "bundled.ogg")
-            if (bundled.exists()) return Uri.fromFile(bundled)
+            val de = File(ctx.createDeviceProtectedStorageContext().filesDir, "bundled_alarm.wav")
+            if (de.exists()) return Uri.fromFile(de)
+            val resId = ctx.resources.getIdentifier("bundled_alarm", "raw", ctx.packageName)
+            if (resId != 0) return Uri.parse("android.resource://${'$'}{ctx.packageName}/${'$'}resId")
             return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        }
+
+        /** Copy the bundled tone into DE storage once, so the ring path never needs CE. */
+        fun ensureBundled(ctx: Context) {
+            val de = File(ctx.createDeviceProtectedStorageContext().filesDir, "bundled_alarm.wav")
+            if (de.exists() && de.length() > 0) return
+            runCatching {
+                val resId = ctx.resources.getIdentifier("bundled_alarm", "raw", ctx.packageName)
+                if (resId == 0) return
+                ctx.resources.openRawResource(resId).use { input ->
+                    de.outputStream().use { input.copyTo(it) }
+                }
+            }
         }
     }
 

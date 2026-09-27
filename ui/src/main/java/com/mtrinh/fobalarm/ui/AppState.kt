@@ -22,7 +22,12 @@ sealed class DismissUi {
  * One view model for both roles. It holds a StateClient and never knows whether that
  * client is in-process or across a Wi-Fi Direct link.
  */
-class AppState(private val client: StateClient, private val scope: CoroutineScope) {
+class AppState(
+    private val client: StateClient,
+    private val scope: CoroutineScope,
+    /** Controller-side: persist each export locally so the alarm phone is not the only copy. */
+    private val onExport: ((Backup) -> Unit)? = null,
+) {
 
     var snapshot by mutableStateOf<Snapshot?>(null); private set
     var lastOkMs by mutableLongStateOf(0L); private set
@@ -40,8 +45,14 @@ class AppState(private val client: StateClient, private val scope: CoroutineScop
 
     fun startPolling(fastMs: Long = 500, idleMs: Long = 20_000) {
         scope.launch {
+            var sinceBackup = 0L
             while (true) {
                 refresh()
+                // The alarm phone is the sole source of truth (invariant 3), so the
+                // controller keeps a copy. Piggybacks the poll; no new endpoint.
+                if (onExport != null && System.currentTimeMillis() - sinceBackup > 6 * 3600_000L) {
+                    client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
+                }
                 val ringing = snapshot?.ring != null
                 delay(if (ringing) fastMs else idleMs)
             }

@@ -168,11 +168,12 @@ data class Gates(
     val powerOk: Boolean,
     val vibrationEnabled: Boolean,
     val freeDiskOk: Boolean,
+    val noBluetoothAudio: Boolean,
 ) {
     /** Blocking gates only. thermalOk/powerOk are health, not blockers -- they must never disarm. */
     val allPass: Boolean get() = scheduleExists && exactAlarm && foregroundService &&
             gyroscopePresent && notHibernating && fullScreenIntent && audioPlayable &&
-            dndAllowsAlarms && volumeNotFixed && freeDiskOk
+            dndAllowsAlarms && volumeNotFixed && freeDiskOk && noBluetoothAudio
 
     fun failing(): List<String> = buildList {
         if (!scheduleExists) add("scheduleExists")
@@ -193,6 +194,7 @@ data class Gates(
         if (!powerOk) add("powerOk")
         if (!vibrationEnabled) add("vibrationEnabled")
         if (!freeDiskOk) add("freeDiskOk")
+        if (!noBluetoothAudio) add("noBluetoothAudio")
     }
 }
 
