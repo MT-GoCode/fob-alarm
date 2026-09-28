@@ -125,14 +125,17 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
 
     // --- self checks -------------------------------------------------------------
     Section("Checks")
+    // "Hourly check" said nothing about what it checks, and sat one row above the
+    // clock sync, which is a different hourly job entirely. This one re-runs every
+    // permission and condition on the Setup tab.
     s.armGate?.let {
-        Line("Hourly check", "${Fmt.age(it.lastRunAtMs, nowMs)}, " +
+        Line("Hourly permission check", "${Fmt.age(it.lastRunAtMs, nowMs)}, " +
                 (if (it.failingGates.isEmpty()) "nothing wrong" else it.failingGates.mapNotNull { k -> GateInfo.of(k)?.label }.joinToString()),
             ok = it.failingGates.isEmpty())
-    } ?: Line("Hourly check", "not yet", ok = null)
+    } ?: Line("Hourly permission check", "not yet", ok = null)
     // Android's network time, read locally; the button re-reads it now. Hourly otherwise.
     Row(Modifier.fillMaxWidth().padding(vertical = S.xs), verticalAlignment = Alignment.CenterVertically) {
-        Text("Clock sync", fontSize = T.body, modifier = Modifier.weight(1f))
+        Text("Hourly clock sync", fontSize = T.body, modifier = Modifier.weight(1f))
         val synced = s.clock.lastSyncOkMs > 0
         val off = kotlin.math.abs(s.clock.offsetAppliedMs)
         Text(

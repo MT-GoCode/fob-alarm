@@ -642,3 +642,32 @@ or which of the three things had produced it.
 Found by exercising it on the emulator rather than by reading it: the "Nap until" picker opened on
 the current time, and since the rule is strictly-after, that resolved to the same time tomorrow — the
 dialog greeted you with "in 23h 59m". It opens on now plus the remembered nap length instead.
+
+## Round 19 — "hourly" now means on the hour, and the Checks section says what it checks
+
+**The hourly jobs were never on the hour.** Both `armHourlyTick` and `armGateAlarm` were
+`now + 3600_000`, and both are re-armed inside `apply()`, which every state transaction runs. So the
+two hourly jobs drifted with whatever the user last touched, and crossing 02:00 on the wall clock did
+nothing whatsoever. They are now scheduled to the next top of the hour — the tick at :00, the health
+check at :00:30 so the two do not contend for one wakeup. The next hour is found by truncating a
+`ZonedDateTime`, not by dividing epoch millis: the latter gives the top of the *UTC* hour, which is
+:30 in India, and truncating is also what makes the call safe from inside the wakeup it just served,
+since it can only ever land on the following hour.
+
+**"Hourly check" did not say what it checks**, and sat one row above "Clock sync", which is a
+different hourly job. They are two things: the clock sync re-reads Android's network time, and the
+other re-runs every permission and condition on the Setup tab. Now labelled "Hourly permission check"
+and "Hourly clock sync". No merge was needed on the clock row — the hourly age and the manual
+**Check now** button have been on that one row since round 15, which is exactly the merge asked for.
+
+**Bluetooth: already covered, and cannot be covered the way it was suggested.** A normal app cannot
+turn Bluetooth off — `BluetoothAdapter.disable()` has been a no-op for non-system apps since Android
+13, and these phones are well past that. What exists instead is three layers: a Setup gate,
+`noBluetoothAudio`, that goes amber when an A2DP or SCO output is connected and deep-links to
+Android's Bluetooth settings; `preferredDevice = builtinSpeaker()` on the player; and the
+five-second ring heartbeat, which logs `routing_off_speaker` and re-pins the speaker if playback has
+been routed away mid-ring.
+
+One real gap in that, fixed here: `preferredDevice` was set *after* `start()`. A connected speaker
+got the first moment of the alarm and the room got nothing until the heartbeat corrected it. It is
+set before `prepare()` now.

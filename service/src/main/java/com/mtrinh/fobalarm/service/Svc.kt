@@ -628,9 +628,30 @@ object Scheduler {
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 
-    fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, System.currentTimeMillis() + 3600_000)
+    /**
+     * The next top of the hour, plus [offsetMs].
+     *
+     * Both hourly jobs used to be "now + one hour", and both are re-armed by every
+     * state transaction, so they drifted with whatever the user last did and crossing
+     * 02:00 on the wall clock did nothing at all. On the hour is what "hourly" says on
+     * the screen, and it is what makes the row's age readable: a check that last ran
+     * "58m ago" is now one that ran at the top of the last hour.
+     *
+     * The LOCAL hour, via ZonedDateTime, not epoch-millis arithmetic: dividing by
+     * 3,600,000 gives the top of the UTC hour, which is :30 in India and :45 in Nepal.
+     * Truncating is also what makes this safe to call from the wakeup it just served --
+     * it always lands on the following hour, never on the instant we are standing on.
+     */
+    private fun topOfNextHour(offsetMs: Long): Long =
+        java.time.ZonedDateTime.now()
+            .truncatedTo(java.time.temporal.ChronoUnit.HOURS)
+            .plusHours(1).toInstant().toEpochMilli() + offsetMs
 
-    /** Hourly health check. Not a chirp, not a schedule: it only refreshes status. */
-    fun armGateAlarm(ctx: Context) =
-        set(ctx, ACTION_ARMGATE, 1004, System.currentTimeMillis() + 3600_000)
+    fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, topOfNextHour(0))
+
+    /**
+     * Hourly health check. Not a chirp, not a schedule: it only refreshes status.
+     * Half a minute after the tick so the two do not contend for the same wakeup.
+     */
+    fun armGateAlarm(ctx: Context) = set(ctx, ACTION_ARMGATE, 1004, topOfNextHour(30_000))
 }

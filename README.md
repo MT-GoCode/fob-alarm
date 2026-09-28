@@ -114,7 +114,7 @@ passed on the phones on 2026-09-27 with build 0.2.48.
 | B4 ✓ | Skip tomorrow (or move it, or set a nap), then reboot the alarm phone and do **not** unlock it | Status still shows the skipped, moved or napped time. `logs`: `recompute init:de` carries that time, before `db_loaded` |
 | B3 ✓ | Install a new build over the top with the alarm 5 minutes out | It rings. `logs`: `package_replaced` |
 | C1 | Turn the controller off for a minute, turn it back on, lock it in another room. Alarm 3 minutes out | Controller lights up "ALARM PHONE IS RINGING" and the notification DISMISS works cold, under 10 s |
-| C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `probe_ok` every ten minutes, `recompute hourly_tick`, and no `ap_error` |
+| C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `probe_ok` every ten minutes, `recompute hourly_tick` **at the top of the hour** and `health` thirty seconds later, and no `ap_error` |
 | D | Seven nights unattended | `history` shows one `ring_start` per night and no `missed`, `capped`, `crash` or `force_stopped_detected` |
 
 Any failure is a bug in this repo, not something to work around.
@@ -131,6 +131,12 @@ unrestricted**. Without the second, Doze cuts the app's network whenever the pho
 sat still for a while, opening it again only for a minute every few hours. Seen on the
 alarm phone: `./logs` hangs with the port open, the controller's bar goes red, and both
 recover for one minute at a time. Granting it ends that.
+
+**No Bluetooth speaker** is amber, not blocking, and worth understanding. If a paired speaker or
+pair of earbuds is connected to the alarm phone, Android can route the alarm out of the room. The app
+pins playback to the built-in speaker before it starts and re-pins it every five seconds during a
+ring (`routing_off_speaker` in the log), but it **cannot turn Bluetooth off** — that has been
+blocked for normal apps since Android 13. So: pair nothing with the alarm phone.
 
 **Keep the app active** is the one to care about over months. Android pauses apps that
 are not opened for a while, which cancels every alarm. The setting is under the app's

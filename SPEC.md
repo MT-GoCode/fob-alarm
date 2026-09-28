@@ -291,9 +291,14 @@ A supersede mints a **new `ringId`**, so an in-flight controller dismiss aimed a
 - `AudioAttributes(USAGE_ALARM, CONTENT_TYPE_SONIFICATION)`. **Never request audio focus, and never react to focus
   loss** — `USAGE_ALARM` does not need focus to play, and the reflexive `AUDIOFOCUS_LOSS` idiom would stop the
   alarm for an incoming call or an emergency alert. Route with
-  `setPreferredDevice(TYPE_BUILTIN_SPEAKER)`, which is a *preference and not a guarantee*: keep an
-  `OnRoutingChangedListener` that re-asserts, add `bluetoothA2dpConnected` to the hourly health check, and pair no
-  Bluetooth audio to the alarm phone at all (provisioning §12).
+  `setPreferredDevice(TYPE_BUILTIN_SPEAKER)`, which is a *preference and not a guarantee*. **As built:** the
+  preferred device is set **before `prepare()`**, so a connected speaker never gets the first moment of the alarm;
+  the five-second ring heartbeat re-reads `player.routedDevice` and re-pins the speaker, logging
+  `routing_off_speaker` — that is the re-assertion, in place of an `OnRoutingChangedListener`, because the
+  heartbeat already exists and already re-asserts volume and vibration on the same tick; the `noBluetoothAudio`
+  gate (A2DP or SCO present) is on Setup and in the hourly health check; and no Bluetooth audio is paired to the
+  alarm phone at all (provisioning §12). **The app cannot turn Bluetooth off** — `BluetoothAdapter.disable()` has
+  been a no-op for non-system apps since Android 13 — so the gate and the routing are the whole mechanism.
 - **Volume is asserted, not inherited.** This is the explicit fix for how normal phone alarms behave:
   1. `setStreamVolume(STREAM_ALARM, …)` to `alarmVolumePercent` **at every hourly check** — so it's already right hours before.
   2. Re-assert **immediately before `start()`** at ring time.
@@ -665,8 +670,11 @@ an hourly tick as a backstop only.
 
 ## 10. Hourly health check
 
-Runs every hour and at ring start. Nothing is nightly, nothing chirps; failures are listed on Status as problems,
-on both phones. Checks: **`nextFire != null`**, group running, audio file playable, **plugged in**, thermal status
+Runs **at the top of every hour** and at ring start. Two separate `setAlarmClock` wakeups: the tick at `:00`
+(recompute, prune, clock re-read, link restart if needed) and this health check at `:00:30`, offset so the two do
+not contend. Both are re-armed by every state transaction, so they must be scheduled to an absolute hour
+boundary rather than `now + 1h`, or they drift with whatever the user last touched and "hourly" becomes a lie on
+screen. Nothing is nightly, nothing chirps; failures are listed on Status as problems, on both phones. Checks: **`nextFire != null`**, group running, audio file playable, **plugged in**, thermal status
 < `SEVERE`, DND allows alarms, not hibernating, battery unrestricted, all permission gates green.
 
 **Never check `isCharging()` and never expect 100 %.** Motorola's Overcharge protection caps at 80 % once plugged in

@@ -102,9 +102,14 @@ class Audio(private val ctx: Context) {
                 setOnCompletionListener {
                     Svc.log("media_completed_unexpectedly"); fallbackToTone()
                 }
+                // Before prepare, not after start: a paired Bluetooth speaker that is
+                // connected would otherwise get the first moment of the alarm and the
+                // room would get nothing until the five-second heartbeat corrects it.
+                // This is the only lever a normal app has -- BluetoothAdapter.disable()
+                // has been a no-op for non-system apps since Android 13.
+                preferredDevice = builtinSpeaker()
                 prepare()
                 start()
-                preferredDevice = builtinSpeaker()
             }
             chainLink = "mediaplayer"
         }.onFailure {
