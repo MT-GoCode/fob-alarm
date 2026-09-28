@@ -33,34 +33,44 @@ object P2pJoin {
         if (joined) return
         if (pendingSinceMs != 0L && System.currentTimeMillis() - pendingSinceMs < 45_000) return
         runCatching {
-            val m = manager ?: ctx.getSystemService(WifiP2pManager::class.java) ?: return
+            val app = ctx.applicationContext
+            val m = manager ?: app.getSystemService(WifiP2pManager::class.java) ?: return
             manager = m
-            val ch = channel ?: m.initialize(ctx, Looper.getMainLooper(), null)
+            val ch = channel ?: m.initialize(app, Looper.getMainLooper(), null)
             channel = ch
             if (!listening) {
-                ctx.applicationContext.registerReceiver(object : BroadcastReceiver() {
-                    override fun onReceive(c: Context, i: Intent) = readConnection()
+                app.registerReceiver(object : BroadcastReceiver() {
+                    override fun onReceive(c: Context, i: Intent) {
+                        // A failed attempt ends here too; do not wait out the guard for it.
+                        val ni = i.getParcelableExtra<android.net.NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)
+                        if (ni != null && !ni.isConnectedOrConnecting) pendingSinceMs = 0L
+                        readConnection {}
+                    }
                 }, IntentFilter(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION))
                 listening = true
             }
-            val cfg = WifiP2pConfig.Builder()
-                .setNetworkName(ssid)
-                .setPassphrase(passphrase)
-                .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_2GHZ)
-                .build()
             pendingSinceMs = System.currentTimeMillis()
-            m.cancelConnect(ch, null)
-            m.connect(ch, cfg, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() { Svc.log("p2p_connect_requested") }
-                override fun onFailure(reason: Int) {
-                    pendingSinceMs = 0L
-                    Svc.log("p2p_connect_failed", "reason" to reason.toString())
-                }
-            })
+            // The group may already be up from before this process (the framework keeps it
+            // while any app holds a channel); connecting again then fails every time.
+            readConnection { formed ->
+                if (formed) { pendingSinceMs = 0L; return@readConnection }
+                val cfg = WifiP2pConfig.Builder()
+                    .setNetworkName(ssid)
+                    .setPassphrase(passphrase)
+                    .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_2GHZ)
+                    .build()
+                m.connect(ch, cfg, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() { Svc.log("p2p_connect_requested") }
+                    override fun onFailure(reason: Int) {
+                        pendingSinceMs = 0L
+                        Svc.log("p2p_connect_failed", "reason" to reason.toString())
+                    }
+                })
+            }
         }.onFailure { pendingSinceMs = 0L; Svc.log("p2p_request_failed", "error" to it.toString()) }
     }
 
-    private fun readConnection() {
+    private fun readConnection(then: (formed: Boolean) -> Unit) {
         val m = manager ?: return
         val ch = channel ?: return
         runCatching {
@@ -70,14 +80,15 @@ object P2pJoin {
                 ownerAddress = addr
                 if (addr != null) { pendingSinceMs = 0L; if (was == null) Svc.log("p2p_joined") }
                 else if (was != null) Svc.log("p2p_lost")
+                then(addr != null)
             }
-        }
+        }.onFailure { then(false) }
     }
 
     /** Leave the group, so the next join uses new credentials. */
     fun stop() {
         val m = manager; val ch = channel
-        if (m != null && ch != null) runCatching { m.cancelConnect(ch, null); m.removeGroup(ch, null) }
+        if (m != null && ch != null) runCatching { m.removeGroup(ch, null) }
         ownerAddress = null; pendingSinceMs = 0L
     }
 }
