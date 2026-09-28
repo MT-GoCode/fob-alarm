@@ -18,6 +18,8 @@ object P2pJoin {
     @Volatile var network: Network? = null
     /** When the current request was issued; 0 once it resolved either way. */
     @Volatile var pendingSinceMs = 0L
+    /** After Android gives up or the user cancels its box, leave them alone for a while. */
+    @Volatile private var cooldownUntilMs = 0L
     private var cm: ConnectivityManager? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
 
@@ -30,6 +32,7 @@ object P2pJoin {
         // torn down and re-issued every tick: unregistering it dismisses the dialog and
         // drops a connection in progress. Only a request that has gone quiet is replaced.
         if (pendingSinceMs != 0L && System.currentTimeMillis() - pendingSinceMs < 90_000) return
+        if (System.currentTimeMillis() < cooldownUntilMs) return
         stop()
         val spec = WifiNetworkSpecifier.Builder()
             .setSsid(ssid)
@@ -52,9 +55,10 @@ object P2pJoin {
                 Svc.log("p2p_lost")
             }
             override fun onUnavailable() {
-                // ~30s / 3-scan cliff after which the request dies and does NOT resume
-                // scanning, so the poll loop must re-request rather than wait.
+                // Android gave up (about 30 s of scanning) or the user cancelled its box.
+                // Re-asking at once would put the box straight back over the screen.
                 network = null; pendingSinceMs = 0L
+                cooldownUntilMs = System.currentTimeMillis() + 120_000
                 Svc.log("p2p_unavailable")
             }
         }
@@ -66,6 +70,6 @@ object P2pJoin {
 
     fun stop() {
         runCatching { callback?.let { cm?.unregisterNetworkCallback(it) } }
-        callback = null; network = null; pendingSinceMs = 0L
+        callback = null; network = null; pendingSinceMs = 0L; cooldownUntilMs = 0L
     }
 }
