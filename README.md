@@ -95,7 +95,10 @@ Three rows block ringing on the alarm phone: **Notifications** (the ring screen 
 link run as a foreground service), **Exact alarms** (granted at install; if it is ever
 missing, reinstall) and **Show over the lock screen**. Two more are required on both
 phones for the link to last: **Nearby devices** (joining the group) and **Battery:
-unrestricted** (so Android never slows the link service down over the months).
+unrestricted**. Without the second, Doze cuts the app's network whenever the phone has
+sat still for a while, opening it again only for a minute every few hours. Seen on the
+alarm phone: `./logs` hangs with the port open, the controller's bar goes red, and both
+recover for one minute at a time. Granting it ends that.
 
 **Keep the app active** is the one to care about over months. Android pauses apps that
 are not opened for a while, which cancels every alarm. The setting is under the app's

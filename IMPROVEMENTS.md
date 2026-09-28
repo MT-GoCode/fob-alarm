@@ -494,3 +494,18 @@ keep tearing down the controller's own membership. The controller joins from loc
 with no wait for an unlock. The service heartbeat is five seconds with the app closed.
 Battery unrestricted is a required row on both phones. A ring seen before the link
 dropped cannot hold the controller's screen for more than ten minutes.
+
+## Round 13 — Doze, seen on the alarm phone
+
+Twice today the alarm phone accepted TCP connections on the log port and never sent a
+byte, for half an hour or more, then answered normally. The lock-free endpoint hung too,
+so it was not a lock in the service. Watching it for ten minutes caught one reply at
+22:39:05 and silence again: a Doze maintenance window. Doze blocks the network of any
+app not on the battery whitelist, foreground service or not, and this phone was on
+0.2.62 with the whitelist never requested. The link was up (group running, one client)
+whenever the window opened. This is the failure that Battery unrestricted, required on
+both phones since 0.2.64, exists to prevent, now confirmed on hardware rather than
+inferred. The README describes the symptom so it is recognisable next time.
+
+The ship script no longer prints a bind error when a server already holds the port; the
+file is swapped underneath the running server and that is said plainly.

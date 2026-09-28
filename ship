@@ -73,4 +73,8 @@ echo
 echo "    Phone: Chrome -> scan/open the URL -> download -> install."
 echo "    Logs from here:  ./logs <phone-ip>"
 echo "    Ctrl-C to stop."
+if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "    A server is already on :$PORT and now serves this build. Leaving it running."
+    exit 0
+fi
 cd .serve && exec "$JAVA_HOME/bin/jwebserver" -b 0.0.0.0 -p $PORT -d "$PWD"
