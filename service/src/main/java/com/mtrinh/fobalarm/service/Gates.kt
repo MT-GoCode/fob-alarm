@@ -18,6 +18,15 @@ import com.mtrinh.fobalarm.core.Gates
 import com.mtrinh.fobalarm.core.Settings
 import java.io.File
 
+/**
+ * Every "will this actually ring" precondition, evaluated in one place so the Setup tab
+ * and the Status tab can never disagree: they render the same Gates object.
+ *
+ * Some probes are slow (hibernation in particular can take seconds), so results are
+ * cached and pushed to whoever is listening via `onEvaluated` when they land, rather
+ * than polled. GateInfo in :core holds each gate's label, explanation and whether it
+ * blocks ringing.
+ */
 object GateEval {
 
     // ---------------------------------------------------------------------
@@ -103,7 +112,6 @@ object GateEval {
         val audio = ctx.getSystemService(AudioManager::class.java)
         val pm = ctx.getSystemService(PowerManager::class.java)
         val sm = ctx.getSystemService(SensorManager::class.java)
-        val cr = ctx.contentResolver
 
         val batt = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
         val plugged = (batt?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0

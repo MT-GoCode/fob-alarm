@@ -557,3 +557,47 @@ seconds after any hiccup, and a Wi-Fi Direct peer in Wi-Fi power save can legiti
 Now the bar is red only after thirty seconds with no reply, and requests wait four seconds. The
 service heartbeat is unchanged at five seconds idle, two while ringing. The pairing caption on the
 controller is reworded; it read as gibberish.
+
+## Round 17 — history, the download page, and a cleanliness pass
+
+**History never showed anything recent, and that is why the test rings looked like nothing happened.**
+The Room query was `SELECT * FROM events WHERE seq > :since ORDER BY seq ASC LIMIT :limit` — the
+*oldest* `limit` rows, not the newest. With `since = 0` and `limit = 200`, which is what the screen
+always asks for, History froze on the first 200 events ever written on that phone and never moved
+again. Measured on both phones at 00:32: each returned exactly 200 events, oldest `21:32` the previous
+evening, newest `00:22` and `00:25`. Three test rings at 00:24:13, 00:24:43 and 00:25:47 were logged
+correctly on the alarm phone, rang, and were stopped — `test_ring`, `test_ring_start`,
+`test_ring_stopped`, with the controller's `remote_ring_alert` for each. They were simply past the end
+of the window. The query now takes the newest `limit` and returns them oldest-first, the screen asks
+for 1000 raw events because it renders only the ones it has a sentence for, `limit` is capped at 2000
+server-side, and the no-database fallback honours `since` instead of ignoring it.
+
+**"Settings changed from the controller" could never appear.** `Svc.log` stamps every event
+`Actor.ALARM`, so the sentence tested a field that is constant. Who asked is in `detail["who"]`, which
+is what the engine records; the sentence reads that now. SPEC §11 said `actor` is `ALARM | CONTROLLER`
+and that the controller can always answer "who did it" — that passage was wrong and is rewritten.
+
+**The download page hung at 10% and one phone could not open it at all.** `ship` served the APK with
+`jwebserver`, which handles exactly one request at a time. Measured: with a rate-limited download in
+flight, two of three concurrent requests to the port timed out at 8 s and the third took 2.7 s. That is
+the stall, the second phone seeing nothing, and downloads queueing one behind another. Now
+`python3 -m http.server`, which has been `ThreadingHTTPServer` since 3.7. `ship` also kills an old
+single-threaded server still holding the port, and refuses to start if something unrelated has it.
+
+**"Alarm phone is not plugged in" removed as a warning.** Status already shows it as a red row under
+Power, and as a warning it also made `/v1/health` answer 503 for a phone that was merely on battery.
+
+**The controller no longer vibrates when the alarm phone rings.** A notification channel's vibration is
+immutable once created, so silencing it needed a new channel id (`remote_ring_v2`); the old channel is
+deleted on first run. The alert is still full-screen and still IMPORTANCE_HIGH — its job is to put the
+STOP button in front of you, and the noise is the other phone's job.
+
+**Cleanliness pass.** Dead code removed: `Dao_.clearEvents` (never called; the table is pruned by age,
+never emptied), `Engine.todayId` (never called), an unused `contentResolver` local in `Gates.evaluate`.
+A doc comment describing the hourly clock sync "dropping the group for a moment" was left orphaned
+above an unrelated object when round 15 deleted that behaviour — removed. `com.mtrinh.fobalarm.service.Crash`
+was a second object with the same simple name as `com.mtrinh.fobalarm.Crash`, holding one path only
+that object read; folded in. Of six compiler warnings, one had a free correct fix (`Icons.Default.List`
+→ the auto-mirrored one); the other five are deliberate compat calls under minSdk 31 and are now
+annotated and explained where they sit, so nobody spends an evening "fixing" them. Zero `TODO`,
+`FIXME` or `HACK` markers in the tree.

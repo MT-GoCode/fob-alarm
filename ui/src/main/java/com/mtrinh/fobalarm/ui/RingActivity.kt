@@ -42,7 +42,11 @@ open class RingActivity : ComponentActivity() {
         enableEdgeToEdge()
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        // KEEP_SCREEN_ON applies ONLY during a ring session.
+        // KEEP_SCREEN_ON applies ONLY during a ring session. TURN_SCREEN_ON and
+        // SHOW_WHEN_LOCKED are deprecated in favour of the two setters above and are
+        // set anyway, on purpose: this is the one screen that must appear over a lock
+        // screen on a phone nobody can reach, and belt-and-braces costs nothing.
+        @Suppress("DEPRECATION")
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or

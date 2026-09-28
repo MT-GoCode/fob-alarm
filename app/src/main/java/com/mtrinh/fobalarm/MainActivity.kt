@@ -31,6 +31,15 @@ import com.mtrinh.fobalarm.service.*
 import com.mtrinh.fobalarm.ui.*
 import java.io.File
 
+/**
+ * The only activity besides the ring screen, on both roles. It owns the things that can
+ * only be done from an Activity -- the runtime-permission launchers, the special-access
+ * Settings intents behind each Setup row, and the ringtone file picker -- and hands the
+ * rest to the shared screens in :ui, driven by one AppState.
+ *
+ * A permission result must be visible immediately, so a grant re-evaluates the gates AND
+ * pulls fresh snapshots; the idle poll alone is 20 s and would look broken.
+ */
 class MainActivity : ComponentActivity() {
 
     private lateinit var app: AppState

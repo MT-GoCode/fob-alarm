@@ -11,6 +11,12 @@ import androidx.compose.ui.unit.dp
 import com.mtrinh.fobalarm.core.Settings
 import com.mtrinh.fobalarm.core.Snapshot
 
+/**
+ * The settings editor, identical on both phones: the controller writes through to the
+ * alarm phone over HTTP and the alarm phone writes locally, through the same client
+ * interface. Every change reports "saved" or "not saved" with the reason, because the
+ * other phone may not have it.
+ */
 @Composable
 fun SettingsScreen(
     app: AppState,

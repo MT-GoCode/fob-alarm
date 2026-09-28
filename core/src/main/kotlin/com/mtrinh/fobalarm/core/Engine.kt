@@ -70,9 +70,6 @@ object Engine {
     fun localDateOf(ms: Long, zone: ZoneId): String =
         Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().format(DATE)
 
-    fun todayId(ts: TimeSource): OccurrenceId =
-        OccurrenceId(localDateOf(ts.nowMs(), ts.zone()), OccurrenceSource.SCHEDULED)
-
     /** The next SCHEDULED occurrence with no latch, starting from today. */
     fun nextUnlatchedScheduled(st: EngineState, ts: TimeSource): Pair<OccurrenceId, Long> {
         val zone = ts.zone()

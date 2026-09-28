@@ -204,7 +204,12 @@ class AppState(
         }
     }
 
-    fun loadHistory(limit: Int = 200) {
+    /**
+     * The screen shows only events it has a sentence for, and most of what a
+     * live phone logs (link churn, recomputes, probes) has none. So it pulls a
+     * wide raw window and filters: 200 raw events is under three hours.
+     */
+    fun loadHistory(limit: Int = 1000) {
         scope.launch {
             client.history(0, limit)
                 .onSuccess { history = it.reversed(); lastOkMs = System.currentTimeMillis() }

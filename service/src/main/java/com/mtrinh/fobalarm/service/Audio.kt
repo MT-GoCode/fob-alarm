@@ -145,6 +145,9 @@ class Audio(private val ctx: Context) {
 
     fun startVibration() {
         runCatching {
+            // AudioAttributes rather than VibrationAttributes: the latter needs API 33
+            // and minSdk is 31. Deliberate, and not worth a branch on the ring path.
+            @Suppress("DEPRECATION")
             vm.defaultVibrator.vibrate(
                 VibrationEffect.createWaveform(longArrayOf(0, 800, 400), 0),
                 AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())

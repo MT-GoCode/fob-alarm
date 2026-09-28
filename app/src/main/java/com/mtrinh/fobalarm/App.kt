@@ -13,6 +13,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 
+/**
+ * Process entry point, both roles. Installs the crash handler before anything else
+ * (there is no logcat on these phones), restores engine state, wires the shared ring
+ * renderer into RingActivity, and starts the link service, which owns the group or the
+ * join loop and holds the process at foreground-service importance.
+ *
+ * Everything that touches disk, sensors, audio or a service binding runs on a worker:
+ * Application.onCreate is the main thread and blocking it is an ANR at boot.
+ */
 class App : Application() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)

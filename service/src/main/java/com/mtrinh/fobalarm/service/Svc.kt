@@ -118,6 +118,9 @@ object Svc : AlarmHost {
      * and again after the Room merge, which would otherwise bring the old hash back.
      */
     private fun dropDefaultPassword() {
+        // Not Settings.DEFAULT_PASSPHRASE. That is the Wi-Fi Direct passphrase and
+        // happens to share this value; this is the retired settings password, and the
+        // two must be free to change apart.
         if (!Auth.isDefault(state.settings, "12345678")) return
         synchronized(lock) {
             state = state.copy(settings = state.settings.copy(passwordHash = null, passwordSalt = null))
@@ -449,8 +452,16 @@ object Svc : AlarmHost {
         return synchronized(lock) { commit(requestId); apply(Engine.clearOverride(state, ts)) }
     }
 
+    /**
+     * Newest-last window of at most `limit` events with seq > `sinceSeq`.
+     *
+     * Before the database is open this falls back to the in-memory tail, whose
+     * seq numbering restarts at 1 with the process and so is unrelated to the
+     * database's. That is why callers that just want "what happened lately"
+     * pass sinceSeq = 0 rather than paging.
+     */
     override fun history(sinceSeq: Long, limit: Int): List<Event> {
-        if (!dbReady) return recentEvents(limit)
+        if (!dbReady) return recentEvents(limit).filter { it.seq > sinceSeq }
         return runCatching {
             db.dao().since(sinceSeq, limit).map {
                 val d = JSONObject(it.detail)

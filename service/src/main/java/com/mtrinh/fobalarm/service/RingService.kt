@@ -10,6 +10,14 @@ import android.hardware.SensorManager
 import android.os.*
 import com.mtrinh.fobalarm.core.*
 
+/**
+ * The foreground service that IS the ring: audio, vibration, the wake lock, the
+ * rotation-snooze sensor, and the notification carrying the full-screen intent. Started
+ * by the alarm trigger and by nothing else; it outlives the ring screen so that killing
+ * the UI cannot silence an alarm.
+ *
+ * Also serves the test ring, which has no engine session -- see `Svc.testActive`.
+ */
 class RingService : Service(), SensorEventListener {
 
     companion object {

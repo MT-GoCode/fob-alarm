@@ -161,19 +161,26 @@ object Server {
             o.optJSONObject("ap")?.remove("ssid")
             o.toString(2)
         }.getOrElse { """{"error":"${it.message}"}""" }
-        path.startsWith("/v1/history") -> {
-            val since = param(path, "since")?.toLongOrNull() ?: 0
-            val limit = param(path, "limit")?.toIntOrNull() ?: 200
-            200 to JSONObject().put("events", JSONArray().apply {
-                Svc.history(since, limit).forEach { put(Wire.eventToJson(it)) }
-            }).toString(2)
-        }
+        path.startsWith("/v1/history") -> 200 to historyJson(path, indent = 2)
         path.startsWith("/v1/health") -> {
             val problems = Health.everything()
             (if (problems.isEmpty()) 200 else 503) to JSONObject()
                 .put("ok", problems.isEmpty()).put("problems", JSONArray(problems)).toString(2)
         }
         else -> 200 to """{"endpoints":["/v1/health","/v1/logs","/v1/state","/v1/history"]}"""
+    }
+
+    /**
+     * `/v1/history` is served on BOTH ports and the two copies used to be seven
+     * duplicated lines that had to be edited together. One reader, one cap.
+     */
+    private fun historyJson(path: String, indent: Int): String {
+        val since = param(path, "since")?.toLongOrNull() ?: 0
+        val limit = (param(path, "limit")?.toIntOrNull() ?: 200).coerceIn(1, 2000)
+        val o = JSONObject().put("events", JSONArray().apply {
+            Svc.history(since, limit).forEach { put(Wire.eventToJson(it)) }
+        })
+        return if (indent > 0) o.toString(indent) else o.toString()
     }
 
     private fun param(path: String, key: String): String? =
@@ -249,13 +256,7 @@ object Server {
                 path.startsWith("/v1/unlock") && method == "POST" ->
                     200 to JSONObject().put("token", Svc.unlock(o.getString("secret"))).toString()
 
-                path.startsWith("/v1/history") -> {
-                    val since = param(path, "since")?.toLongOrNull() ?: 0
-                    val limit = param(path, "limit")?.toIntOrNull() ?: 200
-                    200 to JSONObject().put("events", JSONArray().apply {
-                        Svc.history(since, limit).forEach { put(Wire.eventToJson(it)) }
-                    }).toString()
-                }
+                path.startsWith("/v1/history") -> 200 to historyJson(path, indent = 0)
 
                 path.startsWith("/v1/export") ->
                     200 to Wire.backupToJson(Svc.export()).toString()

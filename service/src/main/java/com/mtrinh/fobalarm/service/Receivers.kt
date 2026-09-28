@@ -144,16 +144,6 @@ class TimeChangeReceiver : BroadcastReceiver() {
     }
 }
 
-/**
- * Hourly clock sync. This phone cannot host the Wi-Fi Direct group and stay on home
- * Wi-Fi simultaneously, so syncing means dropping the group for a moment. Never while
- * ringing, and never for long.
- */
-/** The persisted crash file, in DE storage so it survives a reboot without unlock. */
-object Crash {
-    fun file(ctx: Context) = java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")
-}
-
 /** Hibernation and force-stop both cancel every PendingIntent. Make it visible. */
 object ForceStopDetector {
     fun check(ctx: Context) {

@@ -195,7 +195,14 @@ interface Dao_ {
     fun putAll(rows: List<KvRow>) = rows.forEach { put(it) }
 
     @Insert fun insertBlocking(e: EventRow): Long
-    @Query("SELECT * FROM events WHERE seq > :since ORDER BY seq ASC LIMIT :limit")
+    /**
+     * The NEWEST `limit` events after `since`, returned oldest-first.
+     *
+     * The inner ORDER BY seq DESC is the whole point. `ORDER BY seq ASC LIMIT n`
+     * returns the n oldest rows in the table, which froze the History screen on
+     * the first 200 events ever recorded and hid everything that happened since.
+     */
+    @Query("SELECT * FROM (SELECT * FROM events WHERE seq > :since ORDER BY seq DESC LIMIT :limit) ORDER BY seq ASC")
     fun since(since: Long, limit: Int): List<EventRow>
     @Query("SELECT * FROM events ORDER BY seq ASC")
     fun all(): List<EventRow>
@@ -204,9 +211,6 @@ interface Dao_ {
     /** Earlier builds re-latched the same occurrences many times; keep the first record of each. */
     @Query("DELETE FROM events WHERE type IN ('missed','latch') AND seq NOT IN (SELECT MIN(seq) FROM events WHERE type IN ('missed','latch') GROUP BY type, detail)")
     fun dedupe()
-    @Query("DELETE FROM events")
-    fun clearEvents()
-
     @Insert(onConflict = OnConflictStrategy.REPLACE) fun put(row: KvRow)
     @Query("SELECT v FROM kv WHERE k = :k") fun get(k: String): String?
 }

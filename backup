@@ -1,12 +1,18 @@
 #!/bin/bash
-# Pull the alarm phone's full state to the Mac and commit it. The alarm phone is the sole
-# source of truth; this is the third copy. See SPEC.md section 14.
+# Pull the alarm phone's state and recent history to the Mac and commit it. The alarm
+# phone is the sole source of truth; this is the third copy. See SPEC.md section 14.
+#
+# `/v1/history` is a tail, capped at 2000 events server-side, so this captures the most
+# recent 2000 and not all 90 days. The complete dump is `/v1/export`, which is on the
+# control port and therefore only reachable from the other phone -- it carries the
+# passphrase and the password hash and must never be served to the LAN. Settings, which
+# are what a restore actually needs, are complete in the state file.
 set -euo pipefail
 cd "$(dirname "$0")"
 HOST="${1:?usage: ./backup <alarm-phone-ip>}"
 mkdir -p backups
 OUT="backups/export-$(date +%Y%m%d-%H%M%S).json"
 curl -s --max-time 20 "http://$HOST:8766/v1/state" > "$OUT"
-curl -s --max-time 20 "http://$HOST:8766/v1/history" > "${OUT%.json}-history.json"
+curl -s --max-time 20 "http://$HOST:8766/v1/history?limit=2000" > "${OUT%.json}-history.json"
 echo "wrote $OUT"
 git add backups && git commit -q -m "backup $(date +%F)" && echo "committed"

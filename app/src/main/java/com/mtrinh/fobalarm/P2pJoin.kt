@@ -39,6 +39,10 @@ object P2pJoin {
             channel = ch
             if (!listening) {
                 app.registerReceiver(object : BroadcastReceiver() {
+                    // Both deprecations here are deliberate: the typed getParcelableExtra
+                    // needs API 33 and minSdk is 31, and NetworkInfo is still what
+                    // WIFI_P2P_CONNECTION_CHANGED_ACTION carries. Neither has a replacement.
+                    @Suppress("DEPRECATION")
                     override fun onReceive(c: Context, i: Intent) {
                         // A failed attempt ends here too; do not wait out the guard for it.
                         val ni = i.getParcelableExtra<android.net.NetworkInfo>(WifiP2pManager.EXTRA_NETWORK_INFO)

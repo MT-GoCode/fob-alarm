@@ -73,8 +73,24 @@ echo
 echo "    Phone: Chrome -> scan/open the URL -> download -> install."
 echo "    Logs from here:  ./logs <phone-ip>"
 echo "    Ctrl-C to stop."
-if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "    A server is already on :$PORT and now serves this build. Leaving it running."
-    exit 0
-fi
-cd .serve && exec "$JAVA_HOME/bin/jwebserver" -b 0.0.0.0 -p $PORT -d "$PWD"
+# The server must be threaded. `jwebserver` handles exactly one request at a
+# time: with a 40 MB APK in flight every other request to the port times out,
+# which is Chrome stalling at 10%, a second phone unable to open the page at all,
+# and downloads that queue up one behind another. Python's http.server CLI has
+# used ThreadingHTTPServer since 3.7.
+SERVING=$(lsof -nP -iTCP:$PORT -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1)
+case "$SERVING" in
+    "")         ;;  # nothing there, start one below
+    Python|python3)
+        echo "    A threaded server is already on :$PORT and now serves this build. Leaving it running."
+        exit 0 ;;
+    jwebserve*)
+        echo "    Replacing the old single-threaded jwebserver on :$PORT."
+        # macOS xargs has no -r, so loop instead of piping into kill.
+        for PID in $(lsof -nP -iTCP:$PORT -sTCP:LISTEN -Ft 2>/dev/null | sed -n 's/^p//p'); do kill "$PID"; done
+        sleep 1 ;;
+    *)
+        echo "FATAL: something else ($SERVING) is already listening on :$PORT. Stop it and re-run." >&2
+        exit 1 ;;
+esac
+exec python3 -m http.server "$PORT" --bind 0.0.0.0 --directory .serve

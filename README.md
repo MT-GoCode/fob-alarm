@@ -18,7 +18,9 @@ everything you need is here.
 
 Runs the core tests, builds one signed release APK (versionCode = git commit count),
 pre-flights the manifest, archives the build under `releases/`, serves it on the LAN and
-prints a QR. On each phone: Chrome, scan, download, allow "Install unknown apps" for
+prints a QR. The server is threaded on purpose: the single-threaded one it replaced
+served one request at a time, so a phone downloading the 40 MB APK made the page hang
+at 10% for the other phone. On each phone: Chrome, scan, download, allow "Install unknown apps" for
 Chrome, install. Updating is the same: install over the top. Settings, pairing, password
 and history survive.
 
@@ -30,10 +32,10 @@ the workflow needs them.
 ```
 ./logs                      # find both phones on the LAN and summarise them
 ./logs <ip>                 # health: HTTP 200 and "ok": true when nothing is wrong, 503 and sentences otherwise
-./logs <ip> logs            # recent event log
+./logs <ip> logs            # the last 200 events in memory — wiped when the process restarts
 ./logs <ip> state           # live snapshot
-./logs <ip> history         # full history
-./backup <alarm-phone-ip>   # pull state + history into backups/ and commit
+./logs <ip> history         # the persisted history, 90-day retention, survives restarts
+./backup <alarm-phone-ip>   # pull state + the last 2000 events into backups/ and commit
 ```
 
 Port **8766**, read-only, on all interfaces; it never shows the passphrase. The control

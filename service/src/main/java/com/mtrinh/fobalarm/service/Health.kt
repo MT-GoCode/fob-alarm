@@ -70,7 +70,9 @@ object Health {
         if (s.role == com.mtrinh.fobalarm.core.Role.ALARM) {
             if (lastProbeOk == false) add("Remote dismiss self-test failed")
             if (!s.ssid.isNullOrBlank() && !Group.running) add("Not reachable by the controller right now")
-            if (!Svc.selfDevice().plugged) add("Alarm phone is not plugged in")
+            // Not charging is NOT a warning. Status already shows it as a red row
+            // under Power, and as a warning it also made /v1/health answer 503 for
+            // a phone that was simply running on battery.
         }
     }
 

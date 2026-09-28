@@ -22,7 +22,11 @@ import java.util.UUID
  * Activity has to exist for the alarm to be stoppable from this phone.
  */
 object ControllerWatch {
-    private const val CHANNEL = "remote_ring"
+    // v2: the original channel vibrated. A NotificationChannel's vibration is
+    // immutable once created, so silencing it needs a new id on every phone that
+    // already has the old one.
+    private const val CHANNEL = "remote_ring_v2"
+    private const val CHANNEL_OLD = "remote_ring"
     private const val NOTIF_ID = 43
     const val ACTION_REMOTE_DISMISS = "com.mtrinh.fobalarm.REMOTE_DISMISS"
 
@@ -107,11 +111,13 @@ object ControllerWatch {
     private fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) != null) return
+        runCatching { nm.deleteNotificationChannel(CHANNEL_OLD) }
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Remote alarm ringing",
             NotificationManager.IMPORTANCE_HIGH).apply {
-            // Silent here: the noise is the point of the OTHER phone.
+            // Silent and still here: the noise is the point of the OTHER phone,
+            // and this alert's job is only to put the STOP button in front of you.
             setSound(null, null)
-            enableVibration(true)
+            enableVibration(false)
         })
     }
 

@@ -5,6 +5,7 @@
 #   ./logs <ip>            health: pass/fail plus what is wrong
 #   ./logs <ip> logs       event log
 #   ./logs <ip> state      live snapshot
+#   ./logs <ip> history    the persisted history (survives restarts; `logs` does not)
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -40,6 +41,7 @@ curl -s --max-time 10 "http://$HOST:8766/v1/$WHAT" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(sys.stdin.read()); sys.exit()
+if isinstance(d,dict) and isinstance(d.get('events'),list): d=d['events']
 if isinstance(d,list):
     for e in d:
         det=e.get('detail') or {}

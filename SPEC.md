@@ -690,12 +690,36 @@ renders `peer.plugged`; it goes red the moment that field goes false, at any hou
 
 ## 11. History
 
-Append-only, on the alarm phone, `Room` table, 90-day retention, cursor-paged over `GET /v1/history`.
+Append-only, on the alarm phone, `Room` table, 90-day retention, read over `GET /v1/history?since=&limit=`.
+
+**The window is the NEWEST `limit` events with `seq > since`, returned oldest-first.** Not the oldest
+`limit`. The first version of the query was `ORDER BY seq ASC LIMIT :limit`, which pinned the History
+screen to the first 200 events ever written on that phone and hid everything after — including every
+test ring, which is how it was found. `limit` defaults to 200 and is capped at 2000 server-side.
+
+**The screen pulls a wide raw window (1000) and filters**, because it renders only the events it has a
+sentence for and most of what a live phone logs has none: link churn, recomputes, probes, foreground
+bookkeeping. On a phone that is joining and losing a group all evening, 200 raw events is under three
+hours. The user-visible subset is `ring_start`, `dismiss_local`, `dismiss_remote`, `snooze`, `capped`,
+`missed`, `nap_set`, `override_set`, `override_cleared`, `test_ring`, `settings_change`, `password_set`,
+`password_removed`, `role_changed`, `boot`, `package_replaced`, `crash`, `force_stopped_detected`,
+`probe_fail`, `tz_change`. Everything else is diagnostic and shows in `./logs <ip> logs` only.
+
+The full vocabulary is about seventy types and changes with the code; the `Svc.log(...)` and
+`PendingEvent(...)` call sites are the source of truth, not this list.
+
+`/v1/history` is a **tail, not a forward cursor**: `since` excludes older events, it does not page
+forward through them. The complete dump is `GET /v1/export`, and that stays on the control port —
+it carries the passphrase and the password hash, so it must never be served on `:8766`, which
+binds to every interface. `./backup` therefore saves the newest 2000 events plus a complete
+`/v1/state`, and settings, which are what a restore actually needs, are complete in the latter.
+
+Each event carries `atMs`, `actor`, `stateVersion` and a string→string `detail`. **`actor` is always
+`ALARM`** — `Svc.log` stamps it and the alarm phone is the only writer. *Who asked* lives in the detail:
+`settings_change{who,diff}`, `test_ring{silent,from}`. Do not read `actor` as provenance; the field is
+kept because the wire format has always carried it.
+
 **Snooze is deliberately not remotable.** Snoozing requires picking up the box and rotating it 120° — a bathroom snooze button would let you buy 30 s and go back to bed, which defeats the mechanism. The controller can only dismiss.
-
-Events: `boot`, `gate_fail`, `gate_pass`, `arm`, `ring_start`, `snooze`, `dismiss{local|remote}`, `capped`, `superseded`, `nap_dropped`, `missed`, `stale_dismiss_rejected`, `settings_change{who,diff}`, `sync{ok|fail}`, `ap_start|ap_stop|ap_error`, `tz_change`, `nap_set`, `override_set`, `override_cleared{reason}`, `latch{reason}`, `schema_migrated`.
-
-Each carries `at`, `actor` (ALARM | CONTROLLER), and `stateVersion`. The controller can always answer "what happened last night, and who did it?"
 
 ---
 

@@ -5,7 +5,9 @@ import com.mtrinh.fobalarm.service.Svc
 
 /** A stack trace nobody can read is not a diagnostic. Persist it, surface it at next launch. */
 object Crash {
-    private fun file(ctx: Context) = com.mtrinh.fobalarm.service.Crash.file(ctx)
+    /** Device-protected storage, so a trace survives a reboot nobody unlocks. */
+    private fun file(ctx: Context) =
+        java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")
 
     fun write(ctx: Context, thread: String, e: Throwable) {
         runCatching {

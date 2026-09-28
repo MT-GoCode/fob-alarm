@@ -8,7 +8,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,7 +105,7 @@ fun RootScreen(
                                 0 -> Icons.Default.Alarm
                                 1 -> if (setupBlocked) Icons.Default.Error else Icons.Default.CheckCircle
                                 2 -> Icons.Default.Settings
-                                else -> Icons.Default.List
+                                else -> Icons.AutoMirrored.Filled.List
                             }, contentDescription = label, tint = if (i == 1 && setupBlocked) Bad else LocalContentColor.current)
                         },
                         label = { Text(label) })
@@ -454,7 +454,7 @@ private fun sentence(e: Event): String? {
         "override_set" -> if (e.detail["kind"] == "SKIP") "Next alarm skipped" else "Next alarm moved"
         "override_cleared" -> if (e.detail["reason"] == "user") "Next alarm change undone" else null
         "test_ring" -> "Test ring"
-        "settings_change" -> "Settings changed" + (if (e.actor == Actor.CONTROLLER) " from the controller" else "")
+        "settings_change" -> "Settings changed" + (if (e.detail["who"] == "CONTROLLER") " from the controller" else "")
         "password_set" -> "Password set"
         "password_removed" -> "Password removed"
         "role_changed" -> "Role changed"
