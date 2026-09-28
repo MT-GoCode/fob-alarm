@@ -249,7 +249,11 @@ class MainActivity : ComponentActivity() {
         // Patch FIRST. ringtoneUri is a gated setting, and writing the bytes before the
         // gate ran meant a near-silent file went live regardless of the answer.
         val allowed = runCatching {
-            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = uri.toString()),
+            val name = runCatching {
+                contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull() ?: uri.lastPathSegment
+            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = uri.toString(), ringtoneName = name),
                 java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
         }
         if (allowed.isFailure) {
@@ -370,7 +374,8 @@ class MainActivity : ComponentActivity() {
         Spacer(Modifier.height(S.sm))
         Section("Ringtone", "A built-in tone is used unless you choose a file.")
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (snap?.settings?.ringtoneUri != null) "Your file" else "Built-in tone",
+            Text(snap?.settings?.let { st -> if (st.ringtoneUri != null) (st.ringtoneName ?: "Your file") else "Built-in tone" }
+                ?: "Built-in tone",
                 fontSize = T.body, modifier = Modifier.weight(1f))
             TextButton(enabled = !locked,
                 onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Choose") }
@@ -379,7 +384,7 @@ class MainActivity : ComponentActivity() {
                     enabled = !locked,
                     onClick = {
                         runCatching {
-                            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null),
+                            Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null, ringtoneName = null),
                                 java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
                         }.onFailure {
                             Toast.makeText(this@MainActivity, "Unlock settings first",

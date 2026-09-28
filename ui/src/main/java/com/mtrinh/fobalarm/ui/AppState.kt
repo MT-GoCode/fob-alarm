@@ -254,6 +254,14 @@ class AppState(
     fun clearRingEndMessage() { ringEndMessage = null }
 
     /** Same path on both phones: the client stops it, wherever it rings. */
+    fun checkClock() {
+        scope.launch {
+            client.checkClock()
+                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
+                .onFailure { if (!isLocal) noteFailure() }
+        }
+    }
+
     fun stopTest() {
         scope.launch {
             client.stopTest()

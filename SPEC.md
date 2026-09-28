@@ -1,6 +1,14 @@
 # Fob-Locked Alarm — Spec v3 (two Moto G Play, Android 16 / API 36)
 
 Two phones, one APK, `role` flag.
+
+> **Status, 2026-09-27.** Built, on both phones. Sections below were written before the app existed; where a
+> later decision differs, `IMPROVEMENTS.md` records it and wins. The decisions that changed this document most:
+> no fallbacks anywhere (a missed alarm rings, whenever noticed; no grace window, no chirp), no nightly arm gate
+> (an hourly health check instead, listed on Status), no recovery code, no settings password until one is set,
+> no armed/disarmed state, no dev channel or flavours, the controller joins the group as a Wi-Fi Direct client
+> (not `WifiNetworkSpecifier`), and both phones hold home Wi-Fi and the group at once, so nothing ever drops the
+> group.
 - **ALARM** — locked in an acrylic box on the nightstand, mains powered. Hosts the network. **Single source of truth for all state.**
 - **CONTROLLER** — bathroom wall, mains powered. Thin client. Caches, never authors.
 
@@ -49,21 +57,23 @@ it conditionally, so it comes back into the manifest. Declare it `maxSdkVersion=
 to `setPermissionGrantState`**: it is a *restricted* permission and at `targetSdk ≥ 35` that throws
 `SecurityException` rather than no-opping, i.e. a crash in the provisioning path.
 
-**Controller** joins with `WifiNetworkSpecifier` (exact SSID, WPA2, literal — never a pattern), binds the process to
-that network, and reads the gateway from `LinkProperties`. The one-time approval genuinely persists across reboots
-(stored per-package in `WifiConfigStore`, matched on SSID + security type only, ignoring BSSID) **provided** the SSID
-stays byte-identical and the package name never changes. Two traps: the store is credential-encrypted, so **gate the
-join loop on `UserManager.isUserUnlocked()`**; and there is a ~30 s / 3-scan cliff after which the request dies with
-`onUnavailable` and does **not** resume scanning — so the 20 s poll must re-request, not wait.
+**Controller** joins the group as a Wi-Fi Direct **client**: `WifiP2pManager.connect` with a `WifiP2pConfig`
+carrying the group's network name and passphrase. No system dialog, nothing to approve on either phone, and the
+controller keeps its home Wi-Fi association; the alarm phone's address on the group is read from the connection
+info. Android refuses a join while the phone is itself hosting a group, so both roles tear down any Wi-Fi Direct
+state left by the other role on every attempt (this is what a role swap otherwise leaves behind). The join runs
+from `LOCKED_BOOT_COMPLETED` with no wait for an unlock. `WifiNetworkSpecifier` was tried first and is wrong for
+this: Android treats it as switching Wi-Fi networks, shows a "searching for devices" box, drops home Wi-Fi, and
+its request dies after a scan cliff.
 
 ### Both sides must already be a running foreground service
 
-Undocumented, and it surfaces as a hardware-looking error. `WifiNetworkFactory.acceptRequest` rejects a specifier
-request unless importance ≤ `IMPORTANCE_FOREGROUND_SERVICE` (125), replying `onUnavailable`. And once backgrounded
-your app drops to `PRIORITY_BG`, at which point `HalDeviceManager.allowedToDelete` lets almost anything evict your
-interface. So: **own the group and the `NetworkCallback` in one long-lived `START_STICKY` foreground service**,
-confirmed up *before* either call. Treat `onStopped` / `onFailed` / `onUnavailable` as routine — backoff with jitter,
-never fatal.
+Both roles run one `START_STICKY` foreground service (`LinkService`) from locked boot. On the alarm phone it owns
+the group and recreates it whenever Android drops it; on the controller it owns the join and re-asks every few
+seconds while not connected. Its heartbeat is five seconds idle, two while ringing, with no app open. It needs
+the battery whitelist (`Battery: unrestricted`, a required row on both phones): without it Doze cuts the app's
+network on a phone that has sat still, foreground service or not, and opens it for a minute every few hours.
+Seen on the alarm phone before the row existed. Every failure is routine: backoff with jitter, never fatal.
 
 ### Transport plumbing
 
@@ -127,20 +137,12 @@ network time may itself be arbitrarily stale — this measures our observation o
 affordance telling the controller to expect a 30 s outage. A scheduled self-inflicted outage was never worth it for
 a clock that drifts seconds per day.
 
-**But the STA+P2P concurrency dependency is NOT deleted — it came back through the dev tooling.** §13's update
-channel discovers the Mac on *home WiFi* while the alarm phone is hosting the P2P group, and the no-ADB replacement
-for logcat is `curl phone:8765/v1/logs` over *home WiFi*. Both require simultaneous STA association and P2P group
-ownership. So:
-
-- `isStaApConcurrencySupported()` (and an actual on-device measurement) is a **gate row and a Phase-0 spike**. If
-  concurrency is unavailable on the XT2615-1, the dev channel and log pull must fall back to a deliberate,
-  password-gated "drop the group for 10 minutes" maintenance mode — never an automatic one.
-- **The controller binds per-socket, not per-process.** `Network.bindSocket()` / `Network.openConnection()` on the
-  P2P network for alarm traffic only. Process-wide `bindProcessToNetwork` also severs the controller from the Mac,
-  breaking its own update channel and log pull. *(This was a real defect in earlier drafts.)*
-
-**What to verify on-device instead:** that the phone still receives NITZ/network time while hosting the group. If it
-doesn't, `staleBy` grows visibly and the arm gate complains at 22:00 — loud, not silent.
+**STA and P2P coexist on the XT2615-1.** Measured 2026-09-27: both phones on home Wi-Fi and on the group at
+the same time, the alarm phone answering its log port over home Wi-Fi with one client on the group. So the log
+pull (`:8766`, all interfaces, read-only) works while the group is up, the clock stays synced by Android itself,
+and there is no maintenance window of any kind. The hourly tick only re-reads Android's network time
+(`SystemClock.currentNetworkTimeClock`, a local read); Status shows its age and offset with a "Check now" button
+on both phones. **The controller binds per-socket, not per-process**, so it also stays on home Wi-Fi.
 
 ## 2. State snapshot (the observability contract)
 
@@ -256,7 +258,7 @@ A supersede mints a **new `ringId`**, so an in-flight controller dismiss aimed a
    and read only the DE mirror.** Room holds history and the settings UI — expendable. Install a
    `DatabaseErrorHandler` that renames a corrupt file and rebuilds empty, wrap every session-persistence write in
    try/catch so a failed write can never propagate out of the ring path, and add a `freeBytes > 50 MB` row to the
-   22:00 gate.
+   hourly health check.
 
 5. `LOCKED_BOOT_COMPLETED` (with `directBootAware="true"`, so rescheduling happens before first unlock) **and**
    `BOOT_COMPLETED` → **unconditionally rebuild the entire alarm set**; if an open session with `endsByMs > now`
@@ -287,10 +289,10 @@ A supersede mints a **new `ringId`**, so an in-flight controller dismiss aimed a
   loss** — `USAGE_ALARM` does not need focus to play, and the reflexive `AUDIOFOCUS_LOSS` idiom would stop the
   alarm for an incoming call or an emergency alert. Route with
   `setPreferredDevice(TYPE_BUILTIN_SPEAKER)`, which is a *preference and not a guarantee*: keep an
-  `OnRoutingChangedListener` that re-asserts, add `bluetoothA2dpConnected` to the 22:00 gate, and pair no
+  `OnRoutingChangedListener` that re-asserts, add `bluetoothA2dpConnected` to the hourly health check, and pair no
   Bluetooth audio to the alarm phone at all (provisioning §12).
 - **Volume is asserted, not inherited.** This is the explicit fix for how normal phone alarms behave:
-  1. `setStreamVolume(STREAM_ALARM, …)` to `alarmVolumePercent` **at arm time (22:00)** — so it's already right hours before.
+  1. `setStreamVolume(STREAM_ALARM, …)` to `alarmVolumePercent` **at every hourly check** — so it's already right hours before.
   2. Re-assert **immediately before `start()`** at ring time.
   3. **The detector is `isStreamMute(STREAM_ALARM)`, not an index comparison.** Under zen mute the stream *index
      is untouched* — `AudioService` sets a separate mute bit and `volumeAdjustmentAllowedByDnd` makes the write a
@@ -315,8 +317,8 @@ So: declare `ACCESS_NOTIFICATION_POLICY`, walk through `ACTION_NOTIFICATION_POLI
 make these **hard gates** re-checked nightly: `PRIORITY_CATEGORY_ALARMS` present, `getCurrentInterruptionFilter() !=
 INTERRUPTION_FILTER_NONE`, `!isVolumeFixed()`.
 
-**Checking the *consolidated policy* at 22:00 is not sufficient, and is in fact evaluated at the one time of day
-guaranteed to miss the named threat.** Bedtime mode is a *scheduled* `AutomaticZenRule`. At 22:00 it is inactive,
+**Checking the *consolidated policy* is not sufficient.** Bedtime mode is a *scheduled* `AutomaticZenRule`. In the
+evening it is inactive,
 the consolidated policy is permissive, the gate passes — and it activates at 23:00, drops
 `PRIORITY_CATEGORY_ALARMS`, and mutes `STREAM_ALARM` by 04:00. So the gate instead **enumerates
 `NotificationManager.getAutomaticZenRules()` and fails if any *enabled* rule (active or not) either is
@@ -335,15 +337,15 @@ in Settings → Sound → Vibration, made once in 2027, silently removes the ent
 
 Three consequences, all cheap:
 - **Gate rows `vibrateOn` and `alarmVibrationIntensity`**, read via `Settings.System.getInt` (world-readable),
-  checked at 22:00 *and* at ring start, in the same class as `dndAllowsAlarms`.
+  checked hourly *and* at ring start, in the same class as `dndAllowsAlarms`.
 - **Re-issue the vibration on `ACTION_SCREEN_OFF`.** `shouldCancelVibrationOnScreenOff` cancels non-system
-  vibrations unless the sleep reason is `TIMEOUT`/`INATTENTIVE` — and with the always-on screen, a **power-button
-  press** is the only way the screen goes off, i.e. the one deliberate act most likely to happen mid-ring.
+  vibrations unless the sleep reason is `TIMEOUT`/`INATTENTIVE` — and the ring lights the screen, so a **power-button
+  press** is how it goes off mid-ring, i.e. the one deliberate act most likely to happen then.
 - **Wired charger only.** `config_ignoreVibrationsOnWirelessCharger` suppresses *all* vibration on a wireless
   charger with no usage allowlist. AOSP defaults it false, but it is OEM-overridable, and this phone is
   permanently charging. Also in provisioning §12.
 - Vibrate + full-brightness screen alongside.
-- Readability of the audio file is checked at the **nightly arm gate**, not at 04:00.
+- Readability of the audio file is checked at the **hourly health check**, not only at 04:00.
 
 ## 5. Architecture (one codebase, one renderer, two roles)
 
@@ -524,13 +526,12 @@ dismiss** — nothing on the 4 AM path can ever require a password.
 **There is a one-time recovery code, because "recovery is a factory reset" was not an acceptable answer.** A
 factory reset is *also* total data loss (§14) — so the spec's stated cure for a forgotten password destroyed the
 settings, the pairing and the history, and after three years of the thing silently working, forgetting is the
-likely case rather than the unlikely one. The password also gates `role`, the group credentials and the dev update
-channel, i.e. everything you would need in order to fix anything.
+likely case rather than the unlikely one. The password also gates `role` and the group credentials.
 
-So: at INIT the app generates a **recovery code**, displays it exactly once, and validates it in `:core` exactly as
-it validates the password. Write it on the printed runbook stored with the spare key to the box. Store the password
-in your password manager. If both are lost, the fallback is a factory reset plus a §14 restore — recoverable, but
-a bad evening. Declining the password at INIT is fine and fully supported; it just means the
+So: there is **no password until you set one**, and nothing is locked before that. Once set, the same password is
+needed to change or remove it. There is no recovery code (a decision, not an omission: one more secret to lose).
+If the password is forgotten, uninstall and reinstall; setup is two minutes and the alarm is the default schedule
+again. Declining a password is fine and fully supported; it just means the
 four kills stay two taps away.
 
 Also: `snoozeSeconds` gets a hard ceiling of **600 s** regardless of password — a 29-minute snooze isn't a legitimate
@@ -547,11 +548,10 @@ setting for any password holder either.
 | `ringtone` | bundled |
 | `snoozeSeconds` | 30 |
 | `snoozeThresholdDegrees` | 120 |
+| `vibrate` | on |
 | `maxSnoozes` | *none* — bounded only by `maxRingMinutes` |
 | `maxRingMinutes` | **60** — emergency stop; floor 5 |
-| `armGateTime` | 22:00 |
 | `napMinutes` | free entry, 1 min – 5 h (last value remembered) |
-| `missedGraceMinutes` | 15 |
 | `ssid` / `passphrase` | user-set, gate |
 
 ### Test ring
@@ -653,22 +653,17 @@ because an enumerated list in a spec becomes a missing call site in code. Transa
 nap set/clear, override set/**clear**, fire, session end (including `CAPPED`), boot, clock sync, timezone change, and
 an hourly tick as a backstop only.
 - Clock jumps **backwards** past an already-fired occurrence → latch holds, no re-fire.
-- Clock jumps **forward** past an unfired occurrence → **split the rule by where you are in the day, not by a
-  fixed grace window.** If the jump lands inside a configured *still worth waking me* window (default: local wall
-  time before 09:00), **ring**. Otherwise latch MISSED *and* fire the audible three-chirp alert immediately — a
-  banner alone would be a silent failure, and on a phone sealed in a box it is invisible by construction.
-  *(Earlier drafts latched silently outside a 15-minute grace, reasoning about a 3 p.m. siren. Wrong threat model:
-  the realistic trigger is not mid-afternoon, it is a power outage, a dead RTC, or bad NITZ bringing the phone up
-  with a wrong clock at 03:00 that NITZ then corrects to 04:20 — squarely in the silent branch, 20 minutes after
-  you needed to be awake, in direct contradiction of invariant #4.)*
+- Clock jumps **forward** past an unfired occurrence → **ring, whenever noticed.** No window, no grace, no alert
+  in place of the alarm: a missed alarm rings. *(Earlier drafts had a "still worth waking me" window and a
+  three-chirp alert outside it. Every such branch was removed at the user's direction: one happy path.)*
 - DST: compute from local wall time in the system zone. Spring-forward into a non-existent time → fire at the next valid instant. Fall-back ambiguity → fire at the **first** occurrence.
 - Timezone change → clears `tomorrow` and `nap` (both are wall-clock-relative and the intent no longer holds), logs it, banners it.
 
-## 10. Nightly arm gate (`armGateTime`, default 22:00)
+## 10. Hourly health check
 
-Checks: **`nextFire != null`**, link healthy, clock synced within 36 h, audio file playable,
-**`isPlugged && batteryPct > 50`**, group running, thermal status < `SEVERE`, DND allows alarms, not hibernating,
-all permission gates green.
+Runs every hour and at ring start. Nothing is nightly, nothing chirps; failures are listed on Status as problems,
+on both phones. Checks: **`nextFire != null`**, group running, audio file playable, **plugged in**, thermal status
+< `SEVERE`, DND allows alarms, not hibernating, battery unrestricted, all permission gates green.
 
 **Never check `isCharging()` and never expect 100 %.** Motorola's Overcharge protection caps at 80 % once plugged in
 for three days — permanent, for you — and at the plateau the battery may report *not charging* while still plugged.

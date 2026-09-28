@@ -51,6 +51,9 @@ class DeMirror(ctx: Context) {
     var ringtoneUri: String?
         get() = p.getString("ringtoneUri", null)
         set(v) = p.edit().putString("ringtoneUri", v).apply()
+    var ringtoneName: String?
+        get() = p.getString("ringtoneName", null)
+        set(v) = p.edit().putString("ringtoneName", v).apply()
 
     var role: String?
         get() = p.getString("role", null)
@@ -141,6 +144,7 @@ class DeMirror(ctx: Context) {
             .putInt("snoozeSeconds", s.snoozeSeconds)
             .putInt("snoozeThresholdDegrees", s.snoozeThresholdDegrees)
             .putString("ringtoneUri", s.ringtoneUri)
+            .putString("ringtoneName", s.ringtoneName)
             .putString("session", session?.let { sessionToJson(it) })
             .apply()
     }

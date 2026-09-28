@@ -69,7 +69,7 @@ object Health {
         val s = Svc.settings
         if (s.role == com.mtrinh.fobalarm.core.Role.ALARM) {
             if (lastProbeOk == false) add("Remote dismiss self-test failed")
-            if (!s.ssid.isNullOrBlank() && !Group.running && !SyncWindow.running) add("Not reachable by the controller right now")
+            if (!s.ssid.isNullOrBlank() && !Group.running) add("Not reachable by the controller right now")
             if (!Svc.selfDevice().plugged) add("Alarm phone is not plugged in")
         }
     }

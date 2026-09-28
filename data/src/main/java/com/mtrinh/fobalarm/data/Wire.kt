@@ -106,6 +106,7 @@ object Wire {
         .put("defaultAlarmTime", s.defaultAlarmTime)
         .put("alarmVolumePercent", s.alarmVolumePercent)
         .put("ringtoneUri", s.ringtoneUri ?: JSONObject.NULL)
+        .put("ringtoneName", s.ringtoneName ?: JSONObject.NULL)
         .put("snoozeSeconds", s.snoozeSeconds)
         .put("snoozeThresholdDegrees", s.snoozeThresholdDegrees)
         .put("maxRingMinutes", s.maxRingMinutes)
@@ -124,6 +125,7 @@ object Wire {
         defaultAlarmTime = o.optString("defaultAlarmTime", base.defaultAlarmTime),
         alarmVolumePercent = o.optInt("alarmVolumePercent", base.alarmVolumePercent),
         ringtoneUri = if (o.has("ringtoneUri") && !o.isNull("ringtoneUri")) o.getString("ringtoneUri") else base.ringtoneUri,
+        ringtoneName = if (o.has("ringtoneName") && !o.isNull("ringtoneName")) o.getString("ringtoneName") else base.ringtoneName,
         snoozeSeconds = o.optInt("snoozeSeconds", base.snoozeSeconds),
         snoozeThresholdDegrees = o.optInt("snoozeThresholdDegrees", base.snoozeThresholdDegrees),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),

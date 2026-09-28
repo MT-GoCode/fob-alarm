@@ -56,7 +56,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     Svc.recompute("hourly_tick")
                     Svc.loadRoomAsync("hourly_tick")
                     if (!LinkService.alive) LinkService.start(ctx)   // exact-alarm exempt, so allowed
-                    SyncWindow.run(ctx)
+                    ClockObserver.poll()          // local read of Android's network time; never touches the group
                 }
                 Scheduler.ACTION_ARMGATE -> ArmGateRunner.run(ctx)
                 // From the notification action: works even with no activity on screen.
@@ -149,55 +149,6 @@ class TimeChangeReceiver : BroadcastReceiver() {
  * Wi-Fi simultaneously, so syncing means dropping the group for a moment. Never while
  * ringing, and never for long.
  */
-object SyncWindow {
-    @Volatile var lastAttemptMs = 0L
-    @Volatile var lastOkMs = 0L
-    @Volatile var running = false
-
-    fun run(ctx: Context) {
-        if (Svc.settings.role != Role.ALARM) { ClockObserver.poll(); return }
-        if (Svc.session != null || Svc.testActive || running) return
-        // Never drop the group in the minutes before the alarm: the controller would
-        // still be rejoining when the ring starts, and remote dismiss would be dead.
-        val next = Svc.lastNextFire?.atMs ?: Long.MAX_VALUE
-        if (next - System.currentTimeMillis() < 10 * 60_000L) return
-        // The system's network clock is usually fresh without touching the network at
-        // all; only when it is stale is the group worth dropping.
-        ClockObserver.poll()
-        if (ClockObserver.healthy() && System.currentTimeMillis() - lastOkMs < 24 * 3600_000L) return
-        running = true
-        lastAttemptMs = System.currentTimeMillis()
-        Thread({
-            runCatching {
-                val hadGroup = Group.running
-                if (hadGroup) {
-                    Svc.log("sync_group_down")
-                    Group.stop(ctx)
-                    Thread.sleep(3_000)
-                }
-                // Give Android a moment to reassociate with home Wi-Fi, then read time.
-                for (i in 0 until 12) {
-                    if (Svc.session != null) break
-                    ClockObserver.poll()
-                    if (ClockObserver.healthy()) break      // was `return@repeat`, i.e. continue
-                    Thread.sleep(5_000)
-                }
-                if (ClockObserver.healthy()) {
-                    lastOkMs = System.currentTimeMillis()
-                    Svc.log("sync_ok", "offsetMs" to ClockObserver.offsetMs.toString())
-                } else {
-                    Svc.log("sync_fail", "source" to ClockObserver.source)
-                }
-                if (hadGroup) {
-                    Group.start(ctx, Svc.settings)
-                    Svc.log("sync_group_up")
-                }
-            }.onFailure { Svc.log("sync_error", "error" to it.toString()) }
-            running = false
-        }, "sync-window").start()
-    }
-}
-
 /** The persisted crash file, in DE storage so it survives a reboot without unlock. */
 object Crash {
     fun file(ctx: Context) = java.io.File(ctx.createDeviceProtectedStorageContext().filesDir, "crash.txt")

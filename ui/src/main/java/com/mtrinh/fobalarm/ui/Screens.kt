@@ -61,7 +61,7 @@ fun RootScreen(
                 trying()
                 if (s != null) {
                     Section("What it last said")
-                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, false, app.localGates) { app.reload() } } }
+                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, false, app.localGates, { app.checkClock() }) { app.reload() } } }
                 }
                 Spacer(Modifier.height(S.lg))
             }
@@ -282,7 +282,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Spacer(Modifier.height(S.sm))
         }
 
-        StatusBlock(s, app.nowMs, app.connected, app.localGates) { app.reload() }
+        StatusBlock(s, app.nowMs, app.connected, app.localGates, { app.checkClock() }) { app.reload() }
 
         Section("Next alarm only")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {

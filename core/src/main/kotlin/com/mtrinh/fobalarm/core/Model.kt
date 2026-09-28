@@ -12,6 +12,7 @@ data class Settings(
     val defaultAlarmTime: String = "04:00",       // "HH:mm", local wall time
     val alarmVolumePercent: Int = 85,             // hard floor 50
     val ringtoneUri: String? = null,              // null => bundled asset
+    val ringtoneName: String? = null,             // the chosen file's display name, for the screen only
     val snoozeSeconds: Int = 30,                  // hard ceiling 600
     val snoozeThresholdDegrees: Int = 120,        // 60..720
     val maxRingMinutes: Int = 60,                 // floor 5

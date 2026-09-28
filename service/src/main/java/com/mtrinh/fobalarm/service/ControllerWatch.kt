@@ -54,10 +54,11 @@ object ControllerWatch {
         r.onSuccess { s ->
             lastSnapshot = s
             lastOkMs = System.currentTimeMillis()
-            val ringId = s.ring?.ringId
+            val test = s.ring == null && s.testUntilMs > s.serverTimeMs
+            val ringId = s.ring?.ringId ?: if (test) "test-${s.testUntilMs}" else null
             if (ringId != null && ringId != alertShownFor) {
                 alertShownFor = ringId
-                raise(ctx, ringId)
+                raise(ctx, ringId, test)
             } else if (ringId == null && alertShownFor != null) {
                 alertShownFor = null
                 clear(ctx)
@@ -66,12 +67,21 @@ object ControllerWatch {
     }
 
     /** True while the alarm phone is ringing, as far as this phone last heard. */
-    val ringing: Boolean get() = lastSnapshot?.ring != null
+    val ringing: Boolean get() = lastSnapshot?.let { it.ring != null || it.testUntilMs > it.serverTimeMs } == true
 
     /** The DISMISS action from the lock-screen notification. Idempotent by content. */
     fun dismissNow(ctx: Context) {
         // After a process restart we may know nothing yet; find out before giving up.
         if (lastSnapshot == null) runCatching { pollOnce(ctx) }
+        lastSnapshot?.let { snap ->
+            if (snap.ring == null && snap.testUntilMs > snap.serverTimeMs) {
+                runBlocking { client.stopTest() }.onSuccess { s ->
+                    lastSnapshot = s; lastOkMs = System.currentTimeMillis(); alertShownFor = null; clear(ctx)
+                    Svc.log("remote_test_stopped_from_notification")
+                }.onFailure { Svc.log("remote_stop_test_failed", "error" to (it.message ?: "?")) }
+                return
+            }
+        }
         val ringId = lastSnapshot?.ring?.ringId ?: run {
             Svc.log("remote_dismiss_no_ring", "reason" to if (lastSnapshot == null) "unreachable" else "not_ringing")
             return
@@ -105,7 +115,7 @@ object ControllerWatch {
         })
     }
 
-    private fun raise(ctx: Context, ringId: String) {
+    private fun raise(ctx: Context, ringId: String, test: Boolean = false) {
         ensureChannel(ctx)
         val open = PendingIntent.getActivity(ctx, 0,
             Intent().setClassName(ctx.packageName, "com.mtrinh.fobalarm.MainActivity")
@@ -116,14 +126,14 @@ object ControllerWatch {
                 .setPackage(ctx.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(ctx, CHANNEL)
-            .setContentTitle("Alarm is ringing")
-            .setContentText("Press to dismiss remote alarm")
+            .setContentTitle(if (test) "Alarm phone: test ring" else "Alarm is ringing")
+            .setContentText(if (test) "Press to stop the test" else "Press to dismiss remote alarm")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setCategory(Notification.CATEGORY_ALARM)
             .setOngoing(true)
             .setContentIntent(open)
             .setFullScreenIntent(open, true)
-            .addAction(Notification.Action.Builder(null, "DISMISS", dismiss).build())
+            .addAction(Notification.Action.Builder(null, if (test) "STOP TEST" else "DISMISS", dismiss).build())
             .build()
         runCatching { ctx.getSystemService(NotificationManager::class.java).notify(NOTIF_ID, n) }
         Svc.log("remote_ring_alert", "ringId" to ringId)

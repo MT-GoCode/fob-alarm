@@ -78,6 +78,7 @@ object Svc : AlarmHost {
             snoozeSeconds = de.snoozeSeconds,
             snoozeThresholdDegrees = de.snoozeThresholdDegrees,
             ringtoneUri = de.ringtoneUri,
+            ringtoneName = de.ringtoneName,
             role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
             ssid = de.ssid ?: Settings.DEFAULT_SSID,
             passphrase = de.passphrase ?: Settings.DEFAULT_PASSPHRASE,
@@ -382,6 +383,7 @@ object Svc : AlarmHost {
         if (state.settings.role == Role.CONTROLLER) return
         val changesGated = listOf(
             patch.ringtoneUri != state.settings.ringtoneUri,
+            patch.ringtoneName != state.settings.ringtoneName,
             patch.snoozeSeconds != state.settings.snoozeSeconds,
             patch.defaultAlarmTime != state.settings.defaultAlarmTime,
             patch.vibrate != state.settings.vibrate,
@@ -541,6 +543,12 @@ object Svc : AlarmHost {
         // keeps this process at foreground importance, so the start is allowed either way.
         testUntilMs = System.currentTimeMillis() + 60_000
         urgent.execute { RingService.start(app) }
+        return snapshot()
+    }
+
+    override fun checkClock(): Snapshot {
+        ClockObserver.poll()
+        log("clock_check", "ok" to ClockObserver.healthy().toString(), "offsetMs" to ClockObserver.offsetMs.toString())
         return snapshot()
     }
 

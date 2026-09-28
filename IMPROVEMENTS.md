@@ -529,3 +529,23 @@ first evaluation slower than that (the hibernation probe alone may take three) l
 "not measured" placeholder on screen for good. Gate results are now pushed to the screen
 the moment the worker finishes; the poll is gone. Could not be reproduced on the emulator,
 whose probes are fast; the race is removed rather than widened.
+
+## Round 15 — closing questions
+
+**Clock sync is opportunistic and hourly, with a button.** The hourly tick re-reads Android's network time, a
+local call; Status shows its age and offset and a "Check now" button on both phones, through the same client
+path as every other action (`POST /v1/clock`). The code that dropped the group to reach home Wi-Fi is gone: it
+was built for phones that could not hold both, and these phones do (measured). Nothing touches Wi-Fi Direct.
+
+**Ringtone shows the file's name**, read from the picker's `DISPLAY_NAME`, carried as `ringtoneName` next to the
+URI. "Your file" said nothing.
+
+**The controller now alerts on a test ring**, full-screen like a real one, titled as a test, with STOP TEST as the
+notification action. It only alerted on a real ring session, which a test never has.
+
+**Volume, confirmed:** at ring start and on every five-second heartbeat the alarm stream is set to the configured
+percentage (floor: half of maximum) if it is muted or below target. It reads nothing but the setting.
+
+**SPEC.md brought in line** with the product: a status note at the top, and the passages about
+`WifiNetworkSpecifier`, the 22:00 arm gate, the recovery code, the grace window and the STA/P2P workaround
+rewritten to what exists.

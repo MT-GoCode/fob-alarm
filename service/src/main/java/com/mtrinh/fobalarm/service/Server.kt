@@ -239,6 +239,8 @@ object Server {
                         Actor.CONTROLLER)).toString()
                 }
 
+                path.startsWith("/v1/clock") && method == "POST" ->
+                    200 to Wire.snapshotToJson(Svc.checkClock()).toString()
                 path.startsWith("/v1/test") && method == "POST" ->
                     200 to Wire.snapshotToJson(
                         if (o.optBoolean("stop")) Svc.stopTest()

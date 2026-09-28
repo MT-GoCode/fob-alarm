@@ -113,8 +113,6 @@ class LinkService : Service() {
             val s = Svc.settings
             when (s.role) {
                 Role.ALARM -> {
-                    // The sync window owns the group while it runs.
-                    if (SyncWindow.running) { handler.postDelayed(this, 5_000); return }
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank()) {
                         if (!Group.running) {
                             Group.start(this@LinkService, s)

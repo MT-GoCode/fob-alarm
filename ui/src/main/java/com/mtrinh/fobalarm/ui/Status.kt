@@ -17,7 +17,8 @@ import com.mtrinh.fobalarm.core.*
  * it last check itself, what happened last night.
  */
 @Composable
-fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?, onReload: () -> Unit) {
+fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?,
+                onCheckClock: () -> Unit, onReload: () -> Unit) {
     val iAmAlarm = s.self.role == Role.ALARM
     val problems = s.problems
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
@@ -120,8 +121,21 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
                 (if (it.failingGates.isEmpty()) "nothing wrong" else it.failingGates.mapNotNull { k -> GateInfo.of(k)?.label }.joinToString()),
             ok = it.failingGates.isEmpty())
     } ?: Line("Hourly check", "not yet", ok = null)
-    Line("Clock sync", if (s.clock.lastSyncOkMs > 0) Fmt.age(s.clock.lastSyncOkMs, nowMs) else "not yet",
-        ok = if (s.clock.lastSyncOkMs > 0) true else null)
+    // Android's network time, read locally; the button re-reads it now. Hourly otherwise.
+    Row(Modifier.fillMaxWidth().padding(vertical = S.xs), verticalAlignment = Alignment.CenterVertically) {
+        Text("Clock sync", fontSize = T.body, modifier = Modifier.weight(1f))
+        val synced = s.clock.lastSyncOkMs > 0
+        val off = kotlin.math.abs(s.clock.offsetAppliedMs)
+        Text(
+            when {
+                !synced -> "not yet"
+                off >= 2_000 -> "${Fmt.age(s.clock.lastSyncOkMs, nowMs)}, ${off / 1000}s off"
+                else -> Fmt.age(s.clock.lastSyncOkMs, nowMs)
+            },
+            fontSize = T.label, fontWeight = FontWeight.SemiBold,
+            color = when { !synced -> MaterialTheme.colorScheme.onSurface; off >= 2_000 -> Bad; else -> Good })
+        TextButton(onClick = onCheckClock) { Text("Check now") }
+    }
     Line("Alarm phone up since", Fmt.absolute(s.bootedAtMs), ok = null)
     val mismatch = s.peer != null && s.peer!!.appVersion != s.self.appVersion
     Line("Versions", if (s.peer == null) s.self.appVersion else "${s.self.appVersion} here, ${s.peer!!.appVersion} there",
