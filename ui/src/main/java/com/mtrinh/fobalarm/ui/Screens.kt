@@ -47,6 +47,7 @@ fun RootScreen(
     }
 
     val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(tab) { app.reload() }          // every navigation re-reads the alarm phone
     LaunchedEffect(app.syncMessage) { app.syncMessage?.let { snackbar.showSnackbar(it) } }
     LaunchedEffect(app.ringEndMessage) {
         app.ringEndMessage?.let { snackbar.showSnackbar(it); app.clearRingEndMessage() }

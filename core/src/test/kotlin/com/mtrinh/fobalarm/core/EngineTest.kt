@@ -336,6 +336,19 @@ class RotationTest {
         assertTrue(acc.degrees <= 12.5, "a wobble reads as its own amplitude, never more")
     }
 
+    /** Seen on the phone: with the threshold at a full turn, spinning never got there. */
+    @Test fun `a full turn and more is reachable by spinning`() {
+        val acc = RotationAccumulator(thresholdDeg = 360)
+        var t = 0L
+        var fired = false
+        repeat(200) {                          // 200 deg/s about z: 4 deg per sample, 800 deg total
+            t += 20
+            val ang = Math.toRadians(4.0 * (it + 1)) / 2
+            if (acc.onRotationVector(doubleArrayOf(Math.cos(ang), 0.0, 0.0, Math.sin(ang)), t)) fired = true
+        }
+        assertTrue(fired, "a full turn must trigger a full-turn threshold")
+    }
+
     @Test fun `slow sensor drift over an hour of ringing never snoozes`() {
         val acc = RotationAccumulator(thresholdDeg = 120)
         var t = 0L

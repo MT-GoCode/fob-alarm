@@ -23,7 +23,7 @@ fun SettingsScreen(
     val hasPassword = s.settings.hasPassword
     val locked = hasPassword && !app.unlocked
 
-    Page(title = "Settings", snapshot = s) {
+    Page(title = "Settings", snapshot = s, onReload = { app.reload() }) {
 
         // Lock state first, because it decides what else can be changed.
         if (hasPassword) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

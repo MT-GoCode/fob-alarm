@@ -41,7 +41,7 @@ class App : Application() {
 
         // Owns the group / join loop and the control server, and keeps the process at
         // foreground-service importance so Wi-Fi Direct is not evicted.
-        P2pJoinBridge.networkProvider = { P2pJoin.network }
+        P2pJoinBridge.ownerProvider = { P2pJoin.ownerAddress }
         P2pJoinBridge.joiner = { ctx, ssid, pass -> P2pJoin.join(ctx, ssid, pass) }
         LinkService.start(this)
 

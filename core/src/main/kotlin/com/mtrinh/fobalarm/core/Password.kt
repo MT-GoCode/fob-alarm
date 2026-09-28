@@ -58,26 +58,23 @@ object Auth {
  * SPEC.md section 7.
  */
 /**
- * How far the phone has turned from where it started: the angle between the orientation
- * at the start of the gesture and now. NOT a sum of every wobble along the way: on the
- * phone, one buzz of the vibrator summed to ten degrees and the alarm snoozed itself.
- * The reference re-anchors after three seconds of stillness (a snooze is one gesture)
- * or after ten seconds of going nowhere (vibration jitter, sensor drift).
+ * How far the phone has been turned: the rotation between consecutive samples, as a
+ * vector (axis times angle) summed along the path. A buzz of the vibrator is a wobble
+ * back and forth about one axis, so its contributions cancel; a spin about one axis
+ * keeps adding, so a full turn and more are reachable. Motion under the deadband is
+ * ignored (fusion corrections, drift), and three seconds of stillness ends the gesture.
  */
 class RotationAccumulator(
     private val thresholdDeg: Int,
     private val deadbandDegPerSec: Double = 15.0,
     private val decayAfterMs: Long = 3_000,
-    private val nowhereDeg: Double = 15.0,
-    private val nowhereAfterMs: Long = 10_000,
 ) {
     var degrees: Double = 0.0; private set
     var gyroBiasDps: Double = 0.0; private set
-    private var ref: DoubleArray? = null
+    private val sum = DoubleArray(3)
     private var lastQ: DoubleArray? = null
     private var lastQAtMs: Long = 0
     private var lastMotionMs: Long = 0
-    private var smallSinceMs: Long = 0
     private var biasSamples = 0
     private var biasSum = 0.0
 
@@ -85,7 +82,7 @@ class RotationAccumulator(
     var lastRvMs: Long = 0; private set
 
     fun reset() {
-        degrees = 0.0; ref = null; lastQ = null; lastQAtMs = 0; lastMotionMs = 0; smallSinceMs = 0
+        degrees = 0.0; sum.fill(0.0); lastQ = null; lastQAtMs = 0; lastMotionMs = 0
     }
 
     fun gyroStale(nowMs: Long) = lastGyroMs != 0L && nowMs - lastGyroMs > 2_000
@@ -109,27 +106,36 @@ class RotationAccumulator(
         val prevAt = lastQAtMs
         lastQ = q; lastQAtMs = nowMs
         if (prev == null || prevAt == 0L) return false
-
         val dtSec = (nowMs - prevAt) / 1000.0
         if (dtSec <= 0.0) return false
 
-        val rate = geodesicAngleDeg(prev, q) / dtSec
-        val r = ref ?: run { ref = prev; lastMotionMs = prevAt; smallSinceMs = prevAt; prev }
-        degrees = geodesicAngleDeg(r, q)
+        // Rotation from prev to q in the phone's own frame: d = conj(prev) * q.
+        val d = multiply(conjugate(prev), q)
+        var w = d[0]; var x = d[1]; var y = d[2]; var z = d[3]
+        if (w < 0) { w = -w; x = -x; y = -y; z = -z }     // shortest arc
+        val v = Math.sqrt(x * x + y * y + z * z)
+        val angle = 2.0 * Math.atan2(v, w) * 180.0 / Math.PI
 
         // Deadband on the QUATERNION rate, not on the gyro stream: a pure fusion
         // correction shows ~0 gyro and would otherwise never be discarded.
-        if (rate >= deadbandDegPerSec) lastMotionMs = nowMs
-        val still = nowMs - lastMotionMs > decayAfterMs
-        if (degrees >= nowhereDeg) smallSinceMs = nowMs
-        val nowhere = nowMs - smallSinceMs > nowhereAfterMs
-
-        if (still || nowhere) {            // one gesture, not a sum over an hour
-            ref = q; degrees = 0.0; lastMotionMs = nowMs; smallSinceMs = nowMs
+        if (angle / dtSec < deadbandDegPerSec) {
+            if (lastMotionMs != 0L && nowMs - lastMotionMs > decayAfterMs && degrees > 0.0) {
+                sum.fill(0.0); degrees = 0.0      // a snooze is ONE continuous gesture
+            }
             return false
         }
+        lastMotionMs = nowMs
+        if (v > 0.0) { sum[0] += angle * x / v; sum[1] += angle * y / v; sum[2] += angle * z / v }
+        degrees = Math.sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2])
         return degrees >= thresholdDeg
     }
+
+    private fun conjugate(a: DoubleArray) = doubleArrayOf(a[0], -a[1], -a[2], -a[3])
+    private fun multiply(a: DoubleArray, b: DoubleArray) = doubleArrayOf(
+        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0])
 
     private fun geodesicAngleDeg(a: DoubleArray, b: DoubleArray): Double {
         var dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]

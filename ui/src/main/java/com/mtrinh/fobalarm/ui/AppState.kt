@@ -64,7 +64,7 @@ class AppState(
     /** When this screen started trying, so "still not connected" is measured from a real attempt. */
     val startedMs: Long = System.currentTimeMillis()
 
-    fun startPolling(fastMs: Long = 500, idleMs: Long = 20_000) {
+    fun startPolling(fastMs: Long = 500, idleMs: Long = 5_000) {
         scope.launch {
             while (true) { nowMs = System.currentTimeMillis(); delay(500) }
         }

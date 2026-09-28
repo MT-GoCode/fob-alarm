@@ -124,10 +124,8 @@ class LinkService : Service() {
                     }
                 }
                 Role.CONTROLLER -> {
-                    // The specifier request dies after a ~30s / 3-scan cliff and does NOT
-                    // resume scanning, so re-request rather than wait.
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank() &&
-                        P2pJoinBridge.network() == null) {
+                        !P2pJoinBridge.joined()) {
                         P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!)
                         // 15s, not 120s: a human is standing in front of this phone
                         // waiting for the dismiss button to work.
@@ -168,8 +166,9 @@ class LinkService : Service() {
 
 /** Lets :service drive the controller's join without depending on :app. */
 object P2pJoinBridge {
-    @Volatile var networkProvider: () -> android.net.Network? = { null }
+    @Volatile var ownerProvider: () -> String? = { null }
     @Volatile var joiner: (Context, String, String) -> Unit = { _, _, _ -> }
-    fun network() = networkProvider()
+    fun ownerAddress() = ownerProvider()
+    fun joined() = ownerProvider() != null
     fun join(ctx: Context, ssid: String, pass: String) = joiner(ctx, ssid, pass)
 }

@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshGates()
+        if (::app.isInitialized) app.reload()
     }
     private val pickAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { copyRingtone(it) }
@@ -197,8 +198,7 @@ class MainActivity : ComponentActivity() {
     private fun buildClient(role: Role): StateClient = when (role) {
         Role.ALARM -> LocalStateClient(Svc)
         Role.CONTROLLER -> HttpStateClient(
-            hostProvider = { Group.ownerAddress ?: "192.168.49.1" },
-            networkProvider = { P2pJoin.network },
+            hostProvider = { P2pJoin.ownerAddress },
             selfProvider = { Svc.selfDevice() },
             // Report our own failing gates so the alarm phone can show them.
             localBlockers = {

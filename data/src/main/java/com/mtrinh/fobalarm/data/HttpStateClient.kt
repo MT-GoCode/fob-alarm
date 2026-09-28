@@ -1,6 +1,5 @@
 package com.mtrinh.fobalarm.data
 
-import android.net.Network
 import com.mtrinh.fobalarm.core.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -9,14 +8,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * CONTROLLER role. Plain JSON over the bound P2P network.
- *
- * Binds PER SOCKET, never per process: bindProcessToNetwork would also sever this phone
- * from the Mac, breaking its own update channel and log pull. SPEC.md section 1.
+ * CONTROLLER role. Plain JSON to the group owner's address, which only exists while this
+ * phone is a client of the group: no address, no link, and the call fails at once.
  */
 class HttpStateClient(
     private val hostProvider: () -> String?,
-    private val networkProvider: () -> Network?,
     private val selfProvider: () -> DeviceView,
     /** This phone's own failing blocking gates, sent so the peer can show them. */
     private val localBlockers: () -> List<String> = { emptyList() },
@@ -27,10 +23,9 @@ class HttpStateClient(
     private suspend fun request(
         method: String, path: String, body: JSONObject? = null, timeoutMs: Int = 4000,
     ): String = withContext(Dispatchers.IO) {
-        val host = hostProvider() ?: throw ClientError.Transport("no group owner address")
+        val host = hostProvider() ?: throw ClientError.Transport("not joined to the alarm phone")
         val url = URL("http://$host:$PORT$path")
-        val net = networkProvider() ?: throw ClientError.Transport("not joined to the alarm phone")
-        val conn = net.openConnection(url) as HttpURLConnection
+        val conn = url.openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = timeoutMs

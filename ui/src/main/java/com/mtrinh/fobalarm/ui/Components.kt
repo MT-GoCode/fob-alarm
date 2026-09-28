@@ -3,7 +3,10 @@ package com.mtrinh.fobalarm.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +30,8 @@ fun Page(
     snapshot: Snapshot? = null,
     /** False when hosted in a Scaffold, which has already applied them. */
     applyInsets: Boolean = false,
+    /** A refresh button beside the title, for screens that show the other phone's state. */
+    onReload: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(Modifier
@@ -36,7 +41,12 @@ fun Page(
         .verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(S.md))
         title?.let {
-            Text(it, fontSize = T.title, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(it, fontSize = T.title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (onReload != null) IconButton(onClick = onReload) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                }
+            }
             Spacer(Modifier.height(S.xs))
         }
         subtitle?.let {

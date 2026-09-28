@@ -465,3 +465,21 @@ unlogged; Status painted every permission red until the first evaluation; a cont
 that had gone away was still presented as current; stop-test claimed success on failure;
 the README's order did not match the screens. And a real alarm firing during a test ring
 was dropped: now the test ends and the alarm takes over.
+
+## Round 11 — from using it on the phones
+
+The controller now joins the alarm phone's group as a Wi-Fi Direct client by name and
+passphrase, the way Android provides for a known group. The earlier approach asked
+Android for the group as if it were an ordinary Wi-Fi network: that put a "searching
+for device" box over the screen for minutes, needed a tap whenever the group's radio
+address changed, and took the controller off home Wi-Fi. The client join has no box,
+keeps home Wi-Fi, and reconnects on its own when the group returns. First run on the
+phones with this build; the log shows `p2p_connect_requested` then `p2p_joined`.
+
+The snooze counter measured the net angle from the start, so with a full-turn threshold
+a spin could never get there: half a turn is as far as any orientation gets, and a full
+turn is back at zero. It now sums the signed rotation along the path, so a buzz cancels
+and a spin keeps adding; tests for jitter, drift, and a full turn.
+
+Every navigation re-reads the alarm phone, so does returning to the app, Settings has a
+refresh button like Status, and the idle poll is five seconds instead of twenty.

@@ -31,8 +31,7 @@ object ControllerWatch {
 
     private val client by lazy {
         HttpStateClient(
-            hostProvider = { Group.ownerAddress ?: "192.168.49.1" },
-            networkProvider = { P2pJoinBridge.network() },
+            hostProvider = { P2pJoinBridge.ownerAddress() },
             selfProvider = { Svc.selfDevice() },
             localBlockers = {
                 GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null)
