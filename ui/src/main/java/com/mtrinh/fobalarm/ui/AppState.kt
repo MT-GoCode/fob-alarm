@@ -69,8 +69,6 @@ class AppState(
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
     var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
-    /** When this screen started trying, so "still not connected" is measured from a real attempt. */
-    val startedMs: Long = System.currentTimeMillis()
 
     /** Constantly: half a second while ringing, three seconds idle, one second while red. */
     fun startPolling(fastMs: Long = 500, idleMs: Long = 3_000, retryMs: Long = 1_000) {
@@ -87,7 +85,8 @@ class AppState(
                     client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
                 }
                 val s = snapshot
-                val live = s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)
+                val live = (s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)) &&
+                        (isLocal || System.currentTimeMillis() - lastOkMs < 10 * 60_000)
                 delay(if (live) fastMs else if (!isLocal && !connected) retryMs else idleMs)
             }
         }

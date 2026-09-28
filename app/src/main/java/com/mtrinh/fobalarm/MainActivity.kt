@@ -288,15 +288,7 @@ class MainActivity : ComponentActivity() {
             // The configured group, not the live link: the bar at the top shows the link.
             Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",
                 fontSize = T.body, color = if (set) Muted else Bad)
-            Spacer(Modifier.height(S.sm))
-            OutlinedButton(onClick = {
-                runCatching {
-                    Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
-                        java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
-                }.onSuccess { P2pJoin.stop(); recreate() }.onFailure {
-                    Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
-                }
-            }) { Text("Pair again") }
+            Text("Change it while not connected: the trying screen has the fields.", fontSize = T.caption, color = Muted)
             return
         }
 
@@ -491,7 +483,7 @@ class MainActivity : ComponentActivity() {
                                 return@TextButton
                             }
                             P2pJoin.stop()
-                            Group.stop(this@MainActivity)
+                            Group.reset(this@MainActivity)
                             Svc.setRole(target)
                             asking = false; typed = ""; rolePw = ""
                             recreate()
@@ -537,9 +529,11 @@ class MainActivity : ComponentActivity() {
 
         Section("Looking for")
         OutlinedTextField(ssid, { ssid = it }, label = { Text("Name", fontSize = T.caption) },
+            supportingText = { Text("Must start with DIRECT-", fontSize = T.caption) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(S.sm))
         OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
+            supportingText = { Text("8 to 63 characters", fontSize = T.caption) },
             singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(S.sm))
         val changed = ssid.trim() != Svc.settings.ssid || pass != Svc.settings.passphrase

@@ -79,6 +79,7 @@ object Group {
     }
 
     fun refresh(ctx: Context) {
+        if (Svc.settings.role != Role.ALARM) return   // a controller's membership is not our group
         val m = manager ?: return
         val ch = channel ?: return
         runCatching {
@@ -126,6 +127,12 @@ object Group {
                 override fun onFailure(reason: Int) { Svc.log("ap_error", "stop" to reason.toString()) }
             })
         }
+    }
+
+    /** Leaving the alarm role: drop the group and forget the channel, so nothing here runs again. */
+    fun reset(ctx: Context) {
+        stop(ctx)
+        running = false; manager = null; channel = null
     }
 
     /** Credentials changed: tear down and restart. The controller must re-enter them. */

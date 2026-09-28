@@ -127,7 +127,7 @@ class LinkService : Service() {
                 Role.CONTROLLER -> {
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank() &&
                         !P2pJoinBridge.joined()) {
-                        if (P2pJoinBridge.allowed()) P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!)
+                        if (P2pJoinBridge.allowed()) { waitingLogged = false; P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!) }
                         else if (!waitingLogged) { waitingLogged = true; Svc.log("p2p_waiting_permission") }
                         // 15s, not 120s: a human is standing in front of this phone
                         // waiting for the dismiss button to work.

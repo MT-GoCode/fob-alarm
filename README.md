@@ -50,10 +50,11 @@ dismiss an alarm.
    ("Done"). Both phones ship with the same link name and passphrase (`DIRECT-fa-alarm`
    / `12345678`), so pairing needs no typing. Change them under "Pair the other phone"
    only if you want to.
-3. Controller: Allow (Nearby devices), then Connect. It joins the alarm phone's group as
-   a Wi-Fi Direct client, with no box to tap and while staying on your home Wi-Fi. Within
-   a minute Status says "Alarm phone: connected" on the controller and "Controller:
-   connected" on the alarm phone. Then the Setup tab asks for Notifications; allow it.
+3. Controller: it starts trying on its own with the same name and passphrase. Its
+   screen shows what it is looking for, the permissions it needs (Allow them), and a
+   log of each attempt. It joins the alarm phone's group as a Wi-Fi Direct client, no
+   box to tap, while staying on your home Wi-Fi. Within a minute the bar at the top of
+   both phones is green: "updated 2s ago". Then the Setup tab asks for the rest.
 4. Settings on either phone: alarm time, volume, vibrate, stop-after, snooze. Every
    change says "saved" or "not saved" with the reason. Nothing is locked until you set
    a password on the alarm phone; with one set, Unlock at the top of Settings, and the
@@ -92,8 +93,9 @@ Any failure is a bug in this repo, not something to work around.
 
 Three rows block ringing on the alarm phone: **Notifications** (the ring screen and the
 link run as a foreground service), **Exact alarms** (granted at install; if it is ever
-missing, reinstall) and **Show over the lock screen**. On the controller, **Nearby
-devices** also blocks, because it cannot join the link without it.
+missing, reinstall) and **Show over the lock screen**. Two more are required on both
+phones for the link to last: **Nearby devices** (joining the group) and **Battery:
+unrestricted** (so Android never slows the link service down over the months).
 
 **Keep the app active** is the one to care about over months. Android pauses apps that
 are not opened for a while, which cancels every alarm. The setting is under the app's

@@ -39,6 +39,7 @@ fun RootScreen(
 ) {
     val s = app.snapshot
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var pushed by rememberSaveable { mutableStateOf(false) }
 
     // The alarm phone is its own truth; it is "starting" for a moment and then connected.
     if (isAlarmRole && s == null) {
@@ -49,7 +50,10 @@ fun RootScreen(
     // The controller has exactly two states: connected, or trying. Trying is one screen
     // with everything you can do about it, and whatever the alarm phone last said, dimmed.
     // A ring seen before the link dropped still wins: the dismiss button keeps retrying.
-    val ringing = s != null && (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs)
+    // Bounded by link age: a snapshot from before the link dropped cannot hold the ring
+    // screen up after the alarm phone has long since stopped on its own.
+    val ringing = s != null && (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) &&
+            (isAlarmRole || app.nowMs - app.linkAtMs < 10 * 60_000)
     if (!isAlarmRole && !app.connected && !ringing && trying != null) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             LinkBar(app, isAlarmRole)
@@ -66,7 +70,7 @@ fun RootScreen(
     }
     s!!
 
-    if (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) {
+    if (ringing) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             LinkBar(app, isAlarmRole)
             RingingScreen(app, s, isAlarmRole)
@@ -86,7 +90,6 @@ fun RootScreen(
     val myGates = app.localGates ?: s.gates
     val setupBlocked = myGates.evaluatedAtMs != 0L &&
             setupRows(myGates, isAlarmRole).any { it.first.blocking && !it.second }
-    var pushed by rememberSaveable { mutableStateOf(false) }
     if (setupBlocked && !pushed) { tab = 1; pushed = true }
 
     Scaffold(
@@ -124,11 +127,6 @@ fun RootScreen(
     }
 }
 
-// ---------------------------------------------------------------------------
-// NOT CONNECTED. On the controller this is normal for the first minute after
-// pairing; after that it is a problem with a next step. On the alarm phone it is
-// only ever a momentary startup state.
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // RINGING

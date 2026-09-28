@@ -146,7 +146,7 @@ Current build when this list was written: **0.2.23**.
 ## 11b. Link and restart behaviour (answered)
 
 - **Controller reconnects on a dead link.** `LinkService.tick` re-requests the network
-  every 5s, backing off to 120s with jitter, whenever `P2pJoinBridge.network()` is null.
+  every 5s, backing off to 15s with jitter, whenever the controller is not a member of the group.
   Necessary because a `WifiNetworkSpecifier` request dies after a ~30s / 3-scan cliff
   and does not resume scanning by itself.
 - **After a restart, both phones find each other by the same path.** `BootReceiver`
@@ -483,3 +483,14 @@ and a spin keeps adding; tests for jitter, drift, and a full turn.
 
 Every navigation re-reads the alarm phone, so does returning to the app, Settings has a
 refresh button like Status, and the idle poll is five seconds instead of twenty.
+
+## Round 12 — persistence
+
+The controller has two states, connected or trying; the trying screen carries the name,
+passphrase, permissions and a live log of attempts, and "Pair again" is gone. Both roles
+tear down Wi-Fi Direct state left by the other role, which was why every join failed
+after the roles were swapped; a swap in-process also resets the group code so it cannot
+keep tearing down the controller's own membership. The controller joins from locked boot
+with no wait for an unlock. The service heartbeat is five seconds with the app closed.
+Battery unrestricted is a required row on both phones. A ring seen before the link
+dropped cannot hold the controller's screen for more than ten minutes.

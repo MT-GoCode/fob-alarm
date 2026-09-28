@@ -76,6 +76,8 @@ object P2pJoin {
     }
 
     @Volatile private var hostingOwnGroup = false
+    /** Set by stop(): a membership still reported after it is the old one going away. */
+    @Volatile private var leavingUntilMs = 0L
 
     private fun readConnection(then: (formed: Boolean) -> Unit) {
         val m = manager ?: return
@@ -83,7 +85,9 @@ object P2pJoin {
         runCatching {
             m.requestConnectionInfo(ch) { info ->
                 hostingOwnGroup = info?.groupFormed == true && info.isGroupOwner
-                val addr = info?.takeIf { it.groupFormed && !it.isGroupOwner }?.groupOwnerAddress?.hostAddress
+                val leaving = System.currentTimeMillis() < leavingUntilMs
+                val addr = info?.takeIf { it.groupFormed && !it.isGroupOwner && !leaving }?.groupOwnerAddress?.hostAddress
+                if (info?.groupFormed != true) leavingUntilMs = 0L
                 val was = ownerAddress
                 ownerAddress = addr
                 if (addr != null) { pendingSinceMs = 0L; if (was == null) Svc.log("p2p_joined") }
@@ -97,6 +101,6 @@ object P2pJoin {
     fun stop() {
         val m = manager; val ch = channel
         if (m != null && ch != null) runCatching { m.removeGroup(ch, null) }
-        ownerAddress = null; pendingSinceMs = 0L
+        ownerAddress = null; pendingSinceMs = 0L; leavingUntilMs = System.currentTimeMillis() + 5_000
     }
 }
