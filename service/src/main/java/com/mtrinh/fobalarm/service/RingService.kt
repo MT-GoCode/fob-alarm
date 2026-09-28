@@ -152,9 +152,13 @@ class RingService : Service(), SensorEventListener {
                 Svc.log("sticky_restart_no_session")
                 teardown(); return START_NOT_STICKY
             }
-        } else if (Svc.testActive) {
-            return START_STICKY
         } else {
+            // A real trigger during a test: the test ends and the alarm takes over. A test
+            // a minute before 04:00 must never swallow 04:00.
+            if (Svc.testActive) {
+                Svc.testUntilMs = 0L; Svc.de.pendingTestUntilMs = 0L
+                Svc.log("test_superseded_by_alarm")
+            }
             // EVERY genuine trigger goes through the engine, open session or not --
             // that is what makes the §3 precedence table reachable: a scheduled alarm
             // superseding an open nap mints a fresh ringId, and a nap arriving during a

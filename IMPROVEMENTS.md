@@ -457,3 +457,11 @@ Skip give way to one Revert while a change is in force. The turn threshold is a 
 History keeps one missed record per occurrence and cleans up the duplicates old builds
 wrote. The unused concurrency gate is gone from the model and the wire. An existing
 group at process start is no longer logged as an error.
+
+Verification of round 10 found six more, fixed: the controller never showed the ring
+screen for a remote test (a test has no session, and the screen keyed on the session
+alone), so STOP TEST was unreachable there; a busy group with nothing behind it went
+unlogged; Status painted every permission red until the first evaluation; a controller
+that had gone away was still presented as current; stop-test claimed success on failure;
+the README's order did not match the screens. And a real alarm firing during a test ring
+was dropped: now the test ends and the alarm takes over.
