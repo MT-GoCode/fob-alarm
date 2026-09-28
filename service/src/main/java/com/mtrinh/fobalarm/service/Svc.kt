@@ -108,7 +108,7 @@ object Svc : AlarmHost {
 
         // Then bring up Room off-thread and recompute again once latches, the override
         // and the nap are known. Room is expendable; the schedule is not.
-        io.execute { tryLoadRoom("init") }
+        loadRoomAsync("init")
     }
 
     @Volatile private var roomLoaded = false
@@ -118,8 +118,11 @@ object Svc : AlarmHost {
      * Opened lazily and only marked ready once a real read SUCCEEDS. Retried on
      * ACTION_USER_UNLOCKED, because before first unlock this always fails.
      */
+    /** Receivers run on the main thread, where Room refuses to open. Always go through io. */
+    fun loadRoomAsync(reason: String) { if (!roomLoaded) io.execute { tryLoadRoom(reason) } }
+
     private val loadLock = Any()
-    fun tryLoadRoom(reason: String): Unit = synchronized(loadLock) {
+    private fun tryLoadRoom(reason: String): Unit = synchronized(loadLock) {
         if (roomLoaded) return
         runCatching {
             val d = Db.open(app)
@@ -143,10 +146,12 @@ object Svc : AlarmHost {
                         passwordHash = loaded.settings.passwordHash ?: state.settings.passwordHash,
                         passwordSalt = loaded.settings.passwordSalt ?: state.settings.passwordSalt,
                     ) else state.settings,
-                    latches = loaded.latches,
+                    // Union, and the newer outcome: whatever happened between boot and
+                    // unlock lives only in memory, and Room is older than that.
+                    latches = (loaded.latches + state.latches).distinctBy { it.id },
                     override = loaded.override,
                     nap = loaded.nap,
-                    lastOutcome = loaded.lastOutcome ?: state.lastOutcome,
+                    lastOutcome = listOfNotNull(loaded.lastOutcome, state.lastOutcome).maxByOrNull { it.atMs },
                     stateVersion = maxOf(loaded.stateVersion, state.stateVersion),
                     lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs),
                 )

@@ -65,16 +65,17 @@ red or green. Red means it will not ring, and says why.
 
 ## Hardware test before trusting it (do once per build)
 
-Nothing here can be verified by reading code. Run it with a stopwatch and `./logs`.
+Nothing here can be verified by reading code. Rows marked ✓ passed on an Android 15
+emulator with build 0.2.43 (IMPROVEMENTS.md round 7); the rest need the two phones.
 
 | step | do | must see |
 |---|---|---|
-| A1 | Set the alarm 3 minutes out, lock both phones, wait | Alarm phone rings at the minute. `logs`: `alarm_fired`, `ring_start`, `foreground_started` |
-| A2 | While ringing, press the power button, rotate the box a quarter turn | Screen comes back to the ring. Globe crosses the threshold, turns green, "SNOOZED" |
+| A1 ✓ | Set the alarm 3 minutes out, lock both phones, wait | Alarm phone rings at the minute. `logs`: `alarm_fired`, `ring_start`, `foreground_started` |
+| A2 ✓ | While ringing, press the power button, rotate the box a quarter turn | Screen comes back to the ring. Globe crosses the threshold, turns green, "SNOOZED" |
 | A3 | Controller, DISMISS IT | Stops in under 5 s. `logs`: `dismiss_remote` |
-| B1 | Alarm phone: Android Settings, force stop the app. Reopen it | Status still shows the next alarm. `logs`: `boot`, `recompute` |
-| B2 | Reboot the alarm phone and do **not** unlock it. Set the alarm 3 minutes out from the controller first | It rings. Ring screen shows over the lock screen |
-| B3 | Install a new build over the top with the alarm 5 minutes out | It rings. `logs`: `package_replaced` |
+| B1 ✓ | Alarm phone: Android Settings, force stop the app. Reopen it | Status still shows the next alarm. `logs`: `boot`, `recompute` |
+| B2 ✓ | Reboot the alarm phone and do **not** unlock it. Set the alarm 3 minutes out from the controller first | It rings. Ring screen shows over the lock screen |
+| B3 ✓ | Install a new build over the top with the alarm 5 minutes out | It rings. `logs`: `package_replaced` |
 | C1 | Turn the controller off for a minute, turn it back on, lock it in another room. Alarm 3 minutes out | Controller lights up "ALARM PHONE IS RINGING" and the notification DISMISS works cold, under 10 s |
 | C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `sync_group_down` then `sync_group_up` and `server_started`, then `probe_ok` |
 | D | Seven nights unattended | `history` shows one `ring_start` per night and no `missed`, `capped`, `crash` or `force_stopped_detected` |

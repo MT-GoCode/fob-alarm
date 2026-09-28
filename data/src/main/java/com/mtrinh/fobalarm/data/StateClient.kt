@@ -1,5 +1,8 @@
 package com.mtrinh.fobalarm.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 import com.mtrinh.fobalarm.core.*
 
 /**
@@ -66,8 +69,10 @@ class LocalStateClient(private val host: AlarmHost) : StateClient {
         runCatching { host.setOverride(kind, time, requestId, Actor.ALARM) }
     override suspend fun clearOverride(requestId: String) =
         runCatching { host.clearOverride(requestId, Actor.ALARM) }
-    override suspend fun history(sinceSeq: Long, limit: Int) = runCatching { host.history(sinceSeq, limit) }
-    override suspend fun export() = runCatching { host.export() }
+    // Room refuses reads on the main thread; these two are the only calls that read it.
+    override suspend fun history(sinceSeq: Long, limit: Int) =
+        withContext(Dispatchers.IO) { runCatching { host.history(sinceSeq, limit) } }
+    override suspend fun export() = withContext(Dispatchers.IO) { runCatching { host.export() } }
     override suspend fun unlock(secret: String) = runCatching { host.unlock(secret) }
     override suspend fun testRing(silent: Boolean, requestId: String) =
         runCatching { host.testRing(silent, requestId) }

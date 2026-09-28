@@ -90,15 +90,6 @@
             android:foregroundServiceType="connectedDevice" />
 
         <receiver
-            android:name="com.mtrinh.fobalarm.service.UnlockReceiver"
-            android:directBootAware="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.USER_UNLOCKED" />
-            </intent-filter>
-        </receiver>
-
-        <receiver
             android:name="com.mtrinh.fobalarm.service.TimeChangeReceiver"
             android:directBootAware="true"
             android:exported="false">

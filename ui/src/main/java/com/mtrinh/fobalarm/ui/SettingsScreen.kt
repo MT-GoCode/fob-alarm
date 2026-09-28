@@ -104,7 +104,7 @@ fun SettingsScreen(
 fun LockedRow(locked: Boolean, content: @Composable (enabled: Boolean) -> Unit) {
     var explain by remember { mutableStateOf(false) }
     Box {
-        content(!locked)
+        Box(Modifier.padding(end = if (locked) 24.dp else 0.dp)) { content(!locked) }
         if (locked) {
             Box(Modifier.matchParentSize().clickableNoRipple { explain = true })
             Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Muted,

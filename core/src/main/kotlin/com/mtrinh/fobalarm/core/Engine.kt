@@ -157,9 +157,12 @@ object Engine {
                 ov.fireAtMs != null && ov.fireAtMs > now) continue
 
             val suppressed = ov != null && ov.boundOccurrenceId == id   // DERIVED, never stored
+            // Due while a real alarm is already ringing: the trigger is absorbed into that
+            // ring, so it was not missed. A nap does not count, a real alarm supersedes it.
+            val absorbed = st.session != null && st.session.trigger != OccurrenceSource.NAP
             val reasonFor = when {
                 suppressed && ov!!.kind == OverrideKind.SKIP -> LatchReason.SKIPPED
-                suppressed -> LatchReason.SUPERSEDED
+                suppressed || absorbed -> LatchReason.SUPERSEDED
                 else -> LatchReason.MISSED
             }
 

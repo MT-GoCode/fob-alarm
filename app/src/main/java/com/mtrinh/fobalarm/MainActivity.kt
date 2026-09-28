@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Surface(Modifier.fillMaxSize()) {
                     when {
-                        role == null -> RolePicker { chosen -> Svc.setRole(chosen); role = chosen }
+                        role == null -> RolePicker { chosen -> Svc.setRole(chosen); role = chosen; refreshGates() }
                         // CONTROLLER INIT: its own thinner gates -- nearby-devices
                         // permission, credentials entered, AP reachable once. Without
                         // this a fresh controller can never join and would sit on

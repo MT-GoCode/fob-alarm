@@ -32,7 +32,12 @@ class LinkService : Service() {
         fun start(ctx: Context) {
             if (Svc.settings.role == null) return
             runCatching { ctx.startForegroundService(Intent(ctx, LinkService::class.java)) }
-                .onFailure { Svc.log("link_service_start_failed", "error" to it.toString()) }
+                .onFailure {
+                    // From a cold background start Android refuses; the boot receiver,
+                    // the activity or the next hourly tick starts it instead.
+                    Svc.log(if (it is android.app.ForegroundServiceStartNotAllowedException)
+                        "link_service_deferred" else "link_service_start_failed", "error" to it.toString())
+                }
         }
 
         fun stop(ctx: Context) {

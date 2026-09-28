@@ -111,11 +111,10 @@ object GateEval {
             // Both: the engine computed a time AND AlarmManager accepted it.
             scheduleExists = nextFireExists && Scheduler.fireArmed,
             exactAlarm = probe("exactAlarm", false) { am.canScheduleExactAlarms() },
-            // Whether we are ALLOWED to run the ring service, not whether it is running
-            // right now -- it only runs during a ring, so the old check was a permanent X.
-            foregroundService = probe("foregroundService", false) {
-                nm.areNotificationsEnabled() && LinkService.alive
-            },
+            // The permission and only the permission. Tying this to a running service
+            // showed a red "Notifications" row for a granted permission every time the
+            // gates were read before the link service was up (seen on device).
+            foregroundService = probe("foregroundService", false) { nm.areNotificationsEnabled() },
             p2pSupported = probe("p2pSupported", false) {
                 ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)
             },

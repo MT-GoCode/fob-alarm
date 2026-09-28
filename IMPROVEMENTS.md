@@ -329,3 +329,44 @@ cannot join without it; a moved alarm whose new time passed while the phone was 
 was latched as superseded and never rang (now MISSED, rings on return, test written
 failing first); the receiver held its wake lock for 60 s on the after-cap path; the
 sync window skipped when there was no next fire. `core tests=45 failures=0`.
+
+## Round 7 — on a device (Android 15 emulator, no Wi-Fi Direct)
+
+First run on real Android. Driven through the real UI with uiautomator, the clock jumped
+to the alarm minute, the process killed mid-ring, the app force-stopped, updated over the
+top, and rebooted with a PIN and never unlocked. Nine findings, all fixed and re-run:
+
+1. **"Notifications" showed red for a granted permission.** The gate also required the
+   link service to be alive, and the cached gates predated it. This is exactly the
+   "permission looks missing, I press Allow, nothing asks" report from the phones. The
+   gate is now the permission and nothing else, and the gates re-read when a role is
+   picked.
+2. **Everything that happened before first unlock was lost at unlock.** USER_UNLOCKED is
+   a registered-receivers-only broadcast; the manifest receiver never ran. Then the boot
+   receiver's load ran on the main thread, where Room refuses. The database now loads on
+   BOOT_COMPLETED (which arrives after unlock) and on the hourly tick, on the io thread.
+3. **History on the alarm phone only ever showed the current process's memory.** The
+   screen read Room on the main thread, Room threw, the fallback was the memory tail.
+   Reads go through the IO dispatcher now.
+4. **Room's older state overwrote the newer in-memory state at unlock.** Latches are
+   now a union and the last outcome is the newer one, so Status stopped saying
+   "Last alarm" with the previous night's date.
+5. **An occurrence coming due during a real ring was recorded as missed.** It is absorbed
+   into the ring, so it is latched superseded, with a test.
+6. The link service start from a cold locked boot is refused by Android and logged as an
+   error every boot; it is now logged as deferred and the hourly tick restarts it.
+7. Force-stop detection read only the newest start record; it reads the last three.
+8. Lock icons overlapped the values they locked.
+9. A resumed ring after a process kill shows the heads-up notification with DISMISS
+   rather than the ring screen when the phone is unlocked and on; Android does not let
+   a service raise an activity from the background. Locked, the full-screen intent brings
+   the ring screen back, which is the case that matters in the box.
+
+Verified on the device, build 0.2.43: fires on the second; ring screen with focus over
+the keyguard before first unlock; sticky restart after kill -9 mid-ring resumes the same
+ring with audio; notification DISMISS and on-screen dismiss; force-stop then relaunch
+re-registers the alarm; install over the top keeps the schedule; nap rings on its
+minute; test ring and silent test; the turn-to-snooze gesture through the virtual
+rotation sensor; Skip, Undo and the time picker; History as sentences; the hourly tick;
+the default-password unlock and a saved setting. Wi-Fi Direct, the controller's remote
+dismiss and the sync window cannot run on the emulator and remain phone-only.

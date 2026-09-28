@@ -545,4 +545,23 @@ class ZombieSessionTest {
         val done = Engine.endSession(r.state, c, Outcome.DISMISSED_LOCAL)
         assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), done.nextFire!!.atMs)
     }
+
+    @Test fun `an occurrence that comes due during a real ring is absorbed, not missed`() {
+        // Yesterday's alarm, missed while the phone was dead, starts ringing at 03:59.
+        val c = FakeClock(at("2026-09-28T03:59:40-07:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-09-27T03:00:00-07:00[America/Los_Angeles]"))
+        val back = Engine.recompute(st, c, "boot")
+        assertEquals(OccurrenceSource.SCHEDULED, back.fireNow)
+        val ringing = Engine.onTrigger(back.state, c, OccurrenceSource.SCHEDULED, "r1").state
+        assertEquals("2026-09-27", ringing.session!!.occurrenceId.localDate)
+
+        // Today's 04:00 arrives while it rings.
+        c.set("2026-09-28T04:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.onTrigger(ringing, c, OccurrenceSource.SCHEDULED, "r2")
+        assertEquals("r1", r.state.session!!.ringId, "absorbed into the open ring")
+        assertTrue(r.events.none { it.type == "missed" }, "a ringing phone did not miss anything")
+        assertTrue(r.state.latches.any { it.id.localDate == "2026-09-28" && it.reason == LatchReason.SUPERSEDED })
+        assertEquals(at("2026-09-29T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
 }

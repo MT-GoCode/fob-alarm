@@ -55,6 +55,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 Scheduler.ACTION_TICK -> {
                     Svc.pruneHistory()
                     Svc.recompute("hourly_tick")
+                    Svc.loadRoomAsync("hourly_tick")
+                    if (!LinkService.alive) LinkService.start(ctx)   // exact-alarm exempt, so allowed
                     SyncWindow.run(ctx)
                 }
                 Scheduler.ACTION_ARMGATE -> ArmGateRunner.run(ctx)
@@ -92,6 +94,9 @@ class BootReceiver : BroadcastReceiver() {
         // Pending alarms survive a package replace, but the exact-alarm re-check can wipe
         // them, and a reboot clears everything. Rebuild unconditionally.
         Svc.recompute("boot:${intent.action}")
+        // BOOT_COMPLETED arrives after the first unlock, so the database is readable now.
+        // (USER_UNLOCKED is registered-receivers-only and never reaches a manifest receiver.)
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) Svc.loadRoomAsync("boot_completed")
         LinkService.start(ctx)
 
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
@@ -127,14 +132,6 @@ object ArmGateRunner {
  * Before first unlock Room is unreadable, so this is the only moment the settings that
  * live there can be loaded.
  */
-class UnlockReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        Boot.ensure(ctx)
-        Svc.tryLoadRoom("user_unlocked")
-        LinkService.start(ctx)
-    }
-}
-
 /**
  * A clock correction was otherwise noticed up to an hour late, via the tick. A backwards
  * jump can invent missed alarms; a forward one can hide real ones.
@@ -209,8 +206,8 @@ object ForceStopDetector {
         if (Build.VERSION.SDK_INT < 35) return
         runCatching {
             val am = ctx.getSystemService(ActivityManager::class.java)
-            val info = am.getHistoricalProcessStartReasons(1).firstOrNull() ?: return
-            if (info.wasForceStopped()) Svc.log("force_stopped_detected")
+            if (am.getHistoricalProcessStartReasons(3).any { it.wasForceStopped() })
+                Svc.log("force_stopped_detected")
         }
     }
 }
