@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -85,7 +86,8 @@ fun RootScreen(
             }
         }
     ) { pad ->
-        Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
+        // Red bar: what is below came from the other phone earlier. Dim it so it reads as such.
+        Box(Modifier.padding(pad).consumeWindowInsets(pad).alpha(if (isAlarmRole || app.connected) 1f else 0.55f)) {
             when (tab) {
                 0 -> WaitingScreen(app, s, isAlarmRole)
                 1 -> SetupScreen(app, s, isAlarmRole, onFixGate, pairing)
@@ -108,6 +110,7 @@ fun RootScreen(
 private fun NotConnectedScreen(app: AppState, isAlarmRole: Boolean, onRepair: (() -> Unit)?) {
     val stuck = !isAlarmRole && app.nowMs - app.startedMs > 60_000
 
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { LinkBar(app, isAlarmRole) }
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         contentAlignment = Alignment.Center) {
         Column(Modifier.padding(S.page), horizontalAlignment = Alignment.CenterHorizontally) {

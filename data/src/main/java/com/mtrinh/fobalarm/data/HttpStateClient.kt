@@ -21,7 +21,7 @@ class HttpStateClient(
     companion object { const val PORT = 8765 }
 
     private suspend fun request(
-        method: String, path: String, body: JSONObject? = null, timeoutMs: Int = 4000,
+        method: String, path: String, body: JSONObject? = null, timeoutMs: Int = 2000,
     ): String = withContext(Dispatchers.IO) {
         val host = hostProvider() ?: throw ClientError.Transport("not joined to the alarm phone")
         val url = URL("http://$host:$PORT$path")

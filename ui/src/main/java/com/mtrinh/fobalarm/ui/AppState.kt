@@ -72,7 +72,8 @@ class AppState(
     /** When this screen started trying, so "still not connected" is measured from a real attempt. */
     val startedMs: Long = System.currentTimeMillis()
 
-    fun startPolling(fastMs: Long = 500, idleMs: Long = 3_000) {
+    /** Constantly: half a second while ringing, three seconds idle, one second while red. */
+    fun startPolling(fastMs: Long = 500, idleMs: Long = 3_000, retryMs: Long = 1_000) {
         scope.launch {
             while (true) { nowMs = System.currentTimeMillis(); delay(500) }
         }
@@ -87,7 +88,7 @@ class AppState(
                 }
                 val s = snapshot
                 val live = s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)
-                delay(if (live) fastMs else idleMs)
+                delay(if (live) fastMs else if (!isLocal && !connected) retryMs else idleMs)
             }
         }
     }
@@ -146,6 +147,7 @@ class AppState(
                         return@launch
                     }
                     else -> {
+                        if (!isLocal) noteFailure()
                         if (System.currentTimeMillis() - startedAt > 10_000) {
                             dismissUi = DismissUi.Unreachable(
                                 if (isLocal) "Could not stop it." else "Can't reach the alarm phone. Use the key.")
@@ -169,6 +171,7 @@ class AppState(
             client.testRing(silent, UUID.randomUUID().toString())
                 .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); delay(1500); refresh() }
                 .onFailure {
+                    if (it is ClientError.Transport && !isLocal) noteFailure()
                     testOk = false
                     testMessage = if (it is ClientError.Transport)
                         "Can't reach the alarm phone" else "It is already ringing"
@@ -202,7 +205,11 @@ class AppState(
     }
 
     fun loadHistory(limit: Int = 200) {
-        scope.launch { client.history(0, limit).onSuccess { history = it.reversed() } }
+        scope.launch {
+            client.history(0, limit)
+                .onSuccess { history = it.reversed(); lastOkMs = System.currentTimeMillis() }
+                .onFailure { if (!isLocal) noteFailure() }
+        }
     }
 
     /** "Saved" / "Not saved" for every change, because the other phone may not have it. */
@@ -224,6 +231,7 @@ class AppState(
                     timeout.cancel()
                     snapshot = it; lastOkMs = System.currentTimeMillis()
                     syncMessage = "$label saved"
+                    launch { delay(1000); refresh() }     // follow-on state (a test starting, a nap arming)
                     delay(1800); syncMessage = null
                 }
                 .onFailure { e ->
@@ -251,7 +259,7 @@ class AppState(
         scope.launch {
             client.stopTest()
                 .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); ringEndMessage = "Test stopped" }
-                .onFailure { ringEndMessage = "Could not stop the test" }
+                .onFailure { if (!isLocal) noteFailure(); ringEndMessage = "Could not stop the test" }
         }
     }
 }
