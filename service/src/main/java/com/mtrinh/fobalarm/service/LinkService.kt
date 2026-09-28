@@ -136,7 +136,7 @@ class LinkService : Service() {
                         // Linked: watch the alarm phone from the SERVICE, so the alert and
                         // its dismiss work with no Activity alive at all.
                         Thread { ControllerWatch.poll(this@LinkService) }.start()
-                        backoffMs = if (ControllerWatch.ringing) 2_000L else 15_000L
+                        backoffMs = if (ControllerWatch.ringing) 2_000L else 5_000L
                     }
                 }
                 null -> {}

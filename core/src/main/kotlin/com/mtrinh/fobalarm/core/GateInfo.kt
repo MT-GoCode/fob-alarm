@@ -54,6 +54,9 @@ data class GateInfo(
             GateInfo("notHibernating", "Keep the app active",
                 "Turn off \"Pause app activity if unused\" so Android never stops the alarm.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
+            GateInfo("batteryUnrestricted", "Battery: unrestricted",
+                "Lets the link run for months without Android slowing it down.",
+                GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
             GateInfo("localNetworkPermission", "Nearby devices",
                 "Required to pair the two phones over Wi-Fi Direct.",
                 GateKind.PERMISSION, blocking = false, fix = FixAction.REQUEST),
@@ -117,10 +120,12 @@ data class GateInfo(
          */
         fun forRole(alarmRole: Boolean): List<GateInfo> = ofKind(GateKind.PERMISSION)
             .filter { alarmRole || it.key in CONTROLLER_NEEDS }
-            .map { if (it.key == "localNetworkPermission") it.copy(blocking = true) else it }
+            .map { if (it.key in PRODUCT_NEEDS) it.copy(blocking = true) else it }
 
         private val CONTROLLER_NEEDS = setOf("foregroundService", "fullScreenIntent",
-            "localNetworkPermission", "notHibernating")
+            "localNetworkPermission", "batteryUnrestricted", "notHibernating")
+        /** Not ring-blocking, but the two phones cannot stay linked for a month without them. */
+        private val PRODUCT_NEEDS = setOf("localNetworkPermission", "batteryUnrestricted")
     }
 }
 
@@ -154,5 +159,6 @@ fun Gates.value(key: String): Boolean = when (key) {
     "vibrationEnabled" -> vibrationEnabled
     "freeDiskOk" -> freeDiskOk
     "noBluetoothAudio" -> noBluetoothAudio
+    "batteryUnrestricted" -> batteryUnrestricted
     else -> true
 }

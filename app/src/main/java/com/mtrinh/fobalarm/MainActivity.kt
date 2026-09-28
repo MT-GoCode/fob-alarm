@@ -210,6 +210,9 @@ class MainActivity : ComponentActivity() {
                 // Android has no dedicated page for this on most builds -- the intent
                 // lands on App info, where the toggle is several scrolls down under a
                 // name that varies by OEM. Say exactly what to look for.
+                // Android's own dialog: "Allow Fob Alarm to always run in the background?"
+                "batteryUnrestricted" -> startActivity(
+                    Intent(ASettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                 "notHibernating" -> {
                     hibernationHelp = true
                     startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(

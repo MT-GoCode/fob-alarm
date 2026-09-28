@@ -78,7 +78,7 @@ object GateEval {
         notificationPolicyAccess = false, dndAllowsAlarms = false, volumeNotFixed = false,
         fullScreenIntent = false, notHibernating = false, thermalOk = false,
         audioPlayable = false, powerOk = false, vibrationEnabled = false,
-        freeDiskOk = false, noBluetoothAudio = false)
+        freeDiskOk = false, noBluetoothAudio = false, batteryUnrestricted = false)
 
     @Volatile var lastError: String? = null
 
@@ -148,6 +148,9 @@ object GateEval {
             noBluetoothAudio = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).none {
                 it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+            },
+            batteryUnrestricted = probe("batteryUnrestricted", false) {
+                pm.isIgnoringBatteryOptimizations(ctx.packageName)
             },
         )
     }

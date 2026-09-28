@@ -36,6 +36,7 @@ object Wire {
             put("vibrationEnabled", s.gates.vibrationEnabled)
             put("freeDiskOk", s.gates.freeDiskOk)
             put("noBluetoothAudio", s.gates.noBluetoothAudio)
+            put("batteryUnrestricted", s.gates.batteryUnrestricted)
             put("allPass", s.gates.allPass)
         })
         put("armGate", s.armGate?.let {
@@ -170,7 +171,8 @@ object Wire {
             fullScreenIntent = gb("fullScreenIntent"), notHibernating = gb("notHibernating"),
             thermalOk = gb("thermalOk"), audioPlayable = gb("audioPlayable"),
             powerOk = gb("powerOk"), vibrationEnabled = gb("vibrationEnabled"),
-            freeDiskOk = gb("freeDiskOk"), noBluetoothAudio = gb("noBluetoothAudio"))
+            freeDiskOk = gb("freeDiskOk"), noBluetoothAudio = gb("noBluetoothAudio"),
+            batteryUnrestricted = g.optBoolean("batteryUnrestricted", true))
         val r = o.optJSONObject("ring")
         val c = o.getJSONObject("clock")
         val ap = o.getJSONObject("ap")

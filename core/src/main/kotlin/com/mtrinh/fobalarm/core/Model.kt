@@ -163,6 +163,8 @@ data class Gates(
     val vibrationEnabled: Boolean,
     val freeDiskOk: Boolean,
     val noBluetoothAudio: Boolean,
+    /** Android may throttle a service that has run for days unless the app is exempt. */
+    val batteryUnrestricted: Boolean = true,
 ) {
     /** Derived from the single GateInfo table -- never a second hand-kept list. */
     val allPass: Boolean get() = GateInfo.ALL.filter { it.blocking }.all { value(it.key) }
