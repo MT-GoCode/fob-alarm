@@ -26,11 +26,13 @@ AAPT=$(ls -d "$HOME"/Library/Android/sdk/build-tools/* | sort -V | tail -1)/aapt
 # Capture first: `grep -q` exits on first match, aapt2 dies on SIGPIPE, and with
 # `set -o pipefail` the whole pipeline reports failure even on success.
 PERMS=$("$AAPT" dump permissions "$APK" 2>/dev/null || true)
-if ! printf '%s' "$PERMS" | grep -q "android.permission.USE_EXACT_ALARM"; then
-  echo "FATAL: USE_EXACT_ALARM missing from built manifest. Refusing to serve." >&2
-  exit 1
-fi
-echo "==> pre-flight ok (USE_EXACT_ALARM present)"
+for P in USE_EXACT_ALARM CHANGE_NETWORK_STATE NEARBY_WIFI_DEVICES FOREGROUND_SERVICE_CONNECTED_DEVICE; do
+  if ! printf '%s' "$PERMS" | grep -q "android.permission.$P"; then
+    echo "FATAL: $P missing from built manifest. Refusing to serve." >&2
+    exit 1
+  fi
+done
+echo "==> pre-flight ok (exact alarm, network request, nearby devices, link service permissions present)"
 
 mkdir -p .serve releases
 cp "$APK" .serve/fobalarm.apk

@@ -29,6 +29,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- requestNetwork() throws SecurityException without this. Found on the phones. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <!-- Inert on API 36 (the gate there is NEARBY_WIFI_DEVICES); becomes the gate at
          targetSdk 37. Free to declare, load-bearing if Android 17 ever lands. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
