@@ -42,7 +42,10 @@ fun RootScreen(
     }
 
     if (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) {
-        RingingScreen(app, s, isAlarmRole)
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            LinkBar(app, isAlarmRole)
+            RingingScreen(app, s, isAlarmRole)
+        }
         return
     }
 
@@ -62,6 +65,7 @@ fun RootScreen(
     if (setupBlocked && !pushed) { tab = 1; pushed = true }
 
     Scaffold(
+        topBar = { LinkBar(app, isAlarmRole) },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -138,7 +142,34 @@ private fun NotConnectedScreen(app: AppState, isAlarmRole: Boolean, onRepair: ((
 
 /** The ring, and only the ring. No tabs, no navigation away. */
 @Composable
-fun RingOnlyScreen(app: AppState, s: Snapshot) = RingingScreen(app, s, isAlarmRole = true)
+fun RingOnlyScreen(app: AppState, s: Snapshot) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        LinkBar(app, isAlarmRole = true)
+        RingingScreen(app, s, isAlarmRole = true)
+    }
+}
+
+/**
+ * The one line that is always on screen, on both phones: how fresh what you are looking
+ * at is. Green while the other phone answers; red the moment a request fails or it has
+ * gone quiet, and then everything below is the last known state, and says so.
+ */
+@Composable
+fun LinkBar(app: AppState, isAlarmRole: Boolean) {
+    val now = app.nowMs
+    val at = app.linkAtMs
+    val ok = app.connected
+    val other = if (isAlarmRole) "Controller" else "Alarm phone"
+    val text = when {
+        at == 0L -> "$other: never heard from"
+        ok -> "$other: updated ${Fmt.age(at, now)}"
+        else -> "$other: not answering for ${Fmt.duration(now - at)}. Showing what it last said."
+    }
+    Surface(color = if (ok) Good else Bad, modifier = Modifier.fillMaxWidth()) {
+        Text(text, fontSize = T.caption, fontWeight = FontWeight.SemiBold, color = Color.Black,
+            modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = S.page, vertical = S.xs))
+    }
+}
 
 @Composable
 private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
@@ -158,7 +189,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     // Three things, centred as one group: the time, the button, the globe. The small
     // lines (TEST, whose alarm, muted) sit at the edges and never push the group around.
     Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(S.page),
+        Modifier.fillMaxSize().padding(S.page),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (isTest) Text("TEST", fontSize = T.label, fontWeight = FontWeight.Bold,

@@ -54,17 +54,25 @@ class AppState(
      * in-process call succeed". On the ALARM role that is peer.lastSeenMs; on the
      * CONTROLLER it is our last successful poll.
      */
-    private val linkAtMs: Long
+    val linkAtMs: Long
         get() = if (isLocal) (snapshot?.peer?.lastSeenMs ?: 0L) else lastOkMs
+    /** The last time a request to the other phone failed; a failure flips the link red at once. */
+    var lastFailMs by mutableLongStateOf(0L); private set
+    fun noteFailure() { lastFailMs = System.currentTimeMillis() }
 
-    val connected: Boolean get() = linkAtMs != 0L && nowMs - linkAtMs < 60_000
+    /**
+     * Connected means: the last thing we heard from the other phone was a success, and it
+     * was recent. The controller polls every three seconds, so silence is short-lived.
+     */
+    val connected: Boolean get() =
+        linkAtMs != 0L && nowMs - linkAtMs < 15_000 && (isLocal || lastFailMs < lastOkMs)
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
     var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
     /** When this screen started trying, so "still not connected" is measured from a real attempt. */
     val startedMs: Long = System.currentTimeMillis()
 
-    fun startPolling(fastMs: Long = 500, idleMs: Long = 5_000) {
+    fun startPolling(fastMs: Long = 500, idleMs: Long = 3_000) {
         scope.launch {
             while (true) { nowMs = System.currentTimeMillis(); delay(500) }
         }
@@ -98,7 +106,7 @@ class AppState(
                 snapshot = s
                 lastOkMs = System.currentTimeMillis()
             }
-            .onFailure { }
+            .onFailure { if (!isLocal) noteFailure() }
     }
 
     fun dismiss() {
@@ -220,6 +228,7 @@ class AppState(
                 }
                 .onFailure { e ->
                     timeout.cancel()
+                    if (e is ClientError.Transport && !isLocal) noteFailure()
                     if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
                         is ClientError.Forbidden -> "$label not saved. Unlock first."

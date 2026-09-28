@@ -312,8 +312,9 @@ class MainActivity : ComponentActivity() {
         val set = !snap?.settings?.passphrase.isNullOrBlank()
         if (role == Role.CONTROLLER) {
             Section("Pairing")
-            Text(if (set) "Paired to ${snap?.settings?.ssid ?: ""}" else "Not paired",
-                fontSize = T.body, color = if (set) Good else Bad)
+            // The configured group, not the live link: the bar at the top shows the link.
+            Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",
+                fontSize = T.body, color = if (set) Muted else Bad)
             Spacer(Modifier.height(S.sm))
             OutlinedButton(onClick = {
                 runCatching {
