@@ -1,5 +1,7 @@
 package com.mtrinh.fobalarm.service
 
+import com.mtrinh.fobalarm.core.Role
+
 import android.content.Context
 import com.mtrinh.fobalarm.core.Actor
 import com.mtrinh.fobalarm.data.Wire
@@ -59,7 +61,9 @@ object Server {
         while (true) {
             // The P2P address only exists while the group is up. Waiting for it is the
             // normal state before pairing, not an error worth logging every 15 seconds.
-            if (control && !Group.running) {
+            // The controller never serves control: a listener on its own 192.168.49.1
+            // would answer its own polls and it would watch itself instead of the alarm.
+            if (control && (!Group.running || Svc.settings.role != Role.ALARM)) {
                 controlStatus = "waiting for group"
                 Thread.sleep(5_000)
                 continue

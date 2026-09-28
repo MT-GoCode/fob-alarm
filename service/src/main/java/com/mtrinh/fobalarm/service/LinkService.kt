@@ -28,6 +28,12 @@ class LinkService : Service() {
         const val CHANNEL = "link"
         const val NOTIF_ID = 44
         @Volatile var alive = false
+        @Volatile private var instance: LinkService? = null
+        /** Run the tick now with the backoff reset: something it was waiting for just changed. */
+        fun nudge() {
+            val s = instance ?: return
+            s.handler.post { s.backoffMs = 5_000L; s.handler.removeCallbacks(s.tick); s.handler.post(s.tick) }
+        }
 
         fun start(ctx: Context) {
             if (Svc.settings.role == null) return
@@ -74,6 +80,14 @@ class LinkService : Service() {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ControllerWatch.ACTION_REMOTE_DISMISS) {
+            // From the notification. Here, not in the receiver: a flaky link can need
+            // more than a broadcast's 10 s. Hold the CPU for it if nothing else does.
+            if (wakeLock == null) getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:dismiss").acquire(60_000)
+            Thread { ControllerWatch.dismissNow(this) }.start()
+            return START_STICKY
+        }
         if (Svc.settings.role == Role.CONTROLLER && wakeLock == null) {
             wakeLock = getSystemService(android.os.PowerManager::class.java)
                 .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:watch")
@@ -84,6 +98,7 @@ class LinkService : Service() {
         runCatching { startForeground(NOTIF_ID, notification()) }
             .onFailure { Svc.log("link_fgs_failed", "error" to it.toString()) }
         alive = true
+        instance = this
         Server.start(this)
         handler.removeCallbacks(tick)
         handler.post(tick)
@@ -135,6 +150,7 @@ class LinkService : Service() {
         runCatching { wakeLock?.release() }; wakeLock = null
         runCatching { unregisterReceiver(p2pReceiver) }
         alive = false
+        instance = null
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }

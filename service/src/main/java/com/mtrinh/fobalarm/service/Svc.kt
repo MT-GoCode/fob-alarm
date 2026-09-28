@@ -405,7 +405,7 @@ object Svc : AlarmHost {
             apply(Engine.patchSettings(state, ts, patch, actor))
         }
         // D19: reuse io rather than leaking a fresh executor per credential change.
-        if (ssidChanged) io.execute { Group.restart(app, state.settings) }
+        if (ssidChanged && state.settings.role == Role.ALARM) io.execute { Group.restart(app, state.settings) }
         return snap
     }
 

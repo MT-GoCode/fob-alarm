@@ -16,6 +16,8 @@ import com.mtrinh.fobalarm.service.Svc
  */
 object P2pJoin {
     @Volatile var network: Network? = null
+    /** When the current request was issued; 0 once it resolved either way. */
+    @Volatile var pendingSinceMs = 0L
     private var cm: ConnectivityManager? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
 
@@ -24,6 +26,10 @@ object P2pJoin {
         val um = ctx.getSystemService(UserManager::class.java)
         if (!um.isUserUnlocked) return
 
+        // A request in flight (scanning, the system dialog, associating, DHCP) must not be
+        // torn down and re-issued every tick: unregistering it dismisses the dialog and
+        // drops a connection in progress. Only a request that has gone quiet is replaced.
+        if (pendingSinceMs != 0L && System.currentTimeMillis() - pendingSinceMs < 90_000) return
         stop()
         val spec = WifiNetworkSpecifier.Builder()
             .setSsid(ssid)
@@ -38,27 +44,28 @@ object P2pJoin {
         cm = c
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(n: Network) {
-                network = n
+                network = n; pendingSinceMs = 0L
                 Svc.log("p2p_joined")
             }
             override fun onLost(n: Network) {
-                network = null
+                network = null; pendingSinceMs = 0L
                 Svc.log("p2p_lost")
             }
             override fun onUnavailable() {
                 // ~30s / 3-scan cliff after which the request dies and does NOT resume
                 // scanning, so the poll loop must re-request rather than wait.
-                network = null
+                network = null; pendingSinceMs = 0L
                 Svc.log("p2p_unavailable")
             }
         }
         callback = cb
+        pendingSinceMs = System.currentTimeMillis()
         runCatching { c.requestNetwork(req, cb) }
-            .onFailure { Svc.log("p2p_request_failed", "error" to it.toString()) }
+            .onFailure { pendingSinceMs = 0L; Svc.log("p2p_request_failed", "error" to it.toString()) }
     }
 
     fun stop() {
         runCatching { callback?.let { cm?.unregisterNetworkCallback(it) } }
-        callback = null; network = null
+        callback = null; network = null; pendingSinceMs = 0L
     }
 }

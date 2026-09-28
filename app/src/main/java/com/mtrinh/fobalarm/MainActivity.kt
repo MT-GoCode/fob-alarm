@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshGates() {
         permTick++
+        LinkService.nudge()          // a grant may be what the group or the join was waiting for
         GateEval.invalidateSlowChecks()
         GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
         // The controller renders the ALARM phone's snapshot, so its own permission
@@ -119,7 +120,13 @@ class MainActivity : ComponentActivity() {
                 }
                 Surface(Modifier.fillMaxSize()) {
                     when {
-                        role == null -> RolePicker { chosen -> Svc.setRole(chosen); role = chosen; refreshGates() }
+                        role == null -> RolePicker { chosen ->
+                            Svc.setRole(chosen); role = chosen; refreshGates()
+                            // The group cannot be created without it, and nobody reads the
+                            // Recommended row before bedtime.
+                            if (chosen == Role.ALARM) perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
+                                Manifest.permission.ACCESS_FINE_LOCATION))
+                        }
                         // CONTROLLER INIT: its own thinner gates -- nearby-devices
                         // permission, credentials entered, AP reachable once. Without
                         // this a fresh controller can never join and would sit on
@@ -132,8 +139,8 @@ class MainActivity : ComponentActivity() {
                                         java.util.UUID.randomUUID().toString(),
                                         Svc.unlockToken, Actor.CONTROLLER)
                                 }.onSuccess {
-                                    P2pJoin.join(this@MainActivity, ssid, pass)
-                                    recreate()
+                                    P2pJoin.stop()      // drop any request for the old credentials
+                                    recreate()          // the link service issues the new one
                                 }.onFailure {
                                     Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                                 }
@@ -171,7 +178,7 @@ class MainActivity : ComponentActivity() {
                                         Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
                                             java.util.UUID.randomUUID().toString(),
                                             Svc.unlockToken, Actor.CONTROLLER)
-                                    }.onSuccess { recreate() }.onFailure {
+                                    }.onSuccess { P2pJoin.stop(); recreate() }.onFailure {
                                         Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                                     }
                                 },
@@ -320,7 +327,7 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
                         java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
-                }.onSuccess { recreate() }.onFailure {
+                }.onSuccess { P2pJoin.stop(); recreate() }.onFailure {
                     Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
                 }
             }) { Text("Pair again") }

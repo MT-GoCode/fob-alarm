@@ -29,8 +29,8 @@ class HttpStateClient(
     ): String = withContext(Dispatchers.IO) {
         val host = hostProvider() ?: throw ClientError.Transport("no group owner address")
         val url = URL("http://$host:$PORT$path")
-        val net = networkProvider()
-        val conn = (net?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
+        val net = networkProvider() ?: throw ClientError.Transport("not joined to the alarm phone")
+        val conn = net.openConnection(url) as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = timeoutMs

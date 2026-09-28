@@ -20,9 +20,10 @@ class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Boot.ensure(ctx)
         if (intent.action == ControllerWatch.ACTION_REMOTE_DISMISS) {
-            // goAsync keeps the broadcast's wake lock until the work is done.
-            val pending = goAsync()
-            Thread { try { ControllerWatch.dismissNow(ctx) } finally { pending.finish() } }.start()
+            // Handed to the link service: it holds a wake lock and has no 10 s budget.
+            runCatching { ctx.startService(Intent(ctx, LinkService::class.java)
+                .setAction(ControllerWatch.ACTION_REMOTE_DISMISS)) }
+                .onFailure { Svc.log("remote_dismiss_handoff_failed", "error" to it.toString()) }
             return
         }
         if (Svc.settings.role != Role.ALARM) return      // controller never fires alarms
@@ -162,6 +163,10 @@ object SyncWindow {
         // still be rejoining when the ring starts, and remote dismiss would be dead.
         val next = Svc.lastNextFire?.atMs ?: Long.MAX_VALUE
         if (next - System.currentTimeMillis() < 10 * 60_000L) return
+        // The system's network clock is usually fresh without touching the network at
+        // all; only when it is stale is the group worth dropping.
+        ClockObserver.poll()
+        if (ClockObserver.healthy() && System.currentTimeMillis() - lastOkMs < 24 * 3600_000L) return
         running = true
         lastAttemptMs = System.currentTimeMillis()
         Thread({

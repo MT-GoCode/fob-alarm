@@ -394,3 +394,47 @@ grammar: label left, value right, tap to edit, same fonts and padding. The ring 
 centres the time, the button and the globe as one group. While the ring screen is
 showing, its notification drops to a quiet channel so no heads-up sits on top of it; when
 the screen goes away it comes back loud with its full-screen intent.
+
+## Round 9 — the link, reviewed against Android's real behaviour
+
+The two-phone path had never run on hardware in this build, so it got the same treatment
+that found nine bugs on the emulator: a review against what Android actually does, with
+the real alarm phone's hourly log as evidence (its group cycles cleanly every hour; no
+controller has ever joined it). Nine findings, all fixed:
+
+1. **The controller hosted its own group.** Saving credentials on the controller ran the
+   alarm phone's group restart, so the controller became a group owner on 192.168.49.1
+   with a control server, polled itself, saw "connected" forever and never joined the
+   alarm. Group hosting and the control listener are now alarm-role only.
+2. **The join loop cancelled its own request every tick.** Re-requesting the network
+   tore down the system approval dialog and any connection in progress. A request in
+   flight is now left alone for 90 s.
+3. **Every alarm-phone reboot would have needed a human tap on the controller.** The
+   controller's approval is keyed on the group owner's MAC, which Android randomises
+   each time P2P comes up unless a persistent group exists. The group is persistent now.
+4. **A group with old credentials counted as running.** After a credential change the
+   old group could stay up with a green status while the controller could never join.
+   The refresh compares credentials and tears a stale group down.
+5. **Remote dismiss from the notification ran inside a 10 s broadcast budget** and could
+   get the process killed on a flaky link. It is handed to the link service.
+6. **Nearby devices was never requested on the alarm phone** until the user found the
+   row; the group cannot be created without it. It is asked for when the role is picked,
+   and a grant nudges the link immediately.
+7. **The controller could talk to the default network** when it had no link. It now
+   fails fast instead.
+8. **The hourly window dropped the group for nothing.** The system clock is checked
+   first; the group is only dropped when it is actually stale.
+9. The group name leaked on the LAN log port through the start event.
+
+`core tests=46 failures=0`.
+
+Then, on the emulator, which turns out to host a Wi-Fi Direct group once Nearby devices
+is granted: the group formed on 192.168.49.1, the control server bound, the loopback
+probe passed, and the whole control API was driven through that interface exactly as
+the controller drives it: remote silent test (200, rings a second later), a real ring by
+clock jump, dismiss with a wrong ring id (409), the right one (200 in 6 ms, ring gone),
+the same request replayed (200, idempotent), a new request after the ring ended (409 with
+no ring, which the controller reads as "already stopped"), settings with the version
+check (200, then 409 on a stale version), nap set and cleared, skip and undo, unlock. What
+no emulator can do is join that group from a second phone: the controller's join, the
+system approval dialog and the hourly rejoin remain phone-only.

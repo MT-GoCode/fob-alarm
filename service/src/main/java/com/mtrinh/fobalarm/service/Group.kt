@@ -5,6 +5,7 @@ import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Looper
+import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.core.Settings
 
 /**
@@ -23,9 +24,13 @@ object Group {
     @Volatile var ownerAddress: String? = null
 
     private var manager: WifiP2pManager? = null
+
+    /** The one place the group name is derived from the setting. */
+    private fun networkName(ssid: String) = if (ssid.startsWith("DIRECT-")) ssid else "DIRECT-fa-$ssid"
     private var channel: WifiP2pManager.Channel? = null
 
     fun start(ctx: Context, s: Settings) {
+        if (s.role != Role.ALARM) return     // the controller joins a group, it never hosts one
         val ssid = s.ssid ?: return
         val pass = s.passphrase ?: return
         if (running) return
@@ -37,15 +42,19 @@ object Group {
             val ch = channel ?: m.initialize(ctx, Looper.getMainLooper(), null)
             channel = ch
             val cfg = WifiP2pConfig.Builder()
-                .setNetworkName(if (ssid.startsWith("DIRECT-")) ssid else "DIRECT-fa-$ssid")
+                .setNetworkName(networkName(ssid))
                 .setPassphrase(pass)
                 .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_2GHZ)
+                // Persistent: with no persistent group Android picks a new P2P MAC every
+                // time P2P comes up, and the controller's approval is keyed on that MAC,
+                // so every alarm-phone reboot would need a human tap on the controller.
+                .enablePersistentMode(true)
                 .build()
             m.createGroup(ch, cfg, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     running = true; lastError = null
                     lastStartedAtMs = System.currentTimeMillis()
-                    Svc.log("ap_start", "ssid" to ssid)
+                    Svc.log("ap_start")          // no ssid: this log is readable on the LAN
                     refresh(ctx)
                 }
                 override fun onFailure(reason: Int) {
@@ -67,8 +76,12 @@ object Group {
             m.requestGroupInfo(ch) { g: WifiP2pGroup? ->
                 reportedClients = g?.clientList?.size ?: 0
                 val was = running
-                running = g != null
+                val s = Svc.settings
+                val stale = g != null && (g.networkName != s.ssid?.let(::networkName) ||
+                        (g.passphrase != null && g.passphrase != s.passphrase))
+                running = g != null && !stale
                 if (was && !running) Server.closeControl()     // socket bound to a dead address
+                if (stale) { Svc.log("ap_stale_group"); stop(ctx) }   // old credentials: tear it down, the tick recreates it
                 ownerAddress = "192.168.49.1"
             }
         }
