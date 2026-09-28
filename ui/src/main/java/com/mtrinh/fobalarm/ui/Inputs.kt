@@ -36,16 +36,7 @@ fun TimeSetting(
             .let { (it.getOrElse(0) { 4 }) to (it.getOrElse(1) { 0 }) }
     }
 
-    Row(Modifier.fillMaxWidth().padding(vertical = S.sm),
-        verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(label, fontSize = T.label)
-            help?.let { Text(it, fontSize = T.caption, color = Muted) }
-        }
-        TextButton(enabled = enabled, onClick = { open = true }) {
-            Text(value, fontSize = T.headline, fontWeight = FontWeight.SemiBold)
-        }
-    }
+    ValueRow(label, Fmt.time(value), enabled) { open = true }
 
     if (open) {
         val state = rememberTimePickerState(initialHour = h, initialMinute = m,
@@ -81,9 +72,9 @@ fun ChoiceSetting(
     onSet: (Int) -> Unit,
 ) {
     Column(Modifier.padding(vertical = S.sm)) {
-        Text(label, fontSize = T.label)
+        Text(label, fontSize = T.body)
         help?.let { Text(it, fontSize = T.caption, color = Muted) }
-        Spacer(Modifier.height(S.xs))
+        Spacer(Modifier.height(S.sm))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (text, v) ->
                 // Selected is still tappable: for actions like "nap 20m" the selected
@@ -125,10 +116,9 @@ fun SliderSetting(
     LaunchedEffect(value) { live = value }
     val steps = ((max - min) / step - 1).coerceAtLeast(0)
     Column(Modifier.padding(vertical = S.sm)) {
-        Row {
-            Text(label, fontSize = T.label)
-            Spacer(Modifier.weight(1f))
-            Text("$live$suffix", fontSize = T.body, fontWeight = FontWeight.SemiBold,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
+            Text("$live$suffix", fontSize = T.button, fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary)
         }
         help?.let { Text(it, fontSize = T.caption, color = Muted) }
@@ -193,12 +183,7 @@ fun DurationSetting(
     onSet: (Int) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
-        TextButton(enabled = enabled, onClick = { open = true }) {
-            Text(Fmt.duration(totalSeconds * 1000L), fontSize = T.button, fontWeight = FontWeight.SemiBold)
-        }
-    }
+    ValueRow(label, Fmt.duration(totalSeconds * 1000L), enabled) { open = true }
     if (open) DurationDialog(label, totalSeconds, minSeconds, maxSeconds, allowSeconds,
         onCancel = { open = false }) { onSet(it); open = false }
 }
@@ -261,5 +246,19 @@ private fun NumberBox(value: String, suffix: String, onChange: (String) -> Unit)
                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
         )
         Text(suffix, fontSize = T.body, modifier = Modifier.padding(start = 6.dp, end = 12.dp))
+    }
+}
+
+/**
+ * THE row every setting uses: label on the left, value on the right, one tap opens the
+ * editor. Same fonts, same padding, same tap target everywhere.
+ */
+@Composable
+fun ValueRow(label: String, value: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
+        TextButton(enabled = enabled, onClick = onClick) {
+            Text(value, fontSize = T.button, fontWeight = FontWeight.SemiBold)
+        }
     }
 }

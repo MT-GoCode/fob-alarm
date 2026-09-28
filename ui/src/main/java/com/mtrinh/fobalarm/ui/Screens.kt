@@ -199,22 +199,23 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         (app.dismissUi as? DismissUi.RingChanged)?.let { RedCard(it.message) }
         (app.dismissUi as? DismissUi.Unreachable)?.let { RedCard(it.message) }
 
+        Spacer(Modifier.weight(1f))
         if (isAlarmRole) {
-            Spacer(Modifier.weight(1f))
             Text(if (snoozed) "Snoozed" else "Turn the box to snooze",
                 fontSize = T.body, fontWeight = FontWeight.SemiBold)
-            Box(Modifier.fillMaxWidth().height(190.dp)) {
+            Spacer(Modifier.height(S.sm))
+            Box(Modifier.fillMaxWidth().height(260.dp)) {
                 RotationInstrument(
                     degrees = deg, threshold = threshold,
                     quaternion = ring?.quaternion ?: app.testQuaternion,
                     snoozed = snoozed, modifier = Modifier.fillMaxSize())
             }
-        } else {
             Spacer(Modifier.weight(1f))
         }
         if (ring?.audible?.contains("muted=true") == true) {
             Text(if (isAlarmRole) "Sound is muted. Vibration only."
                  else "Sound is muted on the alarm phone. Vibration only.", fontSize = T.label, color = Bad)
+            Spacer(Modifier.height(S.md))
         }
     }
 }

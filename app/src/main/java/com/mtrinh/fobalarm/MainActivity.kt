@@ -328,7 +328,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val locked = (snap?.settings?.hasPassword ?: true) && !app.unlocked
-        var name by remember(snap?.settings?.ssid) { mutableStateOf(snap?.settings?.ssid ?: "DIRECT-fa-alarm") }
+        var name by remember(snap?.settings?.ssid) { mutableStateOf(snap?.settings?.ssid ?: Settings.DEFAULT_SSID) }
         var pass by remember(snap?.settings?.passphrase) { mutableStateOf(snap?.settings?.passphrase ?: "") }
         var editing by remember { mutableStateOf(!set) }
         var confirm by remember { mutableStateOf(false) }
@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (set && !editing) {
-            Text("Type these on the other phone:", fontSize = T.label, color = Muted)
+            Text("The other phone connects with these. Both phones start with the same ones.", fontSize = T.label, color = Muted)
             Spacer(Modifier.height(S.xs))
             Text(snap?.settings?.ssid ?: "", fontSize = T.headline,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
@@ -531,8 +531,8 @@ class MainActivity : ComponentActivity() {
     /** Controller-side pairing. Must match the alarm phone's group byte for byte. */
     @Composable
     private fun ControllerSetup(onSet: (String, String) -> Unit) {
-        var ssid by remember { mutableStateOf("DIRECT-fa-alarm") }
-        var pass by remember { mutableStateOf("") }
+        var ssid by remember { mutableStateOf(Settings.DEFAULT_SSID) }
+        var pass by remember { mutableStateOf(Settings.DEFAULT_PASSPHRASE) }
         val hasPerm = remember(permTick) {
             checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
                     android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -540,7 +540,7 @@ class MainActivity : ComponentActivity() {
         var asked by remember { mutableIntStateOf(0) }
         Page(
             title = "Pair with the alarm phone",
-            subtitle = "Type the name and passphrase shown on the alarm phone's Setup screen.",
+            subtitle = "Both phones start with these. Change them only if the alarm phone's were changed.",
             applyInsets = true,
         ) {
             if (!hasPerm) {

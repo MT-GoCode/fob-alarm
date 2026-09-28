@@ -17,18 +17,20 @@ data class Settings(
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
-    val ssid: String? = null,
-    val passphrase: String? = null,
+    /** Both phones ship with the same link credentials, so the first connection needs no typing. */
+    val ssid: String? = DEFAULT_SSID,
+    val passphrase: String? = DEFAULT_PASSPHRASE,
+    /** Null until a password is set. Until then nothing is locked. */
     val passwordHash: String? = null,
     val passwordSalt: String? = null,
     /** Set from the wire on the controller, which never sees the hash itself. */
     val hasPasswordRemote: Boolean = false,
-    /** True while the shipped default password is still in use. */
-    val usingDefaultPassword: Boolean = false,
 ) {
     val hasPassword: Boolean get() = passwordHash != null || hasPasswordRemote
 
     companion object {
+        const val DEFAULT_SSID = "DIRECT-fa-alarm"
+        const val DEFAULT_PASSPHRASE = "12345678"
         const val VOLUME_FLOOR = 50
         const val SNOOZE_CEILING_S = 600
         const val MAX_RING_FLOOR_M = 5

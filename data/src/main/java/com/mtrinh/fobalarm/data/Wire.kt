@@ -115,7 +115,6 @@ object Wire {
         // and the link that carries it is the WPA2 group it unlocks.
         .put("passphrase", s.passphrase ?: JSONObject.NULL)
         .put("hasPassword", s.hasPassword)
-        .put("usingDefaultPassword", s.usingDefaultPassword)
 
     /** Patches carry only the keys present; absent keys keep their current value. */
     fun settingsFrom(o: JSONObject, base: Settings) = base.copy(
@@ -132,7 +131,6 @@ object Wire {
         // NOT read back from a patch: these are read-only status computed by the alarm
         // phone. Echoing a controller's copy would latch them on permanently.
         hasPasswordRemote = base.hasPasswordRemote,
-        usingDefaultPassword = base.usingDefaultPassword,
         ssid = if (o.has("ssid") && !o.isNull("ssid")) o.getString("ssid") else base.ssid,
         passphrase = if (o.has("passphrase") && !o.isNull("passphrase")) o.getString("passphrase") else base.passphrase,
     )
@@ -155,8 +153,7 @@ object Wire {
     /** Status fields the controller must read from the snapshot, not from a patch echo. */
     fun settingsFromSnapshot(o: JSONObject): Settings =
         settingsFrom(o, Settings()).copy(
-            hasPasswordRemote = o.optBoolean("hasPassword", false),
-            usingDefaultPassword = o.optBoolean("usingDefaultPassword", false))
+            hasPasswordRemote = o.optBoolean("hasPassword", false))
 
     fun snapshotFrom(o: JSONObject): Snapshot {
         val g = o.getJSONObject("gates")

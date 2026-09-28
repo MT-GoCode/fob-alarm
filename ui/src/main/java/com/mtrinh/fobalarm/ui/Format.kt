@@ -17,6 +17,9 @@ object Fmt {
     fun clock(ms: Long): String = f(if (use24h) "HH:mm" else "h:mm a").format(Date(ms))
     /** Always HH:mm, for seeding pickers. `clock` may be 12-hour and does not parse. */
     fun hhmm(ms: Long): String = f("HH:mm").format(Date(ms))
+    /** A stored "HH:mm" in the phone's own clock style, so 04:00 reads 4:00 AM where the phone does. */
+    fun time(hhmm: String): String =
+        runCatching { f(if (use24h) "HH:mm" else "h:mm a").format(f("HH:mm").parse(hhmm)!!) }.getOrDefault(hhmm)
     fun absolute(ms: Long): String =
         f(if (use24h) "EEE d MMM HH:mm" else "EEE d MMM h:mm a").format(Date(ms))
 

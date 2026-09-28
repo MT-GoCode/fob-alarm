@@ -27,7 +27,6 @@ object Svc : AlarmHost {
      * Exposure is limited to the Wi-Fi Direct group, whose WPA2 passphrase the user sets.
      * Settings shows a warning while this is still in use.
      */
-    const val DEFAULT_PASSWORD = "12345678"
 
     lateinit var app: Context; private set
     lateinit var de: DeMirror; private set
@@ -80,8 +79,8 @@ object Svc : AlarmHost {
             snoozeThresholdDegrees = de.snoozeThresholdDegrees,
             ringtoneUri = de.ringtoneUri,
             role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
-            ssid = de.ssid,
-            passphrase = de.passphrase,
+            ssid = de.ssid ?: Settings.DEFAULT_SSID,
+            passphrase = de.passphrase ?: Settings.DEFAULT_PASSPHRASE,
             passwordHash = de.passwordHash,
             passwordSalt = de.passwordSalt,
             vibrate = de.vibrate,
@@ -90,21 +89,7 @@ object Svc : AlarmHost {
 
         recompute("init:de")
 
-        // Gated from the very first run only. Seeding happens off the fire path -- it is
-        // 20,000 SHA-256 rounds and this method runs on whatever thread woke the process,
-        // including AlarmReceiver at 04:00.
-        if (!de.passwordSeeded) {
-            io.execute {
-                val salt = Auth.newSalt()
-                synchronized(lock) {
-                    state = state.copy(settings = state.settings.copy(
-                        passwordHash = Auth.hash(DEFAULT_PASSWORD, salt), passwordSalt = salt))
-                }
-                log("default_password_set")
-                recompute("password_seeded")     // mirrors the hash to DE
-                de.passwordSeeded = true         // only then record that we seeded
-            }
-        }
+        io.execute { dropDefaultPassword() }
 
         // Then bring up Room off-thread and recompute again once latches, the override
         // and the nap are known. Room is expendable; the schedule is not.
@@ -118,6 +103,20 @@ object Svc : AlarmHost {
      * Opened lazily and only marked ready once a real read SUCCEEDS. Retried on
      * ACTION_USER_UNLOCKED, because before first unlock this always fails.
      */
+    /**
+     * Earlier builds shipped a default settings password. There is none now: nothing is
+     * locked until a password is set. Runs on io (20,000 hash rounds), after the DE seed
+     * and again after the Room merge, which would otherwise bring the old hash back.
+     */
+    private fun dropDefaultPassword() {
+        if (!Auth.isDefault(state.settings, "12345678")) return
+        synchronized(lock) {
+            state = state.copy(settings = state.settings.copy(passwordHash = null, passwordSalt = null))
+        }
+        log("default_password_cleared")
+        recompute("password_cleared")
+    }
+
     /** Receivers run on the main thread, where Room refuses to open. Always go through io. */
     fun loadRoomAsync(reason: String) { if (!roomLoaded) io.execute { tryLoadRoom(reason) } }
 
@@ -158,6 +157,7 @@ object Svc : AlarmHost {
             }
             log("db_loaded", "reason" to reason)
             recompute("db_loaded")
+            dropDefaultPassword()
         }.onFailure {
             log("db_unavailable", "reason" to reason, "error" to it.javaClass.simpleName)
         }
@@ -296,8 +296,7 @@ object Svc : AlarmHost {
             tomorrow = TomorrowView(
                 state.override?.kind?.name ?: "NONE", ovFire, boundAt),
             nap = NapView(state.nap != null, state.nap?.fireAtMs),
-            settings = state.settings.copy(
-                usingDefaultPassword = Auth.isDefault(state.settings, DEFAULT_PASSWORD)),
+            settings = state.settings,
             lastEvents = recentEvents(10),
             // Stale peer reports must not linger after the peer goes away.
             peerBlockers = if (peerDevice?.lastSeenMs?.let {

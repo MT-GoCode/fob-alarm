@@ -47,14 +47,15 @@ dismiss an alarm.
 1. Install on both phones. Open the app. Pick **the alarm phone** on one, **the
    controller** on the other. Each asks you to confirm.
 2. Alarm phone, **Setup** tab: tap Allow on each red row until the card turns green
-   ("Done"). Then under "Pair the other phone" type a name and passphrase and Save. The
-   password is `12345678` until you change it in Settings.
-3. Controller: type that name and passphrase, Connect. Its Setup goes green when
-   Notifications and Nearby devices are allowed. Within a minute Status says
-   "Alarm phone: connected".
+   ("Done"). Both phones ship with the same link name and passphrase (`DIRECT-fa-alarm`
+   / `12345678`), so pairing needs no typing. Change them under "Pair the other phone"
+   only if you want to.
+3. Controller: allow Notifications and Nearby devices; it connects on its own. Within a
+   minute Status says "Alarm phone: connected".
 4. Settings on either phone: alarm time, volume, vibrate, stop-after, snooze. Every
-   change says "saved" or "not saved" with the reason. Change the password on the
-   alarm phone.
+   change says "saved" or "not saved" with the reason. Nothing is locked until you set
+   a password on the alarm phone; with one set, Unlock at the top of Settings, and the
+   same password removes it again.
 5. Settings, **Test ring** on the controller. The alarm phone rings within a second; the
    controller shows "ALARM PHONE IS RINGING" and DISMISS IT stops it.
 
@@ -101,8 +102,8 @@ phone. The row stays visible until it is.
 ## Recovery
 
 **Forgotten password.** There is no recovery code. The password only guards settings;
-the alarm still rings and can still be dismissed. To reset it: uninstall, reinstall, set
-everything again from `backups/` by hand (settings are a dozen values).
+the alarm still rings and can still be dismissed. To get rid of it: uninstall, reinstall,
+set the dozen settings again from `backups/`.
 
 **The alarm phone died.** It is the sole source of truth. `./backup` keeps a copy in
 this repo and the controller keeps its own. Provision the replacement per `SPEC.md`

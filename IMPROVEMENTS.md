@@ -370,3 +370,14 @@ minute; test ring and silent test; the turn-to-snooze gesture through the virtua
 rotation sensor; Skip, Undo and the time picker; History as sentences; the hourly tick;
 the default-password unlock and a saved setting. Wi-Fi Direct, the controller's remote
 dismiss and the sync window cannot run on the emulator and remain phone-only.
+
+## Round 8 — your corrections after the device run
+
+There is no settings password until you set one; a leftover 12345678 hash from earlier
+builds is cleared on first start (after the database merge too, which had been bringing
+it back). 12345678 is now the Wi-Fi Direct passphrase and DIRECT-fa-alarm the name, on
+both phones out of the box, so the controller connects at first install without typing;
+the controller's pairing screen is pre-filled with them for when they are changed. The
+alarm-time row follows the phone's clock style (4:00 AM). Every setting is one row
+grammar: label left, value right, tap to edit, same fonts and padding. The ring screen
+keeps the globe centred in the free space instead of pinned to the bottom.

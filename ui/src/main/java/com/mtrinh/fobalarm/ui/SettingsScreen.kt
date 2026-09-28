@@ -26,15 +26,9 @@ fun SettingsScreen(
     Page(title = "Settings", snapshot = s) {
 
         // Lock state first, because it decides what else can be changed.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(if (!hasPassword) "No password" else if (locked) "Locked" else "Unlocked",
-                    fontSize = T.button, color = if (locked) Bad else Good)
-                if (isAlarmRole && s.settings.usingDefaultPassword) {
-                    Text("Using the default password 12345678. Change it below.",
-                        fontSize = T.caption, color = Bad)
-                }
-            }
+        if (hasPassword) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (locked) "Locked" else "Unlocked", fontSize = T.button,
+                color = if (locked) Bad else Good, modifier = Modifier.weight(1f))
             if (locked) Button(onClick = { showUnlock = true }) { Text("Unlock") }
         }
 
