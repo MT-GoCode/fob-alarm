@@ -223,6 +223,8 @@ data class Snapshot(
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */
     val testUntilMs: Long = 0,
+    /** Non-zero while a test ring is snoozed: when it rings again. */
+    val testSnoozedUntilMs: Long = 0,
     /** Sentences that mean the alarm will NOT ring. Empty means it will. */
     val problems: List<String> = emptyList(),
     /** Sentences worth attention that do not stop the ring (link, power). */

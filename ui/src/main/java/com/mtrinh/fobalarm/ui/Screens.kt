@@ -146,7 +146,10 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     // From the test window, never from "no session": a forced ring has no RingView
     // either, and labelling a real alarm TEST would be the worst possible mislabel.
     val isTest = s.testUntilMs > s.serverTimeMs
-    val snoozed = ring?.phase == RingPhase.SNOOZED
+    // A snoozed test reports its countdown the same way as a snoozed alarm.
+    val snoozeUntil = ring?.snoozeUntilMs?.takeIf { ring.phase == RingPhase.SNOOZED }
+        ?: s.testSnoozedUntilMs.takeIf { isTest && it > app.nowMs }
+    val snoozed = snoozeUntil != null
     val now = app.nowMs
     val deg = ring?.rotationDeg ?: app.testRotationDeg
     val threshold = ring?.thresholdDeg ?: s.settings.snoozeThresholdDegrees
@@ -169,7 +172,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             color = if (isAlarmRole) MaterialTheme.colorScheme.onSurface else Muted)
 
         if (snoozed) {
-            val left = ((ring?.snoozeUntilMs ?: now) - now).coerceAtLeast(0)
+            val left = ((snoozeUntil ?: now) - now).coerceAtLeast(0)
             Spacer(Modifier.height(S.md))
             Card(colors = CardDefaults.cardColors(containerColor = Good),
                 modifier = Modifier.fillMaxWidth()) {

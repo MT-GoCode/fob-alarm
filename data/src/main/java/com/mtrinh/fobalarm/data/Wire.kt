@@ -79,6 +79,7 @@ object Wire {
         put("peerBlockers", JSONArray(s.peerBlockers))
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
+        put("testSnoozedUntilMs", s.testSnoozedUntilMs)
         put("problems", JSONArray(s.problems))
         put("warnings", JSONArray(s.warnings))
     }
@@ -232,6 +233,7 @@ object Wire {
             } ?: emptyList(),
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
+            testSnoozedUntilMs = o.optLong("testSnoozedUntilMs", 0),
             problems = o.optJSONArray("problems")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
             warnings = o.optJSONArray("warnings")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
         )

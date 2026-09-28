@@ -268,6 +268,7 @@ class RingService : Service(), SensorEventListener {
     override fun onAccuracyChanged(s: Sensor?, a: Int) {}
 
     @Volatile private var testSnoozedUntilMs = 0L
+        set(v) { field = v; Svc.testSnoozedUntilMs = v }   // the snapshot shows the countdown
 
     private fun doSnooze() {
         val s = Svc.session

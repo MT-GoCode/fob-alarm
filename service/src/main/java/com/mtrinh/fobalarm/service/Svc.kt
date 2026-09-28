@@ -304,6 +304,7 @@ object Svc : AlarmHost {
                     System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
+            testSnoozedUntilMs = testSnoozedUntilMs,
             problems = runCatching { Health.problems() }.getOrDefault(emptyList()),
             warnings = runCatching { Health.warnings() }.getOrDefault(emptyList()),
         )
@@ -509,6 +510,7 @@ object Svc : AlarmHost {
      */
     /** Non-zero while a test ring is live. A test is NOT an engine session. */
     @Volatile var testUntilMs = 0L
+    @Volatile var testSnoozedUntilMs = 0L
     val testActive: Boolean get() = System.currentTimeMillis() < testUntilMs
 
     override fun testRing(silent: Boolean, requestId: String): Snapshot =
@@ -535,7 +537,7 @@ object Svc : AlarmHost {
     }
 
     override fun stopTest(): Snapshot {
-        testUntilMs = 0L
+        testUntilMs = 0L; testSnoozedUntilMs = 0L
         de.pendingTestUntilMs = 0L
         RingService.stop(app)
         log("test_ring_stopped")
