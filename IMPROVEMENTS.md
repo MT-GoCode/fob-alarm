@@ -509,3 +509,23 @@ inferred. The README describes the symptom so it is recognisable next time.
 
 The ship script no longer prints a bind error when a server already holds the port; the
 file is swapped underneath the running server and that is said plainly.
+
+## Round 14 — two holes found by asking and by using it
+
+**Does a move, skip or nap survive a reboot?** Only until the phone unlocked. The
+device-protected mirror held the resolved next-fire time but not the override, nap or
+latches, and the first recompute after boot re-derived the time from the default schedule,
+so a moved alarm rang at the default time and a nap went silent until Room (credential-
+encrypted) loaded. On a phone with no PIN that is seconds; with a PIN, or a reboot in the
+last seconds before the alarm, or a wiped Room, it is the alarm. The mirror now carries
+all three, seeded before the first recompute, and from then on it is authoritative over
+Room for the override and nap (it is written synchronously on every apply; Room is not).
+Proven on the emulator: Skip set, PIN set, reboot, no unlock: next fire still the day
+after tomorrow while Room reports unavailable; unlock: the merge keeps it. README row B4.
+
+**Setup spinning on first start until the app is closed and reopened.** After the role
+was chosen the screen polled the gate cache for two seconds and then stopped looking. A
+first evaluation slower than that (the hibernation probe alone may take three) left the
+"not measured" placeholder on screen for good. Gate results are now pushed to the screen
+the moment the worker finishes; the poll is gone. Could not be reproduced on the emulator,
+whose probes are fast; the race is removed rather than widened.

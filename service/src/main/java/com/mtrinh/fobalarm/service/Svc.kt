@@ -86,6 +86,10 @@ object Svc : AlarmHost {
             vibrate = de.vibrate,
         ), lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
+        de.schedule()?.let {
+            state = state.copy(latches = it.latches, override = it.override, nap = it.nap)
+            scheduleSeededFromDe = true
+        }
 
         recompute("init:de")
 
@@ -96,6 +100,10 @@ object Svc : AlarmHost {
         loadRoomAsync("init")
     }
 
+    /** True once the mirror has supplied latches/override/nap. From then on it is written
+     *  synchronously on every apply(), so it is never older than Room; Room's copy is
+     *  only the source on the first run of a build that has the key. */
+    @Volatile private var scheduleSeededFromDe = false
     @Volatile private var roomLoaded = false
     val dbReady: Boolean get() = roomLoaded
 
@@ -148,8 +156,8 @@ object Svc : AlarmHost {
                     // Union, and the newer outcome: whatever happened between boot and
                     // unlock lives only in memory, and Room is older than that.
                     latches = (loaded.latches + state.latches).distinctBy { it.id },
-                    override = loaded.override,
-                    nap = loaded.nap,
+                    override = if (scheduleSeededFromDe) state.override else loaded.override,
+                    nap = if (scheduleSeededFromDe) state.nap else loaded.nap,
                     lastOutcome = listOfNotNull(loaded.lastOutcome, state.lastOutcome).maxByOrNull { it.atMs },
                     stateVersion = maxOf(loaded.stateVersion, state.stateVersion),
                     lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs),
@@ -201,7 +209,7 @@ object Svc : AlarmHost {
         state = r.state
         lastNextFire = r.nextFire
         logEvents(r.events)
-        de.mirror(state.settings, r.nextFire, state.session)
+        de.mirror(state.settings, r.nextFire, state.session, state.latches, state.override, state.nap)
         de.lastAliveMs = state.lastAliveMs
         if (dbReady) io.execute { runCatching { Persist.save(db.dao(), state) } }
         // ALARM role only. The controller must never compute or arm a schedule:
@@ -245,7 +253,7 @@ object Svc : AlarmHost {
             snoozeCount = 0, snoozeUntilMs = null,
             endsByMs = now + state.settings.maxRingMinutes * 60_000L)
         state = state.copy(session = forced)
-        de.mirror(state.settings, lastNextFire, forced)
+        de.mirror(state.settings, lastNextFire, forced, state.latches, state.override, state.nap)
         log("forced_session", "ringId" to forced.ringId)
         buildSnapshot()
     }

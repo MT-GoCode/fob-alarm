@@ -93,6 +93,17 @@ class DeMirror(ctx: Context) {
         get() = p.getString("session", null)
         set(v) = p.edit().putString("session", v).apply()
 
+    /**
+     * Latches, the override and the nap, serialized. Before this the mirror held only the
+     * resolved next-fire time, and the first recompute after a boot re-derived it from the
+     * default schedule -- so a moved, skipped or napped alarm was forgotten until Room
+     * (credential-encrypted, unreadable before unlock) loaded. The ring path must know
+     * what "tomorrow" means from device-protected storage alone.
+     */
+    var scheduleJson: String?
+        get() = p.getString("schedule", null)
+        set(v) = p.edit().putString("schedule", v).apply()
+
     var deviceId: String?
         get() = p.getString("deviceId", null)
         set(v) = p.edit().putString("deviceId", v).apply()
@@ -112,8 +123,10 @@ class DeMirror(ctx: Context) {
 
     val pendingTest: Boolean get() = System.currentTimeMillis() < pendingTestUntilMs
 
-    fun mirror(s: Settings, next: NextFire?, session: RingSession?) {
+    fun mirror(s: Settings, next: NextFire?, session: RingSession?,
+               latches: List<Latch>, override: Override?, nap: Nap?) {
         p.edit()
+            .putString("schedule", Persist.scheduleToJson(latches, override, nap))
             .putString("role", s.role?.name)
             .putString("ssid", s.ssid)
             .putString("passphrase", s.passphrase)
@@ -133,6 +146,9 @@ class DeMirror(ctx: Context) {
     }
 
     fun session(): RingSession? = sessionJson?.let { sessionFromJson(it) }
+
+    /** null only on the first run of a build that has this key: then Room is the source. */
+    fun schedule(): Persist.Schedule? = scheduleJson?.let { runCatching { Persist.scheduleFrom(it) }.getOrNull() }
 
     companion object {
         fun sessionToJson(s: RingSession) = JSONObject()
@@ -217,14 +233,8 @@ object Persist {
             .put("passwordHash", st.settings.passwordHash ?: JSONObject.NULL)
             .put("passwordSalt", st.settings.passwordSalt ?: JSONObject.NULL)
             .toString()))
-        add(KvRow("latches", JSONArray().apply {
-            st.latches.forEach { put(JSONObject().put("id", it.id.toString())
-                .put("reason", it.reason.name).put("atMs", it.atMs)) }
-        }.toString()))
-        add(KvRow("override", st.override?.let {
-            JSONObject().put("bound", it.boundOccurrenceId.toString()).put("kind", it.kind.name)
-                .put("fireAtMs", it.fireAtMs ?: JSONObject.NULL).toString()
-        } ?: ""))
+        add(KvRow("latches", latchesToJson(st.latches).toString()))
+        add(KvRow("override", st.override?.let { overrideToJson(it).toString() } ?: ""))
         add(KvRow("nap", st.nap?.fireAtMs?.toString() ?: ""))
         add(KvRow("lastOutcome", st.lastOutcome?.let {
             JSONObject().put("kind", it.kind.name).put("atMs", it.atMs)
@@ -237,6 +247,36 @@ object Persist {
         add(KvRow("schemaVersion", SCHEMA_VERSION.toString()))
         })
 
+    data class Schedule(val latches: List<Latch>, val override: Override?, val nap: Nap?)
+
+    fun latchesToJson(l: List<Latch>): JSONArray = JSONArray().apply {
+        l.forEach { put(JSONObject().put("id", it.id.toString())
+            .put("reason", it.reason.name).put("atMs", it.atMs)) }
+    }
+    fun latchesFrom(a: JSONArray): List<Latch> = (0 until a.length()).map { i ->
+        val o = a.getJSONObject(i)
+        Latch(OccurrenceId.parse(o.getString("id")), LatchReason.valueOf(o.getString("reason")), o.getLong("atMs"))
+    }
+    fun overrideToJson(o: Override): JSONObject = JSONObject()
+        .put("bound", o.boundOccurrenceId.toString()).put("kind", o.kind.name)
+        .put("fireAtMs", o.fireAtMs ?: JSONObject.NULL)
+    fun overrideFrom(o: JSONObject) = Override(
+        OccurrenceId.parse(o.getString("bound")), OverrideKind.valueOf(o.getString("kind")),
+        if (o.isNull("fireAtMs")) null else o.getLong("fireAtMs"))
+
+    fun scheduleToJson(latches: List<Latch>, override: Override?, nap: Nap?): String = JSONObject()
+        .put("latches", latchesToJson(latches))
+        .put("override", override?.let { overrideToJson(it) } ?: JSONObject.NULL)
+        .put("nap", nap?.fireAtMs ?: JSONObject.NULL)
+        .toString()
+    fun scheduleFrom(s: String): Schedule {
+        val o = JSONObject(s)
+        return Schedule(
+            latches = latchesFrom(o.getJSONArray("latches")),
+            override = if (o.isNull("override")) null else overrideFrom(o.getJSONObject("override")),
+            nap = if (o.isNull("nap")) null else Nap(o.getLong("nap")))
+    }
+
     fun load(dao: Dao_): EngineState {
         val settings = dao.get("settings")?.let {
             val o = JSONObject(it)
@@ -245,18 +285,8 @@ object Persist {
                 passwordSalt = o.optString("passwordSalt").takeIf { s -> s.isNotEmpty() && s != "null" },
             )
         } ?: Settings()
-        val latches = dao.get("latches")?.let {
-            val a = JSONArray(it)
-            (0 until a.length()).map { i ->
-                val o = a.getJSONObject(i)
-                Latch(OccurrenceId.parse(o.getString("id")), LatchReason.valueOf(o.getString("reason")), o.getLong("atMs"))
-            }
-        } ?: emptyList()
-        val override = dao.get("override")?.takeIf { it.isNotEmpty() }?.let {
-            val o = JSONObject(it)
-            Override(OccurrenceId.parse(o.getString("bound")), OverrideKind.valueOf(o.getString("kind")),
-                if (o.isNull("fireAtMs")) null else o.getLong("fireAtMs"))
-        }
+        val latches = dao.get("latches")?.let { latchesFrom(JSONArray(it)) } ?: emptyList()
+        val override = dao.get("override")?.takeIf { it.isNotEmpty() }?.let { overrideFrom(JSONObject(it)) }
         val nap = dao.get("nap")?.takeIf { it.isNotEmpty() }?.let { Nap(it.toLong()) }
         val lastOutcome = dao.get("lastOutcome")?.takeIf { it.isNotEmpty() }?.let {
             val o = JSONObject(it)

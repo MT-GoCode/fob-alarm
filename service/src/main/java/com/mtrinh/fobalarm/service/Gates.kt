@@ -33,6 +33,9 @@ object GateEval {
 
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     @Volatile private var cached: Gates? = null
+    /** Called on the worker after every evaluation. The UI subscribes so a result lands
+     *  the moment it exists rather than when a poll happens to look. */
+    @Volatile var onEvaluated: ((Gates) -> Unit)? = null
     @Volatile private var refreshing = false
     @Volatile private var audioOk: Boolean? = null
     @Volatile private var hibernationOk: Boolean? = null
@@ -56,8 +59,11 @@ object GateEval {
         }
         worker.execute {
             while (true) {
-                runCatching { cached = evaluate(ctx, Svc.settings, Svc.lastNextFire != null) }
-                    .onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
+                runCatching {
+                    val g = evaluate(ctx, Svc.settings, Svc.lastNextFire != null)
+                    cached = g
+                    onEvaluated?.invoke(g)
+                }.onFailure { Svc.log("gate_eval_failed", "error" to it.toString()) }
                 synchronized(flagLock) {
                     if (!pending) { refreshing = false; return@execute }
                     pending = false

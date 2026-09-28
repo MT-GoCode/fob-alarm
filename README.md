@@ -80,6 +80,7 @@ passed on the phones on 2026-09-27 with build 0.2.48.
 | A3 | Controller, DISMISS IT | Stops in under 5 s. `logs`: `dismiss_remote` |
 | B1 ✓ | Alarm phone: Android Settings, force stop the app. Reopen it | Status still shows the next alarm. `logs`: `boot`, `recompute` |
 | B2 ✓ | Reboot the alarm phone and do **not** unlock it. Set the alarm 3 minutes out from the controller first | It rings. Ring screen shows over the lock screen |
+| B4 ✓ | Skip tomorrow (or move it, or set a nap), then reboot the alarm phone and do **not** unlock it | Status still shows the skipped, moved or napped time. `logs`: `recompute init:de` carries that time, before `db_loaded` |
 | B3 ✓ | Install a new build over the top with the alarm 5 minutes out | It rings. `logs`: `package_replaced` |
 | C1 | Turn the controller off for a minute, turn it back on, lock it in another room. Alarm 3 minutes out | Controller lights up "ALARM PHONE IS RINGING" and the notification DISMISS works cold, under 10 s |
 | C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `probe_ok` every ten minutes, `recompute hourly_tick`, and no `ap_error` |

@@ -44,19 +44,9 @@ class MainActivity : ComponentActivity() {
         LinkService.nudge()          // a grant may be what the group or the join was waiting for
         GateEval.invalidateSlowChecks()
         GateEval.refresh(this, Svc.settings, Svc.lastNextFire != null)
-        // The controller renders the ALARM phone's snapshot, so its own permission
-        // state has to be supplied separately or its rows describe the wrong device.
-        if (::app.isInitialized) {
-            lifecycleScope.launch {
-                // The evaluation runs on a worker; poll briefly for the fresh result
-                // rather than reading the cache we just invalidated.
-                repeat(8) {
-                    kotlinx.coroutines.delay(250)
-                    app.localGates = GateEval.current(
-                        this@MainActivity, Svc.settings, Svc.lastNextFire != null)
-                }
-            }
-        }
+        // The controller renders the ALARM phone's snapshot, so its own permission state
+        // is supplied separately: GateEval.onEvaluated (set in onCreate) writes
+        // app.localGates the moment the worker finishes, however long the probes take.
         // Re-evaluating the gates is not enough: the screen renders the SNAPSHOT, which
         // only re-polls every 20s while idle. Pull a fresh one so a permission you just
         // granted turns green now instead of when you happen to navigate.
@@ -65,6 +55,11 @@ class MainActivity : ComponentActivity() {
                 repeat(4) { kotlinx.coroutines.delay(300); app.refreshNow() }
             }
         }
+    }
+
+    override fun onDestroy() {
+        GateEval.onEvaluated = null
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -78,6 +73,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        GateEval.onEvaluated = { g -> runOnUiThread { if (::app.isInitialized) app.localGates = g } }
         // Draw edge to edge; Page() then insets every screen once, centrally.
         enableEdgeToEdge()
         Boot.ensure(this)
