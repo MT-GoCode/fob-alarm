@@ -58,6 +58,9 @@ object Group {
                     refresh(ctx)
                 }
                 override fun onFailure(reason: Int) {
+                    // BUSY (2) at start means the group from the previous process is still
+                    // up, which the next refresh confirms. Not an error, not logged as one.
+                    if (reason == WifiP2pManager.BUSY) { refresh(ctx); return }
                     running = false
                     lastError = "createGroup failed ($reason)"
                     Svc.log("ap_error", "reason" to reason.toString())

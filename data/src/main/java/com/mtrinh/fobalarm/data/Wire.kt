@@ -23,7 +23,6 @@ object Wire {
             put("foregroundService", s.gates.foregroundService)
             put("p2pSupported", s.gates.p2pSupported)
             put("gyroscopePresent", s.gates.gyroscopePresent)
-            put("staApConcurrent", s.gates.staApConcurrent)
             put("groupCredentialsSet", s.gates.groupCredentialsSet)
             put("localNetworkPermission", s.gates.localNetworkPermission)
             put("notificationPolicyAccess", s.gates.notificationPolicyAccess)
@@ -162,7 +161,7 @@ object Wire {
             evaluatedAtMs = g.optLong("evaluatedAtMs"),
             scheduleExists = gb("scheduleExists"), exactAlarm = gb("exactAlarm"),
             foregroundService = gb("foregroundService"), p2pSupported = gb("p2pSupported"),
-            gyroscopePresent = gb("gyroscopePresent"), staApConcurrent = gb("staApConcurrent"),
+            gyroscopePresent = gb("gyroscopePresent"),
             groupCredentialsSet = gb("groupCredentialsSet"),
             localNetworkPermission = gb("localNetworkPermission"),
             notificationPolicyAccess = gb("notificationPolicyAccess"),

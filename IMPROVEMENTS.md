@@ -438,3 +438,22 @@ no ring, which the controller reads as "already stopped"), settings with the ver
 check (200, then 409 on a stale version), nap set and cleared, skip and undo, unlock. What
 no emulator can do is join that group from a second phone: the controller's join, the
 system approval dialog and the hourly rejoin remain phone-only.
+
+## Round 10 — on the phones
+
+Pairing ran on the two phones for the first time. The controller's join had been throwing
+a SecurityException on every attempt: the app never declared CHANGE_NETWORK_STATE, which
+Android requires for a network request. Declared, and the ship pre-flight now refuses a
+build missing any permission the link needs. After that Android showed its one-time
+"connect using a temporary network" box and the alarm phone reported one client.
+
+From using it: the snooze counter summed every wobble, so one buzz of the vibrator read
+as ten degrees and the alarm snoozed itself; it now measures the net turn from where the
+phone started, with tests for jitter and drift. A remote test rang seconds late because
+it went through a one-second alarm and then waited for the controller's next poll; it
+starts at once now and STOP TEST works from the controller through the same call. Status
+and Setup read one shared permission list per phone, so they cannot disagree. Move and
+Skip give way to one Revert while a change is in force. The turn threshold is a number.
+History keeps one missed record per occurrence and cleans up the duplicates old builds
+wrote. The unused concurrency gate is gone from the model and the wire. An existing
+group at process start is no longer logged as an error.

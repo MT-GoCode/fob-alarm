@@ -128,6 +128,10 @@ class HttpStateClient(
             JSONObject().put("silent", silent).put("requestId", requestId)))))
     }
 
+    override suspend fun stopTest() = runCatching {
+        withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/test", JSONObject().put("stop", true)))))
+    }
+
     override suspend fun unlock(secret: String) = runCatching {
         JSONObject(request("POST", "/v1/unlock", JSONObject().put("secret", secret))).getString("token")
     }

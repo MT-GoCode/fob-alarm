@@ -534,11 +534,12 @@ object Svc : AlarmHost {
         return snapshot()
     }
 
-    fun stopTest() {
+    override fun stopTest(): Snapshot {
         testUntilMs = 0L
         de.pendingTestUntilMs = 0L
         RingService.stop(app)
         log("test_ring_stopped")
+        return snapshot()
     }
 
     fun pruneHistory() {

@@ -241,7 +241,8 @@ object Server {
 
                 path.startsWith("/v1/test") && method == "POST" ->
                     200 to Wire.snapshotToJson(
-                        Svc.testRing(o.optBoolean("silent"), rid, fromController = true)).toString()
+                        if (o.optBoolean("stop")) Svc.stopTest()
+                        else Svc.testRing(o.optBoolean("silent"), rid, fromController = true)).toString()
 
                 path.startsWith("/v1/unlock") && method == "POST" ->
                     200 to JSONObject().put("token", Svc.unlock(o.getString("secret"))).toString()

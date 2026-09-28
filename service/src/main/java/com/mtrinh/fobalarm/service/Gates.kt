@@ -8,7 +8,6 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
@@ -75,7 +74,7 @@ object GateEval {
     private fun unknownGates(nextFireExists: Boolean) = Gates(
         evaluatedAtMs = 0, scheduleExists = nextFireExists, exactAlarm = false,
         foregroundService = false, p2pSupported = false, gyroscopePresent = false,
-        staApConcurrent = false, groupCredentialsSet = false, localNetworkPermission = false,
+        groupCredentialsSet = false, localNetworkPermission = false,
         notificationPolicyAccess = false, dndAllowsAlarms = false, volumeNotFixed = false,
         fullScreenIntent = false, notHibernating = false, thermalOk = false,
         audioPlayable = false, powerOk = false, vibrationEnabled = false,
@@ -96,7 +95,6 @@ object GateEval {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         val am = ctx.getSystemService(AlarmManager::class.java)
         val audio = ctx.getSystemService(AudioManager::class.java)
-        val wm = ctx.getSystemService(WifiManager::class.java)
         val pm = ctx.getSystemService(PowerManager::class.java)
         val sm = ctx.getSystemService(SensorManager::class.java)
         val cr = ctx.contentResolver
@@ -121,7 +119,6 @@ object GateEval {
             gyroscopePresent = probe("gyroscopePresent", false) {
                 sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
             },
-            staApConcurrent = probe("staApConcurrent", false) { wm.isStaApConcurrencySupported },
             groupCredentialsSet = !settings.ssid.isNullOrBlank() && !settings.passphrase.isNullOrBlank(),
             localNetworkPermission = probe("localNetworkPermission", false) { hasLocalNetwork(ctx) },
             notificationPolicyAccess = probe("notificationPolicyAccess", false) {

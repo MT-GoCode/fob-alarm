@@ -237,7 +237,11 @@ class AppState(
     var ringEndMessage by mutableStateOf<String?>(null); private set
     fun clearRingEndMessage() { ringEndMessage = null }
 
-    /** Supplied by :app, which owns the service handle. */
-    var onStopTest: (() -> Unit)? = null
-    fun stopTest() { onStopTest?.invoke(); ringEndMessage = "Test stopped"; reload() }
+    /** Same path on both phones: the client stops it, wherever it rings. */
+    fun stopTest() {
+        scope.launch {
+            client.stopTest().onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
+            ringEndMessage = "Test stopped"
+        }
+    }
 }

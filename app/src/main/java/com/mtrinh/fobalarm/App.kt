@@ -70,7 +70,6 @@ class App : Application() {
             val app = remember {
                 AppState(LocalStateClient(Svc), scope, isLocal = true).also {
                     it.startPolling()
-                    it.onStopTest = { Svc.stopTest() }
                 }
             }
             val snap = app.snapshot

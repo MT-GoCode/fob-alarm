@@ -150,7 +150,6 @@ data class Gates(
     val foregroundService: Boolean,
     val p2pSupported: Boolean,
     val gyroscopePresent: Boolean,
-    val staApConcurrent: Boolean,
     val groupCredentialsSet: Boolean,
     val localNetworkPermission: Boolean,
     val notificationPolicyAccess: Boolean,

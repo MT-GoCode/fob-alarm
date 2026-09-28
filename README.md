@@ -50,8 +50,11 @@ dismiss an alarm.
    ("Done"). Both phones ship with the same link name and passphrase (`DIRECT-fa-alarm`
    / `12345678`), so pairing needs no typing. Change them under "Pair the other phone"
    only if you want to.
-3. Controller: allow Notifications and Nearby devices; it connects on its own. Within a
-   minute Status says "Alarm phone: connected".
+3. Controller: allow Notifications and Nearby devices, then Connect. Android shows its
+   own box, "wants to connect using a temporary network": tap the network in it. That is
+   Android's rule, once. It can take a few minutes the first time while Android scans.
+   Then Status says "Alarm phone: connected" on the controller and "Controller:
+   connected" on the alarm phone.
 4. Settings on either phone: alarm time, volume, vibrate, stop-after, snooze. Every
    change says "saved" or "not saved" with the reason. Nothing is locked until you set
    a password on the alarm phone; with one set, Unlock at the top of Settings, and the
@@ -67,7 +70,8 @@ red or green. Red means it will not ring, and says why.
 ## Hardware test before trusting it (do once per build)
 
 Nothing here can be verified by reading code. Rows marked ✓ passed on an Android 15
-emulator with build 0.2.43 (IMPROVEMENTS.md round 7); the rest need the two phones.
+emulator (IMPROVEMENTS.md rounds 7 and 9); the rest need the two phones. Pairing itself
+passed on the phones on 2026-09-27 with build 0.2.48.
 
 | step | do | must see |
 |---|---|---|
@@ -78,7 +82,7 @@ emulator with build 0.2.43 (IMPROVEMENTS.md round 7); the rest need the two phon
 | B2 ✓ | Reboot the alarm phone and do **not** unlock it. Set the alarm 3 minutes out from the controller first | It rings. Ring screen shows over the lock screen |
 | B3 ✓ | Install a new build over the top with the alarm 5 minutes out | It rings. `logs`: `package_replaced` |
 | C1 | Turn the controller off for a minute, turn it back on, lock it in another room. Alarm 3 minutes out | Controller lights up "ALARM PHONE IS RINGING" and the notification DISMISS works cold, under 10 s |
-| C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `sync_group_down` then `sync_group_up` and `server_started`, then `probe_ok` |
+| C2 | Alarm phone `./logs <ip>` after an hour | HTTP 200, `"ok": true`. `logs`: `probe_ok` every ten minutes, `recompute hourly_tick`, and no `ap_error` |
 | D | Seven nights unattended | `history` shows one `ring_start` per night and no `missed`, `capped`, `crash` or `force_stopped_detected` |
 
 Any failure is a bug in this repo, not something to work around.

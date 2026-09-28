@@ -118,7 +118,6 @@ fun Gates.value(key: String): Boolean = when (key) {
     "foregroundService" -> foregroundService
     "p2pSupported" -> p2pSupported
     "gyroscopePresent" -> gyroscopePresent
-    "staApConcurrent" -> staApConcurrent
     "groupCredentialsSet" -> groupCredentialsSet
     "localNetworkPermission" -> localNetworkPermission
     "notificationPolicyAccess" -> notificationPolicyAccess

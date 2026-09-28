@@ -165,7 +165,6 @@ class MainActivity : ComponentActivity() {
                                     }) else null,
                                 ).also {
                                     it.startPolling()
-                                    if (role == Role.ALARM) it.onStopTest = { Svc.stopTest() }
                                     it.localGates = GateEval.current(
                                         this@MainActivity, Svc.settings, Svc.lastNextFire != null)
                                 }
