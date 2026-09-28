@@ -549,3 +549,11 @@ percentage (floor: half of maximum) if it is muted or below target. It reads not
 **SPEC.md brought in line** with the product: a status note at the top, and the passages about
 `WifiNetworkSpecifier`, the 22:00 arm gate, the recovery code, the grace window and the STA/P2P workaround
 rewritten to what exists.
+
+## Round 16 — the red bar
+
+Red was one missed poll: a two-second timeout and a three-second cadence made the bar red about five
+seconds after any hiccup, and a Wi-Fi Direct peer in Wi-Fi power save can legitimately answer late.
+Now the bar is red only after thirty seconds with no reply, and requests wait four seconds. The
+service heartbeat is unchanged at five seconds idle, two while ringing. The pairing caption on the
+controller is reworded; it read as gibberish.

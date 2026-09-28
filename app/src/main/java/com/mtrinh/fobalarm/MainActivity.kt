@@ -288,7 +288,7 @@ class MainActivity : ComponentActivity() {
             // The configured group, not the live link: the bar at the top shows the link.
             Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",
                 fontSize = T.body, color = if (set) Muted else Bad)
-            Text("Change it while not connected: the trying screen has the fields.", fontSize = T.caption, color = Muted)
+            Text("To change the name or passphrase, disconnect first. The connecting screen has the fields.", fontSize = T.caption, color = Muted)
             return
         }
 

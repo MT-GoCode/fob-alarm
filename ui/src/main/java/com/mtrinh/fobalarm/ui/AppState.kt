@@ -64,8 +64,9 @@ class AppState(
      * Connected means: the last thing we heard from the other phone was a success, and it
      * was recent. The controller polls every three seconds, so silence is short-lived.
      */
-    val connected: Boolean get() =
-        linkAtMs != 0L && nowMs - linkAtMs < 15_000 && (isLocal || lastFailMs < lastOkMs)
+    // Red means thirty seconds without a reply, not one missed poll: a Wi-Fi Direct peer
+    // in power save can be late by a few seconds, and the user should not see red for that.
+    val connected: Boolean get() = linkAtMs != 0L && nowMs - linkAtMs < 30_000
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
     var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
