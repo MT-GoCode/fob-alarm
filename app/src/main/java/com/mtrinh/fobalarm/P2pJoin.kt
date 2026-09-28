@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Looper
-import android.os.UserManager
 import com.mtrinh.fobalarm.service.Svc
 
 /**
@@ -28,8 +27,8 @@ object P2pJoin {
     private var listening = false
 
     fun join(ctx: Context, ssid: String, passphrase: String) {
-        val um = ctx.getSystemService(UserManager::class.java)
-        if (!um.isUserUnlocked) return
+        // Deliberately no wait for the first unlock: after a restart nobody may unlock
+        // this phone for days, and the 04:00 alert must still reach it.
         if (joined) return
         if (pendingSinceMs != 0L && System.currentTimeMillis() - pendingSinceMs < 45_000) return
         runCatching {
