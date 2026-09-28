@@ -42,9 +42,14 @@ object Svc : AlarmHost {
     @Volatile var bootedAtMs: Long = 0
     @Volatile var appVersion: String = "?"
     @Volatile private var unlockTokenValue: String? = null
-    /** Self-expiring: a stale token must read as locked, not as enabled-but-failing. */
-    val unlockToken: String?
-        get() = unlockTokenValue?.takeIf { System.currentTimeMillis() - unlockedAtMs < 120_000 }
+    /**
+     * Unlocked until it is locked again, by the Lock button or by the process dying.
+     * It used to expire two minutes after the unlock, which meant the screen said
+     * "Unlocked" while the next save came back 403, and there was no way to lock on
+     * purpose. Living only in memory is the one implicit re-lock that remains, and it
+     * is not a timer: an app restart is locked.
+     */
+    val unlockToken: String? get() = unlockTokenValue
     /** Last device report from the controller. Null until it has ever been heard from. */
     @Volatile var peerDevice: DeviceView? = null
     @Volatile var peerBlockers: List<String> = emptyList()
@@ -382,7 +387,7 @@ object Svc : AlarmHost {
         return snap
     }
 
-    private fun requireUnlocked(patch: Settings, token: String?) {
+    private fun requireUnlocked(patch: Settings, token: String?, actor: Actor) {
         // The gate protects the ALARM phone. On the controller this Svc only holds local
         // config; the real check happens when the controller POSTs to the alarm phone.
         if (state.settings.role == Role.CONTROLLER) return
@@ -400,6 +405,10 @@ object Svc : AlarmHost {
         ).any { it }
         if (!changesGated) return
         if (Auth.gateOpen(state.settings)) return
+        // The controller cannot hold the gate open, whatever it sends. Unlocking is a
+        // thing you do standing at the box, so the password never crosses the link and
+        // a token captured off the wire buys nothing.
+        if (actor == Actor.CONTROLLER) throw ForbiddenException()
         if (unlockToken == null || token != unlockToken) throw ForbiddenException()
     }
 
@@ -410,7 +419,7 @@ object Svc : AlarmHost {
         val snap = synchronized(lock) {
             if (seen(requestId)) return snapshot()
             if (ifVersion >= 0 && ifVersion != state.stateVersion) throw ConflictException(snapshot())
-            requireUnlocked(patch, token)
+            requireUnlocked(patch, token, actor)
             if (patch.role != state.settings.role && state.session != null) {
                 throw ConflictException(snapshot())
             }
@@ -492,12 +501,24 @@ object Svc : AlarmHost {
         }.getOrDefault(emptyList()) else emptyList(),
         exportedAtMs = System.currentTimeMillis())
 
+    /**
+     * ALARM-LOCAL ONLY. There is no HTTP route to this, deliberately: the password must
+     * never cross the link. See `requireUnlocked` and SPEC section 8.
+     */
     override fun unlock(secret: String): String {
         if (!Auth.accepts(state.settings, secret)) throw ForbiddenException()
         val t = UUID.randomUUID().toString()
         unlockTokenValue = t
         unlockedAtMs = System.currentTimeMillis()
+        log("unlocked")
         return t
+    }
+
+    /** The Lock button. Idempotent, and the only way back other than a restart. */
+    override fun lock() {
+        if (unlockTokenValue != null) log("locked")
+        unlockTokenValue = null
+        unlockedAtMs = 0
     }
 
     /**

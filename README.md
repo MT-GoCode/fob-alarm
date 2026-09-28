@@ -59,8 +59,13 @@ dismiss an alarm.
    both phones is green: "updated 2s ago". Then the Setup tab asks for the rest.
 4. Settings on either phone: alarm time, volume, vibrate, stop-after, snooze. Every
    change says "saved" or "not saved" with the reason. Nothing is locked until you set
-   a password on the alarm phone; with one set, Unlock at the top of Settings, and the
-   same password removes it again.
+   a password on the alarm phone; the same password removes it again.
+
+   **Once a password is set, unlocking happens on the alarm phone only.** Unlock at the
+   top of its Settings, and **Lock** in the same place when you are done — there is no
+   timer, and closing the app locks it too. The controller has no lock row at all: a
+   gated change from there comes back "Locked — unlock on the alarm phone", and tapping
+   a greyed row says the same. This is why the password never travels over the link.
 5. Settings, **Test ring** on the controller. The alarm phone rings within a second; the
    controller shows "ALARM PHONE IS RINGING" and DISMISS IT stops it.
 

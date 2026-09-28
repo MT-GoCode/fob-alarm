@@ -35,9 +35,14 @@ class AppState(
     var lastOkMs by mutableLongStateOf(0L); private set
     var dismissUi by mutableStateOf<DismissUi>(DismissUi.Idle); private set
     var token by mutableStateOf<String?>(null); internal set
-    private var unlockedAtMs by mutableLongStateOf(0L)
+
     /** Matches the server's two-minute window, so the screen never claims a dead unlock. */
-    val unlocked: Boolean get() = token != null && nowMs - unlockedAtMs < 115_000
+    /**
+     * No clock in this. The unlock used to lapse silently a couple of minutes in, so the
+     * screen could read "Unlocked" while the next save came back 403. It ends when Lock
+     * is pressed or the process dies, and nothing else.
+     */
+    val unlocked: Boolean get() = token != null
     var history by mutableStateOf<List<Event>>(emptyList()); private set
     /** This phone's own gates, even when the snapshot describes the other phone. */
     var localGates by mutableStateOf<Gates?>(null)
@@ -197,10 +202,12 @@ class AppState(
         }
     }
 
+    fun lock() { scope.launch { client.lock(); token = null } }
+
     fun unlock(secret: String, onResult: (Boolean) -> Unit) {
         scope.launch {
             client.unlock(secret)
-                .onSuccess { token = it; unlockedAtMs = System.currentTimeMillis(); onResult(true) }
+                .onSuccess { token = it; onResult(true) }
                 .onFailure { onResult(false) }
         }
     }
@@ -245,7 +252,9 @@ class AppState(
                     if (e is ClientError.Transport && !isLocal) noteFailure()
                     if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
-                        is ClientError.Forbidden -> "$label not saved. Unlock first."
+                        is ClientError.Forbidden ->
+                            if (isLocal) "$label not saved. Unlock first."
+                            else "$label not saved. Locked \u2014 unlock on the alarm phone."
                         is ClientError.Conflict -> "$label not saved. It was changed on the other phone."
                         else -> "$label not saved. Can't reach the alarm phone."
                     }

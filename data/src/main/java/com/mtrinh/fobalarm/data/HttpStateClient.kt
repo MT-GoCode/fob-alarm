@@ -135,7 +135,14 @@ class HttpStateClient(
         withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/clock", JSONObject()))))
     }
 
-    override suspend fun unlock(secret: String) = runCatching {
-        JSONObject(request("POST", "/v1/unlock", JSONObject().put("secret", secret))).getString("token")
-    }
+    /**
+     * Always fails, locally, WITHOUT a request. The settings password never crosses the
+     * link: there is no `/v1/unlock` on the alarm phone to send it to, and this exists
+     * so that a caller which has not got that message cannot leak it trying.
+     */
+    override suspend fun unlock(secret: String): Result<String> =
+        Result.failure(ClientError.Forbidden())
+
+    /** Nothing to drop: this phone can never hold an unlock. */
+    override suspend fun lock() = Result.success(Unit)
 }

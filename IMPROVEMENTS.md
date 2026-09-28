@@ -671,3 +671,30 @@ been routed away mid-ring.
 One real gap in that, fixed here: `preferredDevice` was set *after* `start()`. A connected speaker
 got the first moment of the alarm and the room got nothing until the heartbeat corrected it. It is
 set before `prepare()` now.
+
+## Round 20 — the lock is alarm-local, and it ends when you say so
+
+**There was no way to lock.** The unlock expired on a 120-second timer in `Svc` and a 115-second one in
+`AppState`, and nothing else. So the screen could read "Unlocked" while the next save came back `403`,
+and deciding to lock again meant waiting. There is a **Lock** button beside the word "Unlocked" now,
+both timers are gone, and the token lives only in memory — an app restart is the one implicit re-lock
+left, which is a boundary rather than a clock.
+
+**The controller can no longer unlock, and the password no longer crosses the link.** `POST /v1/unlock`
+is deleted. `requireUnlocked` rejects any `Actor.CONTROLLER` patch touching a gated setting whatever
+token it presents, so a token captured off the wire buys nothing either. `HttpStateClient.unlock` fails
+locally without sending a request, so a future caller that has not got the message cannot leak the
+password trying. The controller's Settings screen shows no lock row at all — its state is always "locked" and nothing
+can be done about it from there, so the greyed rows and their tap message ("This can only be changed
+on the alarm phone") carry it; a gated change from there comes back as an ordinary did-not-save message —
+"Locked — unlock on the alarm phone" — like any other rejected patch.
+
+**On whether the password is now compromised, precisely.** It is stored as 20,000 rounds of SHA-256
+over `salt || secret` with a 16-byte random salt, so it is not recoverable from the phone, from
+`/v1/export`, or from a backup. It was never written to the event log: the only logging near that path
+is `bad_request_body`, which records the path and nothing else. The snapshot carries `hasPassword`, a
+boolean, never the hash. What *did* happen is that each unlock from the controller sent it as cleartext
+JSON to `POST /v1/unlock` over the Wi-Fi Direct link — WPA2, but on the passphrase `12345678`, which is
+published in this repo. So the honest statement is: not retrievable from anything stored, but it was
+on the air, protected by a passphrase anyone can read. If that matters, change it once on 0.2.74; from
+this build on it never leaves the alarm phone.

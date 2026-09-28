@@ -256,9 +256,8 @@ object Server {
                         if (o.optBoolean("stop")) Svc.stopTest()
                         else Svc.testRing(o.optBoolean("silent"), rid, fromController = true)).toString()
 
-                path.startsWith("/v1/unlock") && method == "POST" ->
-                    200 to JSONObject().put("token", Svc.unlock(o.getString("secret"))).toString()
-
+                // There is deliberately NO /v1/unlock. The settings password is never
+                // sent over the link; unlocking happens on the alarm phone, in the hand.
                 path.startsWith("/v1/history") -> 200 to historyJson(path, indent = 0)
 
                 path.startsWith("/v1/export") ->

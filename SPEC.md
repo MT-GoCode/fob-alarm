@@ -517,8 +517,14 @@ Its own, thinner gates: `NEARBY_WIFI_DEVICES`, credentials entered, AP reachable
 
 ## 8. Settings
 
-**Everything is editable from both phones** — reach is not the control. Instead, the settings that can silence
-tomorrow are **password-gated**, with the password set *optionally* during INIT.
+**Everything is editable from both phones until a password is set** — reach is not the control. The settings that
+can silence tomorrow are **password-gated**, with the password set *optionally* during INIT.
+
+**The gate is ALARM-LOCAL. The controller can never open it.** There is deliberately no `/v1/unlock`: unlocking is
+something you do standing at the box, with the phone in your hand. A controller patch touching a gated setting is
+`403` whatever token it presents, and its screen says so — "Locked — unlock on the alarm phone" — exactly like any
+other change that did not take. The consequence that matters: **the password never crosses the link.** The link is
+WPA2 but on a passphrase that ships in this repo, so "encrypted in transit" was never worth much.
 
 **Gated set** (these are the four cheap kills the design review found): `ringtone` — a near-silent mp3 defeats the
 50 % stream floor completely, since the floor is on the stream, not the content · `snoozeSeconds` — 29 minutes turns
@@ -528,9 +534,18 @@ audible warning to when you're asleep · `maxRingMinutes` · `alarmVolumePercent
 **Ungated**, because they're what you actually need at 23:00 or from the bathroom: `dismiss`, `nap`, the next-alarm
 override, brightness, and anything cosmetic.
 
-Rules: enforced in `:core`, so the HTTP path can't bypass it. Verified against a hashed+salted value; a gated patch
-without a valid token is `403`. The unlock lasts one editing session (~2 min idle), never persists. **It never gates
-dismiss** — nothing on the 4 AM path can ever require a password.
+Rules: enforced in `:core`, so the HTTP path can't bypass it. Verified against a hashed+salted value — 20,000
+rounds of SHA-256 over `salt || secret`, with a 16-byte random salt — so the password is not recoverable from the
+phone, from `/v1/export`, or from a backup, and it is never written to the event log. A gated patch without a
+valid token is `403`. **It never gates dismiss** — nothing on the 4 AM path can ever require a password.
+
+**The unlock ends when you end it.** A Lock button sits beside the word "Unlocked" at the top of Settings. There is
+no idle timer: the old two-minute expiry meant the screen said "Unlocked" while the next save came back `403`, with
+no way to lock on purpose. The token lives only in memory, so an app restart is the one implicit re-lock, and that
+is a boundary rather than a clock.
+
+Only the alarm phone's own `:8766` and `:8765` ever see `hasPassword`, a boolean. The hash and salt appear in
+`/v1/export` alone, which is why that endpoint stays on the P2P-bound control port and off `:8766` (§11).
 
 **There is a one-time recovery code, because "recovery is a factory reset" was not an acceptable answer.** A
 factory reset is *also* total data loss (§14) — so the spec's stated cure for a forgotten password destroyed the
