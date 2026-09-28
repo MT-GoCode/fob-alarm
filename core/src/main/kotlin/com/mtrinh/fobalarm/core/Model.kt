@@ -14,7 +14,12 @@ data class Settings(
     val ringtoneUri: String? = null,              // null => bundled asset
     val ringtoneName: String? = null,             // the chosen file's display name, for the screen only
     val snoozeSeconds: Int = 30,                  // hard ceiling 600
-    val snoozeThresholdDegrees: Int = 120,        // 60..720
+    /**
+     * How long the snooze bar must be held before it snoozes. 0 is immediate, 10 s is
+     * the ceiling. The bar sits in the bottom cutout of the box and is the ONLY thing
+     * reachable without a key, so this is the whole defence against a half-asleep palm.
+     */
+    val snoozeHoldSeconds: Int = 3,               // 0..10
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
@@ -50,7 +55,7 @@ object SettingsValidator {
     fun normalize(s: Settings): Settings = s.copy(
         alarmVolumePercent = s.alarmVolumePercent.coerceIn(Settings.VOLUME_FLOOR, 100),
         snoozeSeconds = s.snoozeSeconds.coerceIn(5, Settings.SNOOZE_CEILING_S),
-        snoozeThresholdDegrees = s.snoozeThresholdDegrees.coerceIn(60, 720),
+        snoozeHoldSeconds = s.snoozeHoldSeconds.coerceIn(0, 10),
         maxRingMinutes = s.maxRingMinutes.coerceIn(Settings.MAX_RING_FLOOR_M, 120),
         napMinutes = s.napMinutes.coerceIn(1, 720),
     )
@@ -150,7 +155,6 @@ data class Gates(
     val exactAlarm: Boolean,
     val foregroundService: Boolean,
     val p2pSupported: Boolean,
-    val gyroscopePresent: Boolean,
     val groupCredentialsSet: Boolean,
     val localNetworkPermission: Boolean,
     val notificationPolicyAccess: Boolean,
@@ -179,11 +183,8 @@ data class NextFire(val atMs: Long, val source: OccurrenceSource, val label: Str
 data class RingView(
     val ringId: String, val startedAtMs: Long, val trigger: OccurrenceSource,
     val phase: RingPhase, val snoozeCount: Int, val snoozeUntilMs: Long?,
-    val endsByMs: Long, val rotationDeg: Double, val thresholdDeg: Int,
-    val gyroBiasDps: Double, val gyroStale: Boolean, val rvStale: Boolean,
+    val endsByMs: Long,
     val audible: String,
-    /** Live orientation, so the instrument can draw the path actually traced. */
-    val quaternion: DoubleArray? = null,
 )
 data class ClockView(
     val lastSyncAttemptMs: Long, val lastSyncOkMs: Long,

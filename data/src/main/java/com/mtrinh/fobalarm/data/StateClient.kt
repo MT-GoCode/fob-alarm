@@ -28,6 +28,8 @@ interface StateClient {
     suspend fun unlock(secret: String): Result<String>
     /** Drop the unlock. Local to whichever phone holds it, which is only ever the alarm. */
     suspend fun lock(): Result<Unit>
+    /** ALARM-local only: snoozing has to mean reaching the box. Never sent. */
+    suspend fun snooze(): Result<Snapshot>
     /** Touches no latch, no schedule, no override. Invokable from either phone. */
     suspend fun testRing(silent: Boolean, requestId: String): Result<Snapshot>
     suspend fun stopTest(): Result<Snapshot>
@@ -61,6 +63,7 @@ interface AlarmHost {
     fun export(): Backup
     fun unlock(secret: String): String
     fun lock()
+    fun snooze(): Snapshot
     fun testRing(silent: Boolean, requestId: String): Snapshot
     fun stopTest(): Snapshot
     fun checkClock(): Snapshot
@@ -89,6 +92,7 @@ class LocalStateClient(private val host: AlarmHost) : StateClient {
     override suspend fun export() = withContext(Dispatchers.IO) { runCatching { host.export() } }
     override suspend fun unlock(secret: String) = runCatching { host.unlock(secret) }
     override suspend fun lock() = runCatching { host.lock() }
+    override suspend fun snooze() = runCatching { host.snooze() }
     override suspend fun testRing(silent: Boolean, requestId: String) =
         runCatching { host.testRing(silent, requestId) }
     override suspend fun stopTest() = runCatching { host.stopTest() }

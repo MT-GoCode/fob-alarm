@@ -150,14 +150,14 @@ on both phones. **The controller binds per-socket, not per-process**, so it also
 { stateVersion, serverTimeMs, bootedAtMs,
   // `mode` is DERIVED, never stored: open session → RINGING (outranks all);
   // else blocking gate failing → INIT; else WAITING.
-  gates:   { evaluatedAtMs, scheduleExists, exactAlarm, foregroundService, p2pSupported, gyroscopePresent,
+  gates:   { evaluatedAtMs, scheduleExists, exactAlarm, foregroundService, p2pSupported,
              groupCredentialsSet, localNetworkPermission, notificationPolicyAccess,
              dndAllowsAlarms, volumeNotFixed, fullScreenIntent, notHibernating, thermalOk,
              audioPlayable, powerOk, allPass },
   armGate: { lastRunAtMs, result, failingGates[] },
   nextFire:{ atMs, source: SCHEDULED|TOMORROW_OVERRIDE|NAP, label } | null,
   ring:    { ringId, startedAt, trigger, phase: RINGING|SNOOZED,
-             snoozeCount, snoozeUntilMs, endsByMs, rotationDeg } | null,
+             snoozeCount, snoozeUntilMs, endsByMs, audible } | null,
   clock:   { lastSyncAttemptMs, lastSyncOkMs, offsetAppliedMs, source, staleByMs },
   ap:      { ssid, running, clientCount, lastStartedAtMs, lastError },
   self:    { batteryPct, plugged, appVersion, variant },   // filled by the CLIENT ADAPTER, locally
@@ -201,7 +201,7 @@ Persisted on every phase change (a handful of writes per morning — flash wear 
 
 | open session | incoming | result |
 |---|---|---|
-| NAP | SCHEDULED | **nap session ends** (`outcome = SUPERSEDED`), **new session starts** with a fresh `ringId`, fresh rotation counter, fresh `endsBy`. Audio never actually stops — the handover is seamless. |
+| NAP | SCHEDULED | **nap session ends** (`outcome = SUPERSEDED`), **new session starts** with a fresh `ringId` and a fresh `endsBy`. Audio never actually stops — the handover is seamless. |
 | SCHEDULED | NAP | nap is **dropped**, logged `nap_dropped`. The real alarm is already blaring; a nap on top is meaningless. Nap disarms. |
 | any | same source | impossible (occurrence latch), but if seen: absorbed + logged |
 
@@ -393,7 +393,7 @@ Consequences worth having:
   snapshot or the renderer shows up identically on both phones instead of only remotely. The local path is not a
   privileged shortcut.
 - **Role selects a client, not a screen.** Everything visual is shared. The only role-conditional UI is: AP
-  credentials + audio file picker (alarm-only, because they're device-local), and the rotation instrument
+  credentials + audio file picker (alarm-only, because they're device-local), and the ring screen's controls
   (alarm-only, because it's sensor-driven).
 - `LocalStateClient` returning `Result` too means offline/error rendering is exercised on both phones.
 - All validation lives in `:core`, so a settings floor is enforced once and cannot be bypassed by the HTTP path.
@@ -402,7 +402,7 @@ Consequences worth having:
 
 **Material 3, dark, fixed palette** (dynamic color off — the two phones must look identical and must not shift with wallpaper). Sleek but **no reinvented components**: stock M3 `Button`, `TimePicker`, `Slider`, `Snackbar`, `ListItem`, `TopAppBar`. Large type scale, high contrast, near-black surfaces so the always-on screen is unobtrusive at 3 AM.
 
-The **only** custom-drawn thing in the app is the rotation instrument (§7 RINGING). Everything else is off the shelf.
+Nothing in the app is custom-drawn any more: the rotation instrument was the only such thing and it is gone (§7). Everything is off the shelf.
 
 **Neither phone keeps its screen on while idle.** `FLAG_KEEP_SCREEN_ON` applies **only during a ring session**
 (alarm phone: full brightness; controller: full brightness while the remote-dismiss button is live). Otherwise both
@@ -424,59 +424,36 @@ consumable that dims gradually and silently, and a continuous heat source next t
 ## 7. Screens
 
 ### ALARM — RINGING
-Time, large, centered. Below it: **PRESS TO DISMISS** (immediate, no confirm — it already costs a key and a walk).
-Below that, the snooze instrument: a 3D orientation widget + `rotationDeg / threshold` live counter.
+
+**Superseded 2026-09-28. The rotation-snooze gesture is gone**; the whole of the old §7 gesture design — the
+wireframe globe, the `GAME_ROTATION_VECTOR` path integral, the gyro deadband, the zero-rate update, the decay
+window, the per-stream staleness checks — was deleted with it, along with the `gyroscopePresent` gate. It solved
+"how do you make snoozing physically hard inside a sealed box". The box now has **cutouts at the top and bottom
+of the glass**, so the answer is geometry instead of sensor fusion, which is both simpler and impossible to get
+wrong at 4 AM.
+
+The layout is built around what the cutouts expose:
+
+| element | where | why |
+|---|---|---|
+| **Time** | left edge, vertically centred | out of the way of both controls |
+| **Snooze** | a bar across the very bottom, flush to the glass | in the bottom cutout — the one control reachable with the box shut |
+| **Dismiss** | a ~60 dp grip flush to the **right** edge, starting 30 % down, dragged to the bottom | target *and* path are behind acrylic, so finishing it means opening the box |
+
+**Snooze must be held.** `snoozeHoldSeconds`, 0–10, default 3, **password-gated like every other kill** — it is the
+only defence on the only control a sleeping hand can reach. The bar fills as you hold so the wait is visible;
+letting go early abandons it. 0 makes it a plain tap. While snoozed the bar becomes the countdown, in place.
+
+**Dismiss is a drag, not a button.** It springs back if released early. This is the mechanism, not a confirmation
+dialog: a tap target anywhere reachable through a cutout would defeat the box entirely.
+
+**Snooze is alarm-local**: no HTTP route, and `HttpStateClient.snooze` fails without sending, so the controller
+cannot snooze — same rule as before, now enforced in the transport rather than by the gesture being physical.
+
+**The controller keeps one large button.** Being the easy way to stop the alarm from another room is its entire
+job; none of the above applies to it.
+
 Header strip: `● Connected · 1s` / `○ Disconnected · 4m · AP: no clients`.
-
-**The instrument.** A 2D Compose `Canvas` drawing a projected wireframe globe: lat/long grid, a marker at the
-current orientation taken from the rotation vector, and a fading breadcrumb polyline of recent orientations — so
-you literally watch the path you've traced. No 3D engine, no dependency, one file, ~200 lines. *(Filament /
-SceneView would do real 3D and is not worth a heavyweight dependency and a second renderer for one widget.)*
-
-**Legibility beats ornament at 4 AM**: the `deg / 120` numeral is the primary element, large and centered; the
-globe is secondary and sits behind it. If you're barely conscious you read the number, not the sphere.
-
-**Snooze gesture** — *path traveled, not displacement.*
-
-**The phone has a real gyroscope** — ST LSM6DSV 6-axis IMU, confirmed at part-number level on the 2026 unit. (The
-2023 and 2024 G Plays had none; verify yours is XT2615-1 with `adb shell dumpsys sensorservice`. Probe
-`TYPE_GYROSCOPE` directly — `TYPE_ROTATION_VECTOR` exists on gyro-less devices too and proves nothing.)
-
-**But `∫|ω| dt` is a rectifier and would self-snooze the alarm.** Taking the magnitude means bias and noise can never
-cancel — they accumulate monotonically. LSM6DSV zero-rate level is ±1 dps typical; even with HAL calibration leaving
-~0.3 dps residual per axis, a **perfectly motionless phone in a box reaches 120° in about four minutes.** Inside a
-60-minute session that is a near-certain spurious snooze, repeatedly, with `maxSnoozes` unbounded. Silent, and
-exactly the failure the product exists to prevent.
-
-So, **primary estimator: sum the geodesic angle between consecutive `TYPE_GAME_ROTATION_VECTOR` quaternions**
-(~50 Hz). A true path integral that does not accumulate gyro bias. The `∫|ω| dt` integral runs alongside as a
-cross-check; **disagreement is a logged event.**
-
-**It must be `GAME_ROTATION_VECTOR`, not `ROTATION_VECTOR`** — and an earlier draft got this wrong in a way that
-reintroduced the exact bug this section exists to kill. `TYPE_ROTATION_VECTOR` is a 9-axis fusion including the
-**magnetometer**. A phone sitting motionless in a box six inches from a charger transformer, a speaker magnet, or
-the box's own magnetic latch produces continuous yaw corrections as the filter chases a disturbed field — and a
-path integral **rectifies** those corrections exactly as it rectifies gyro bias: monotonic, never cancelling,
-reaching 120° well inside a 60-minute session. The deadband does not save it, because the deadband is on gyro
-`|ω|`, which reads ≈0 during a pure fusion correction, so the correction is never discarded. `GAME_ROTATION_VECTOR`
-is gyro+accel with the magnetometer excluded; it has no absolute yaw reference, which is irrelevant here because
-only *path length* is ever used. **Apply the deadband to the quaternion rate** (geodesic angle / Δt), not to the
-gyro stream.
-
-**Per-stream staleness.** Coupling two sensor streams means either can kill the gesture: a stalled gyro (HAL
-glitch, batching under Doze) discards every sample and makes snooze permanently impossible; a stalled RV freezes
-`rotationDeg`. Each stream gets a "no sample in > 2 s" check, published in the snapshot, with fallback to the
-surviving estimator.
-
-*(Note: "fuse rotation-vector for drift correction" — in the earlier draft — is a category error. Rotation vector
-gives absolute orientation, which carries no information about path length.)*
-
-Three guards regardless:
-- **Deadband** — discard `|ω| < 15 °/s`. A deliberate box rotation runs 100–300 °/s; bias is under 1.
-- **Zero-rate update** — while under the deadband and `|accel| ≈ 1 g` for > 1 s, average the gyro and subtract it as a
-  live bias estimate.
-- **Decay** — bleed the accumulator to 0 after ~3 s of stillness. A snooze should be **one continuous gesture**, not a
-  sum over an hour. This also makes the gesture harder, which is the product intent.
 
 Accumulate only while `phase == RINGING`; reset at each ring start and each snooze. Threshold flashes the widget,
 then `phase = SNOOZED` for `snoozeSeconds`. Repeatable. `rotationDeg` and the live bias estimate are both in the

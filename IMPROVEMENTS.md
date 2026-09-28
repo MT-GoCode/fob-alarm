@@ -713,3 +713,32 @@ knocking on the door.
 
 Also: the Status headline is plain "Next alarm" again. Which of the three produced the next fire is
 already the blue line under the time, and saying it twice made the headline noisy.
+
+## Round 22 — the box got cutouts, so the ring screen is geometry now
+
+The lockbox has openings at the top and bottom of the glass. That replaces the entire reason the snooze gesture
+was a sensor problem, so the rotation snooze is **deleted**: `RotationAccumulator`, the wireframe globe
+(`Globe.kt`), the `GAME_ROTATION_VECTOR` / gyro / accelerometer listeners in `RingService`, `rotationDeg`,
+`thresholdDeg`, `gyroBiasDps`, `gyroStale`, `rvStale`, `quaternion`, the `snoozeThresholdDegrees` setting, the
+`gyroscopePresent` gate and seven rotation tests. `RingService` is no longer a `SensorEventListener` and registers
+no sensors at all.
+
+**Snooze** is a bar across the very bottom, flush to the glass, in the bottom cutout. It must be **held** for
+`snoozeHoldSeconds` (0–10, default 3), and the bar fills as you hold so the wait is visible rather than a dead
+press. Letting go early abandons it. A new setting, password-gated like every other kill — it is the only defence
+on the only control a sleeping hand can reach. While snoozed the bar becomes the countdown, in the same place.
+
+**Dismiss** is a ~60 dp grip flush to the right edge, starting 30 % down, that must be dragged the length of the
+screen to the bottom. The target *and* the whole path are behind acrylic, so completing it means opening the box.
+Springs back if released early. **The time** moved to the left edge, vertically centred, clear of both.
+
+The controller is untouched: one large button, because being the easy way to stop the alarm from another room is
+its entire job. Snooze is still not remotable — now enforced in the transport (`HttpStateClient.snooze` fails
+without sending, and there is no HTTP route) rather than by the gesture being physical.
+
+**Verified on the emulator, all five:** the layout lands where it should (time left and centred, grip at the right
+edge 30 % down, bar flush to the bottom); a 1.2 s hold does **not** snooze and the bar still reads "HOLD 3s TO
+SNOOZE"; a 4 s hold snoozes and the bar becomes "SNOOZED — rings again in 26s" with `test_snooze` logged; a
+half-length drag springs back with the test still running; a full drag stops it, `test_ring_stopped` logged nine
+seconds into a sixty-second window, so it was the drag and not the window expiring. The first attempt at that last
+one proved nothing — the test's own 60 s window had already lapsed — which is why the timestamps are quoted.

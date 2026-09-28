@@ -65,9 +65,6 @@ data class GateInfo(
                 GateKind.PERMISSION, blocking = false, fix = FixAction.DEEP_LINK),
 
             // ---- compatibility: facts, nothing to grant ----
-            GateInfo("gyroscopePresent", "Gyroscope",
-                "No gyroscope, so turning the box will not snooze. The alarm rings either way.",
-                GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
             GateInfo("p2pSupported", "Wi-Fi Direct",
                 "No Wi-Fi Direct, so the two phones cannot link.",
                 GateKind.COMPAT, blocking = false, fix = FixAction.NONE),
@@ -145,7 +142,6 @@ fun Gates.value(key: String): Boolean = when (key) {
     "exactAlarm" -> exactAlarm
     "foregroundService" -> foregroundService
     "p2pSupported" -> p2pSupported
-    "gyroscopePresent" -> gyroscopePresent
     "groupCredentialsSet" -> groupCredentialsSet
     "localNetworkPermission" -> localNetworkPermission
     "notificationPolicyAccess" -> notificationPolicyAccess

@@ -285,6 +285,23 @@ class EngineTest {
         assertNull(r.state.override)
     }
 
+    // --- the snooze hold --------------------------------------------------
+
+    @Test fun `snooze hold clamps to zero and ten`() {
+        val n = SettingsValidator.normalize(Settings(snoozeHoldSeconds = 99))
+        assertEquals(10, n.snoozeHoldSeconds)
+        assertEquals(0, SettingsValidator.normalize(Settings(snoozeHoldSeconds = -4)).snoozeHoldSeconds)
+        assertEquals(3, Settings().snoozeHoldSeconds, "default hold")
+    }
+
+    @Test fun `changing the snooze hold is a settings change like any other`() {
+        val (c, s0) = fresh()
+        val r = Engine.patchSettings(s0, c, s0.settings.copy(snoozeHoldSeconds = 7), Actor.ALARM)
+        assertEquals(7, r.state.settings.snoozeHoldSeconds)
+        val e = r.events.first { it.type == "settings_change" }
+        assertTrue(e.detail["diff"]!!.contains("snoozeHold:3->7"), e.detail["diff"]!!)
+    }
+
     @Test fun `nextFire is never null under normal settings`() {
         val (c, s0) = fresh()
         assertNotNull(Engine.recompute(s0, c, "t").nextFire)
@@ -367,75 +384,6 @@ class RegressionTest {
     }
 }
 
-class RotationTest {
-    private fun aboutX(deg: Double) = Math.toRadians(deg).let { doubleArrayOf(Math.cos(it / 2), Math.sin(it / 2), 0.0, 0.0) }
-    private fun aboutZ(deg: Double) = Math.toRadians(deg).let { doubleArrayOf(Math.cos(it / 2), 0.0, 0.0, Math.sin(it / 2)) }
-
-    /** The failure this estimator exists to prevent: a motionless phone must never snooze. */
-    @Test fun `a motionless phone never reaches threshold`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        repeat(60 * 50) {                      // one minute at 50 Hz, sub-degree noise
-            t += 20
-            assertFalse(acc.onRotationVector(aboutX(0.02 * (it % 3 - 1)), t))
-        }
-        assertEquals(0.0, acc.degrees, 0.001)
-    }
-
-    @Test fun `a real rotation crosses the threshold`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        var fired = false
-        repeat(50) { t += 20; if (acc.onRotationVector(aboutX(4.0 * (it + 1)), t)) fired = true }   // 200 deg/s
-        assertTrue(fired, "120 deg of real rotation must trigger")
-    }
-
-    /** Seen on the phone: one buzz of the vibrator read as ten degrees, and it snoozed itself. */
-    @Test fun `vibration jitter never snoozes`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        repeat(60 * 50) {                      // a minute of buzzing: +-0.4 deg wobble every sample
-            t += 20
-            assertFalse(acc.onRotationVector(aboutX(if (it % 2 == 0) 0.4 else -0.4), t))
-        }
-        assertEquals(0.0, acc.degrees, 0.001, "a wobble that goes nowhere must not add up")
-    }
-
-    /** What you asked for: tilt it up and set it back down, and both movements count. */
-    @Test fun `tilting up and back down counts both ways`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        repeat(50) { t += 20; acc.onRotationVector(aboutX(0.6 * (it + 1)), t) }        // up 30 in a second
-        repeat(50) { t += 20; acc.onRotationVector(aboutX(30.0 - 0.6 * (it + 1)), t) } // back down
-        assertEquals(60.0, acc.degrees, 6.0)   // the step across the reversal nets a little less
-    }
-
-    @Test fun `a full turn and more is reachable by spinning`() {
-        val acc = RotationAccumulator(thresholdDeg = 360)
-        var t = 0L
-        var fired = false
-        repeat(200) { t += 20; if (acc.onRotationVector(aboutZ(4.0 * (it + 1)), t)) fired = true }  // 800 deg
-        assertTrue(fired, "a full turn must trigger a full-turn threshold")
-    }
-
-    @Test fun `slow sensor drift over an hour of ringing never snoozes`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        var fired = false
-        repeat(60 * 60 * 50) { t += 20; if (acc.onRotationVector(aboutX(3.0 / 60.0 / 50.0 * (it + 1)), t)) fired = true }
-        assertFalse(fired, "drift is not a gesture")
-    }
-
-    @Test fun `the total resets after stillness so a snooze is one gesture`() {
-        val acc = RotationAccumulator(thresholdDeg = 120)
-        var t = 0L
-        repeat(20) { t += 20; acc.onRotationVector(aboutX(4.0 * (it + 1)), t) }
-        assertTrue(acc.degrees > 50)
-        repeat(300) { t += 20; acc.onRotationVector(aboutX(80.0), t) }   // six seconds still
-        assertEquals(0.0, acc.degrees, 0.001)
-    }
-}
-
 class AuthTest {
     @Test fun `password verifies and a wrong one does not`() {
         val salt = Auth.newSalt()
@@ -452,12 +400,12 @@ class AuthTest {
 class NagTest {
     private fun snap(nextAtMs: Long, ringing: Boolean = false, skip: Boolean = false) = Snapshot(
         stateVersion = 1, serverTimeMs = 0, bootedAtMs = 0, mode = Mode.WAITING,
-        gates = Gates(0, true, true, true, true, true, true, true, true, true, true,
+        gates = Gates(0, true, true, true, true, true, true, true, true, true,
             true, true, true, true, true, true, true, true),
         armGate = null,
         nextFire = NextFire(nextAtMs, OccurrenceSource.SCHEDULED, "scheduled"),
         ring = if (ringing) RingView("r1", 0, OccurrenceSource.SCHEDULED, RingPhase.RINGING,
-            0, null, 0, 0.0, 120, 0.0, false, false, "ok") else null,
+            0, null, 0, "ok") else null,
         clock = ClockView(0, 0, 0, "x", 0),
         ap = ApView(null, true, 1, 0, null),
         self = DeviceView(90, true, "1", Role.CONTROLLER, "d"),

@@ -112,7 +112,8 @@ passed on the phones on 2026-09-27 with build 0.2.48.
 | step | do | must see |
 |---|---|---|
 | A1 ✓ | Set the alarm 3 minutes out, lock both phones, wait | Alarm phone rings at the minute. `logs`: `alarm_fired`, `ring_start`, `foreground_started` |
-| A2 ✓ | While ringing, press the power button, rotate the box a quarter turn | Screen comes back to the ring. Globe crosses the threshold, turns green, "SNOOZED" |
+| A2 | While ringing, press the power button, then hold the bottom bar through the cutout for the full hold time | Screen comes back to the ring. The bar fills, then reads "SNOOZED" with a countdown. Letting go early does nothing |
+| A2b | While ringing, try to dismiss with the box **shut** | Impossible: the grip is against the right edge behind acrylic and has to be dragged the length of the screen. Open the box, drag it down, it stops |
 | A3 | Controller, DISMISS IT | Stops in under 5 s. `logs`: `dismiss_remote` |
 | B1 ✓ | Alarm phone: Android Settings, force stop the app. Reopen it | Status still shows the next alarm. `logs`: `boot`, `recompute` |
 | B2 ✓ | Reboot the alarm phone and do **not** unlock it. Set the alarm 3 minutes out from the controller first | It rings. Ring screen shows over the lock screen |
@@ -142,6 +143,13 @@ pair of earbuds is connected to the alarm phone, Android can route the alarm out
 pins playback to the built-in speaker before it starts and re-pins it every five seconds during a
 ring (`routing_off_speaker` in the log), but it **cannot turn Bluetooth off** — that has been
 blocked for normal apps since Android 13. So: pair nothing with the alarm phone.
+
+**The ring screen is built around the box's cutouts.** Snooze is the bar across the very bottom — in the bottom
+cutout, reachable with the box shut, and it must be **held** for the number of seconds set under Settings →
+Snooze ("Hold the snooze bar for", 0–10 s, locked behind the password like every other setting that can silence
+the alarm). Dismiss is the small grip against the **right** edge: it has to be dragged all the way down, and both
+the grip and its path are behind acrylic, so finishing it means opening the box. It springs back if you let go.
+The time sits on the left, out of the way of both.
 
 **Keep the app active** is the one to care about over months. Android pauses apps that
 are not opened for a while, which cancels every alarm. The setting is under the app's

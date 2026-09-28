@@ -143,6 +143,9 @@ class HttpStateClient(
     override suspend fun unlock(secret: String): Result<String> =
         Result.failure(ClientError.Forbidden())
 
+    /** Snooze is not remotable, by design. Fails here, sends nothing. */
+    override suspend fun snooze(): Result<Snapshot> = Result.failure(ClientError.Forbidden())
+
     /** Nothing to drop: this phone can never hold an unlock. */
     override suspend fun lock() = Result.success(Unit)
 }

@@ -1,6 +1,10 @@
 package com.mtrinh.fobalarm.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mtrinh.fobalarm.core.*
@@ -135,7 +145,10 @@ fun RootScreen(
 /** The ring, and only the ring. No tabs, no navigation away. */
 @Composable
 fun RingOnlyScreen(app: AppState, s: Snapshot) {
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+    // No safeDrawing padding: the snooze bar has to touch the bottom of the glass and
+    // the dismiss box the right of it, because that is what the box's cutouts expose.
+    // LinkBar insets itself against the status bar.
+    Column(Modifier.fillMaxSize()) {
         LinkBar(app, isAlarmRole = true)
         RingingScreen(app, s, isAlarmRole = true)
     }
@@ -163,6 +176,22 @@ fun LinkBar(app: AppState, isAlarmRole: Boolean) {
     }
 }
 
+/**
+ * The ring screen, and the physical lock is part of its design.
+ *
+ * The box has cutouts at the top and bottom of the glass only; the middle and the sides
+ * are behind acrylic. So:
+ *
+ *  - **Snooze** is a bar across the very bottom, in the cutout, reachable with the box
+ *    shut -- and it must be HELD for `snoozeHoldSeconds` so a sleeping palm cannot do it.
+ *  - **Dismiss** is a small box against the right edge that has to be dragged all the way
+ *    down. Both the target and the whole path are behind acrylic, so completing it means
+ *    opening the box. That is the mechanism; it is not a confirmation dialog.
+ *  - **The time** sits on the left, out of the way of both.
+ *
+ * The controller gets none of this. Its entire job is to be the easy way to stop the
+ * alarm from another room, so it keeps one large button.
+ */
 @Composable
 private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val ring = s.ring
@@ -174,31 +203,164 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         ?: s.testSnoozedUntilMs.takeIf { isTest && it > app.nowMs }
     val snoozed = snoozeUntil != null
     val now = app.nowMs
-    val deg = ring?.rotationDeg ?: app.testRotationDeg
-    val threshold = ring?.thresholdDeg ?: s.settings.snoozeThresholdDegrees
     val sending = app.dismissUi is DismissUi.Waiting
+    val locked = now < app.buttonLockedUntilMs
+    val muted = ring?.audible?.contains("muted=true") == true
 
-    // Three things, centred as one group: the time, the button, the globe. The small
-    // lines (TEST, whose alarm, muted) sit at the edges and never push the group around.
+    if (!isAlarmRole) {
+        ControllerRingScreen(app, isTest, snoozed, snoozeUntil, now, sending, locked, muted)
+        return
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val d = LocalDensity.current
+        val barH = 108.dp
+        val grip = 60.dp                                  // barely a thumb, on purpose
+        val hPx = with(d) { maxHeight.toPx() }
+        val barPx = with(d) { barH.toPx() }
+        val gripPx = with(d) { grip.toPx() }
+        val gripTop = hPx * 0.30f                         // below the top cutout's reach
+        val gripTravel = (hPx - barPx - gripPx - gripTop).coerceAtLeast(1f)
+
+        // --- the time, left, vertically centred -------------------------------
+        Column(Modifier.align(Alignment.CenterStart).padding(start = S.page, end = grip + S.md)) {
+            if (isTest) Text("TEST", fontSize = T.label, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary)
+            Text(Fmt.clock(now), fontSize = T.hero, fontWeight = FontWeight.Light)
+            if (muted) Text("Sound is muted. Vibration only.", fontSize = T.label, color = Bad)
+            (app.dismissUi as? DismissUi.RingChanged)?.let { RedCard(it.message) }
+            (app.dismissUi as? DismissUi.Unreachable)?.let { RedCard(it.message) }
+        }
+
+        // --- dismiss: drag the grip down, against the right edge ---------------
+        DismissGrip(
+            size = grip, topPx = gripTop, travelPx = gripTravel,
+            enabled = !locked && !sending,
+            label = if (isTest) "STOP" else "OFF",
+            onComplete = { if (isTest) app.stopTest() else app.dismiss() },
+            modifier = Modifier.align(Alignment.TopEnd))
+
+        // --- snooze: the bottom bar, in the cutout -----------------------------
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(barH)) {
+            if (snoozed) {
+                val left = ((snoozeUntil ?: now) - now).coerceAtLeast(0)
+                Box(Modifier.fillMaxSize().background(Good), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SNOOZED", fontSize = T.headline, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text("rings again in ${Fmt.duration(left)}", fontSize = T.body, color = Color.Black)
+                    }
+                }
+            } else {
+                SnoozeBar(holdSeconds = s.settings.snoozeHoldSeconds,
+                    enabled = !sending, onSnooze = { app.snooze() })
+            }
+        }
+    }
+}
+
+/**
+ * Hold to snooze. The fill is the hold, so the wait is visible rather than mysterious,
+ * and letting go before the end abandons it. Zero seconds means a plain tap.
+ */
+@Composable
+private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, onSnooze: () -> Unit) {
+    var pressedAt by remember { mutableLongStateOf(0L) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    val holdMs = holdSeconds * 1000L
+
+    LaunchedEffect(pressedAt, holdMs) {
+        if (pressedAt == 0L) { progress = 0f; return@LaunchedEffect }
+        if (holdMs <= 0L) { onSnooze(); pressedAt = 0L; return@LaunchedEffect }
+        while (pressedAt != 0L) {
+            progress = ((System.currentTimeMillis() - pressedAt).toFloat() / holdMs).coerceAtMost(1f)
+            if (progress >= 1f) { onSnooze(); pressedAt = 0L; break }
+            kotlinx.coroutines.delay(16)
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .pointerInput(enabled, holdMs) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(onPress = {
+                    pressedAt = System.currentTimeMillis()
+                    tryAwaitRelease()
+                    pressedAt = 0L
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Good).align(Alignment.CenterStart))
+        Text(
+            when {
+                holdSeconds <= 0 -> "PRESS TO SNOOZE"
+                pressedAt != 0L -> "KEEP HOLDING"
+                else -> "HOLD ${holdSeconds}s TO SNOOZE"
+            },
+            fontSize = T.title, fontWeight = FontWeight.Bold,
+            color = if (progress > 0.5f) Color.Black else MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/**
+ * Drag all the way down to dismiss. Small, flush to the right edge, and it springs back
+ * if released early -- the difficulty is the point, not an accident of the layout.
+ */
+@Composable
+private fun DismissGrip(
+    size: Dp, topPx: Float, travelPx: Float, enabled: Boolean,
+    label: String, onComplete: () -> Unit, modifier: Modifier = Modifier,
+) {
+    var dragged by remember { mutableFloatStateOf(0f) }
+    val frac = (dragged / travelPx).coerceIn(0f, 1f)
+
+    Box(
+        modifier
+            .offset { IntOffset(0, (topPx + dragged).roundToInt()) }
+            .size(size)
+            .background(
+                if (enabled) lerp(MaterialTheme.colorScheme.primary, Bad, frac)
+                else MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
+            .pointerInput(enabled, travelPx) {
+                if (!enabled) return@pointerInput
+                detectDragGestures(
+                    onDragEnd = { if (dragged < travelPx) dragged = 0f },
+                    onDragCancel = { dragged = 0f },
+                ) { change, drag ->
+                    change.consume()
+                    dragged = (dragged + drag.y).coerceIn(0f, travelPx)
+                    if (dragged >= travelPx) { onComplete(); dragged = 0f }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = T.caption, fontWeight = FontWeight.Bold, color = Color.Black)
+    }
+}
+
+/** The controller's ring screen: one big button, because reaching it is the whole point. */
+@Composable
+private fun ControllerRingScreen(
+    app: AppState, isTest: Boolean, snoozed: Boolean, snoozeUntil: Long?,
+    now: Long, sending: Boolean, locked: Boolean, muted: Boolean,
+) {
     Column(
-        Modifier.fillMaxSize().padding(S.page),
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(S.page),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (isTest) Text("TEST", fontSize = T.label, fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary)
-        // The controller must say, in the first line, that the noise is elsewhere.
-        if (!isAlarmRole) Text("ALARM PHONE IS RINGING", fontSize = T.headline, fontWeight = FontWeight.Bold)
+        Text("ALARM PHONE IS RINGING", fontSize = T.headline, fontWeight = FontWeight.Bold)
 
         Spacer(Modifier.weight(1f))
-
-        Text(Fmt.clock(now), fontSize = T.hero, fontWeight = FontWeight.Light,
-            color = if (isAlarmRole) MaterialTheme.colorScheme.onSurface else Muted)
+        Text(Fmt.clock(now), fontSize = T.hero, fontWeight = FontWeight.Light, color = Muted)
 
         if (snoozed) {
             val left = ((snoozeUntil ?: now) - now).coerceAtLeast(0)
             Spacer(Modifier.height(S.md))
-            Card(colors = CardDefaults.cardColors(containerColor = Good),
-                modifier = Modifier.fillMaxWidth()) {
+            Card(colors = CardDefaults.cardColors(containerColor = Good), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(S.md), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("SNOOZED", fontSize = T.headline, fontWeight = FontWeight.Bold, color = Color.Black)
                     Text("rings again in ${Fmt.duration(left)}", fontSize = T.body, color = Color.Black)
@@ -207,46 +369,24 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         }
 
         Spacer(Modifier.height(S.lg))
-
-        val locked = now < app.buttonLockedUntilMs
         Button(
             onClick = { if (isTest) app.stopTest() else app.dismiss() },
             enabled = !locked && !sending,
             modifier = Modifier.fillMaxWidth().height(170.dp),
         ) {
-            Text(
-                when {
-                    isTest -> "STOP TEST"
-                    sending -> if (isAlarmRole) "Stopping" else "Sending to alarm phone"
-                    isAlarmRole -> "PRESS TO DISMISS"
-                    else -> "DISMISS IT"
-                },
-                fontSize = T.title, fontWeight = FontWeight.Bold)
+            Text(when {
+                isTest -> "STOP TEST"
+                sending -> "Sending to alarm phone"
+                else -> "DISMISS IT"
+            }, fontSize = T.title, fontWeight = FontWeight.Bold)
         }
 
-        // Every outcome that is not success is a red card at the button's own size.
         (app.dismissUi as? DismissUi.RingChanged)?.let { RedCard(it.message) }
         (app.dismissUi as? DismissUi.Unreachable)?.let { RedCard(it.message) }
 
-        if (isAlarmRole) {
-            Spacer(Modifier.height(S.lg))
-            Text(if (snoozed) "Snoozed" else "Turn the box to snooze",
-                fontSize = T.body, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(S.sm))
-            Box(Modifier.fillMaxWidth().height(240.dp)) {
-                RotationInstrument(
-                    degrees = deg, threshold = threshold,
-                    quaternion = ring?.quaternion ?: app.testQuaternion,
-                    snoozed = snoozed, modifier = Modifier.fillMaxSize())
-            }
-        }
-
         Spacer(Modifier.weight(1f))
-
-        if (ring?.audible?.contains("muted=true") == true) {
-            Text(if (isAlarmRole) "Sound is muted. Vibration only."
-                 else "Sound is muted on the alarm phone. Vibration only.", fontSize = T.label, color = Bad)
-        }
+        if (muted) Text("Sound is muted on the alarm phone. Vibration only.",
+            fontSize = T.label, color = Bad)
     }
 }
 
@@ -368,7 +508,6 @@ private fun SetupScreen(
     val optional = rows.filter { !it.first.blocking }
     val missing = required.count { !it.second }
     val compatMissing = g.entries().filter { it.first.kind == GateKind.COMPAT && !it.second }
-        .filter { isAlarmRole || it.first.key != "gyroscopePresent" }
 
     Page(title = "Setup", snapshot = s) {
         if (missing > 0) {

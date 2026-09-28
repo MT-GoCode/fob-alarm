@@ -3,22 +3,19 @@ package com.mtrinh.fobalarm.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.os.*
 import com.mtrinh.fobalarm.core.*
 
 /**
- * The foreground service that IS the ring: audio, vibration, the wake lock, the
- * rotation-snooze sensor, and the notification carrying the full-screen intent. Started
- * by the alarm trigger and by nothing else; it outlives the ring screen so that killing
- * the UI cannot silence an alarm.
+ * The foreground service that IS the ring: audio, vibration, the wake lock, and the
+ * notification carrying the full-screen intent. Started by the alarm trigger and by
+ * nothing else; it outlives the ring screen so that killing the UI cannot silence an
+ * alarm. It registers no sensors -- snooze is ACTION_SNOOZE from the bar on the ring
+ * screen, and the rotation gesture it used to own is gone.
  *
  * Also serves the test ring, which has no engine session -- see `Svc.testActive`.
  */
-class RingService : Service(), SensorEventListener {
+class RingService : Service() {
 
     companion object {
         const val CHANNEL_RING = "ring"
@@ -27,6 +24,7 @@ class RingService : Service(), SensorEventListener {
         const val CHANNEL_STATUS = "status"
         const val NOTIF_ID = 42
         const val ACTION_STOP = "stop"
+        const val ACTION_SNOOZE = "snooze"
         /** Resume an open session after the process died: never a new trigger. */
         const val ACTION_RESUME = "resume"
 
@@ -65,12 +63,7 @@ class RingService : Service(), SensorEventListener {
                 .addAction(Notification.Action.Builder(null, "DISMISS", dismiss).build())
                 .build()
         }
-        @Volatile var rotationDeg: Double = 0.0
-        @Volatile var gyroBiasDps: Double = 0.0
-        @Volatile var gyroStale = false
-        @Volatile var rvStale = false
         @Volatile var audible: String = "-"
-        @Volatile var quaternion: DoubleArray? = null
 
         fun start(ctx: Context, resume: Boolean = false) {
             val intent = Intent(ctx, RingService::class.java)
@@ -89,14 +82,20 @@ class RingService : Service(), SensorEventListener {
         fun stop(ctx: Context) {
             ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_STOP))
         }
+
+        /**
+         * Snooze, asked for by the bar at the bottom of the ring screen. Local only --
+         * `Svc.snooze` is the sole caller and there is no HTTP route, because snoozing
+         * must mean reaching the box.
+         */
+        fun snooze(ctx: Context) {
+            ctx.startService(Intent(ctx, RingService::class.java).setAction(ACTION_SNOOZE))
+        }
     }
 
     private lateinit var audio: Audio
     private var wakeLock: PowerManager.WakeLock? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var acc: RotationAccumulator? = null
-    private var sm: SensorManager? = null
-    private var lastAccelG = 1.0
 
     override fun onBind(i: Intent?) = null
 
@@ -110,6 +109,8 @@ class RingService : Service(), SensorEventListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
         if (intent?.action == ACTION_STOP) { teardown(); return START_NOT_STICKY }
+        // Snooze acts on the session that is already open and starts nothing.
+        if (intent?.action == ACTION_SNOOZE) { doSnooze(); return START_STICKY }
 
         // Open the session and arm the watchdog BEFORE anything that can throw, so a
         // failure here is recoverable rather than terminal.
@@ -141,8 +142,6 @@ class RingService : Service(), SensorEventListener {
             // losing it turns a silent test into a full-volume siren.
             val silent = Svc.de.testSilent
             Svc.log("test_ring_start", "silent" to silent.toString())
-            startGesture()                    // without this the test has no sensors
-            acc?.reset(); rotationDeg = 0.0; quaternion = null
             val pm0 = getSystemService(PowerManager::class.java)
             wakeLock = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:test")
                 .also { it.acquire(90_000) }
@@ -200,7 +199,6 @@ class RingService : Service(), SensorEventListener {
         }
 
         Scheduler.armWatchdog(this)
-        startGesture()
 
         if (Svc.session?.phase == RingPhase.RINGING) beginAudio()
         else if (Svc.session == null) {
@@ -217,8 +215,6 @@ class RingService : Service(), SensorEventListener {
     private fun beginAudio() {
         audio.stop()                 // release any previous player first
         audio.start(Svc.settings)
-        acc?.reset()
-        rotationDeg = 0.0
     }
 
     private fun showRingUi() {
@@ -228,52 +224,7 @@ class RingService : Service(), SensorEventListener {
         }
     }
 
-    // ---- the snooze gesture ------------------------------------------------
-
-    private fun startGesture() {
-        if (acc != null) return
-        acc = RotationAccumulator(Svc.settings.snoozeThresholdDegrees)
-        sm = getSystemService(SensorManager::class.java)
-        val rv = sm?.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-            ?: sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        rv?.let { sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
-        sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
-            sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
-        sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sm?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
-        }
-    }
-
-    override fun onSensorChanged(e: SensorEvent) {
-        val a = acc ?: return
-        val now = System.currentTimeMillis()
-        when (e.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> {
-                lastAccelG = Math.sqrt(
-                    (e.values[0] * e.values[0] + e.values[1] * e.values[1] +
-                     e.values[2] * e.values[2]).toDouble()) / SensorManager.GRAVITY_EARTH
-            }
-            Sensor.TYPE_GYROSCOPE -> {
-                a.onGyro(e.values[0].toDouble(), e.values[1].toDouble(), e.values[2].toDouble(),
-                    lastAccelG, now)
-                gyroBiasDps = a.gyroBiasDps
-            }
-            Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
-                // Only accumulate while actually RINGING: never while snoozed or idle.
-                val engineRinging = Svc.session?.phase == RingPhase.RINGING
-                val testRinging = Svc.testActive && testSnoozedUntilMs == 0L
-                if (!engineRinging && !testRinging) return
-                val q = RotationAccumulator.quatFromSensor(e.values)
-                quaternion = q
-                val crossed = a.onRotationVector(q, now)
-                rotationDeg = a.degrees
-                if (crossed) doSnooze()
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+    // ---- snooze ------------------------------------------------------------
 
     @Volatile private var testSnoozedUntilMs = 0L
         set(v) { field = v; Svc.testSnoozedUntilMs = v }   // the snapshot shows the countdown
@@ -287,13 +238,11 @@ class RingService : Service(), SensorEventListener {
             testSnoozedUntilMs = System.currentTimeMillis() + Svc.settings.snoozeSeconds * 1000L
             Svc.log("test_snooze")
             audio.stop()
-            acc?.reset(); rotationDeg = 0.0
             return
         }
         if (s.phase != RingPhase.RINGING) return
         Svc.onSnooze()
         audio.stop()                       // SNOOZED is fully silent: no hum, no pulse
-        acc?.reset(); rotationDeg = 0.0
     }
 
     // ---- heartbeat ---------------------------------------------------------
@@ -344,7 +293,6 @@ class RingService : Service(), SensorEventListener {
                     audible = audio.audible
                 }
             }
-            acc?.let { gyroStale = it.gyroStale(now); rvStale = it.rvStale(now) }
             Scheduler.armWatchdog(this@RingService)
             handler.postDelayed(this, 5_000)
         }
@@ -354,12 +302,9 @@ class RingService : Service(), SensorEventListener {
 
     private fun teardown() {
         testSnoozedUntilMs = 0L
-        quaternion = null
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
         audio.stop()
-        sm?.unregisterListener(this); sm = null; acc = null
-        rotationDeg = 0.0
         Scheduler.cancelWatchdog(this)
         runCatching { wakeLock?.release() }; wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -371,7 +316,6 @@ class RingService : Service(), SensorEventListener {
         serviceAlive = false
         handler.removeCallbacksAndMessages(null)
         runCatching { audio.stop() }
-        runCatching { sm?.unregisterListener(this) }
         runCatching { wakeLock?.release() }
         super.onDestroy()
     }

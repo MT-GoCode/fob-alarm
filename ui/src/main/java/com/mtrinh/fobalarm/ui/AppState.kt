@@ -47,8 +47,6 @@ class AppState(
     /** This phone's own gates, even when the snapshot describes the other phone. */
     var localGates by mutableStateOf<Gates?>(null)
     /** Live sensor values during a TEST ring, which has no engine session. */
-    var testRotationDeg by mutableStateOf(0.0)
-    var testQuaternion by mutableStateOf<DoubleArray?>(null)
 
     /** Ring changes disable the button briefly so a reflexive second tap cannot kill the new alarm. */
     var buttonLockedUntilMs by mutableLongStateOf(0L); private set
@@ -113,6 +111,14 @@ class AppState(
                 lastOkMs = System.currentTimeMillis()
             }
             .onFailure { if (!isLocal) noteFailure() }
+    }
+
+    /**
+     * The snooze bar. Local to the alarm phone -- HttpStateClient refuses without
+     * sending, so pressing it on the controller can never snooze anything.
+     */
+    fun snooze() {
+        scope.launch { client.snooze().onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() } }
     }
 
     fun dismiss() {

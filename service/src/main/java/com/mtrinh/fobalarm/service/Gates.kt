@@ -88,7 +88,7 @@ object GateEval {
      */
     private fun unknownGates(nextFireExists: Boolean) = Gates(
         evaluatedAtMs = 0, scheduleExists = nextFireExists, exactAlarm = false,
-        foregroundService = false, p2pSupported = false, gyroscopePresent = false,
+        foregroundService = false, p2pSupported = false,
         groupCredentialsSet = false, localNetworkPermission = false,
         notificationPolicyAccess = false, dndAllowsAlarms = false, volumeNotFixed = false,
         fullScreenIntent = false, notHibernating = false, thermalOk = false,
@@ -129,9 +129,6 @@ object GateEval {
             foregroundService = probe("foregroundService", false) { nm.areNotificationsEnabled() },
             p2pSupported = probe("p2pSupported", false) {
                 ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)
-            },
-            gyroscopePresent = probe("gyroscopePresent", false) {
-                sm?.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null
             },
             groupCredentialsSet = !settings.ssid.isNullOrBlank() && !settings.passphrase.isNullOrBlank(),
             localNetworkPermission = probe("localNetworkPermission", false) { hasLocalNetwork(ctx) },

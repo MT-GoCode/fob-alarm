@@ -81,7 +81,7 @@ object Svc : AlarmHost {
             alarmVolumePercent = de.alarmVolumePercent,
             maxRingMinutes = de.maxRingMinutes,
             snoozeSeconds = de.snoozeSeconds,
-            snoozeThresholdDegrees = de.snoozeThresholdDegrees,
+            snoozeHoldSeconds = de.snoozeHoldSeconds,
             ringtoneUri = de.ringtoneUri,
             ringtoneName = de.ringtoneName,
             role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
@@ -249,6 +249,17 @@ object Svc : AlarmHost {
     fun onSnooze(): Snapshot = synchronized(lock) { apply(Engine.snooze(state, ts), alsoFire = false) }
 
     /**
+     * The snooze bar on the ring screen. ALARM-LOCAL: there is no HTTP route and
+     * HttpStateClient refuses without sending, because snoozing has to mean reaching the
+     * box. RingService owns the act -- it stops the audio and handles a test ring the
+     * same way -- so this only asks it.
+     */
+    override fun snooze(): Snapshot {
+        RingService.snooze(app)
+        return snapshot()
+    }
+
+    /**
      * Last resort when the engine refuses to open a session but an alarm is genuinely
      * due. A REAL session, so the ring screen, the dismiss button, the watchdog and the
      * DE mirror all work exactly as they normally do.
@@ -299,9 +310,7 @@ object Svc : AlarmHost {
             ring = s?.let {
                 RingView(it.ringId, it.startedAtMs, it.trigger, it.phase, it.snoozeCount,
                     it.snoozeUntilMs, it.endsByMs,
-                    RingService.rotationDeg, state.settings.snoozeThresholdDegrees,
-                    RingService.gyroBiasDps, RingService.gyroStale, RingService.rvStale,
-                    RingService.audible, RingService.quaternion)
+                    RingService.audible)
             },
             clock = ClockView(ClockObserver.lastAttemptMs, ClockObserver.lastOkMs,
                 ClockObserver.offsetMs, ClockObserver.source,
@@ -395,6 +404,7 @@ object Svc : AlarmHost {
             patch.ringtoneUri != state.settings.ringtoneUri,
             patch.ringtoneName != state.settings.ringtoneName,
             patch.snoozeSeconds != state.settings.snoozeSeconds,
+            patch.snoozeHoldSeconds != state.settings.snoozeHoldSeconds,
             patch.defaultAlarmTime != state.settings.defaultAlarmTime,
             patch.vibrate != state.settings.vibrate,
             patch.maxRingMinutes != state.settings.maxRingMinutes,

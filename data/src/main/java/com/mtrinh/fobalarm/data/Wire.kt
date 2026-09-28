@@ -22,7 +22,6 @@ object Wire {
             put("exactAlarm", s.gates.exactAlarm)
             put("foregroundService", s.gates.foregroundService)
             put("p2pSupported", s.gates.p2pSupported)
-            put("gyroscopePresent", s.gates.gyroscopePresent)
             put("groupCredentialsSet", s.gates.groupCredentialsSet)
             put("localNetworkPermission", s.gates.localNetworkPermission)
             put("notificationPolicyAccess", s.gates.notificationPolicyAccess)
@@ -51,9 +50,7 @@ object Wire {
                 .put("trigger", it.trigger.name).put("phase", it.phase.name)
                 .put("snoozeCount", it.snoozeCount)
                 .put("snoozeUntilMs", it.snoozeUntilMs ?: JSONObject.NULL)
-                .put("endsByMs", it.endsByMs).put("rotationDeg", it.rotationDeg)
-                .put("thresholdDeg", it.thresholdDeg).put("gyroBiasDps", it.gyroBiasDps)
-                .put("gyroStale", it.gyroStale).put("rvStale", it.rvStale)
+                .put("endsByMs", it.endsByMs)
                 .put("audible", it.audible)
         } ?: JSONObject.NULL)
         put("clock", JSONObject().put("lastSyncAttemptMs", s.clock.lastSyncAttemptMs)
@@ -108,7 +105,7 @@ object Wire {
         .put("ringtoneUri", s.ringtoneUri ?: JSONObject.NULL)
         .put("ringtoneName", s.ringtoneName ?: JSONObject.NULL)
         .put("snoozeSeconds", s.snoozeSeconds)
-        .put("snoozeThresholdDegrees", s.snoozeThresholdDegrees)
+        .put("snoozeHoldSeconds", s.snoozeHoldSeconds)
         .put("maxRingMinutes", s.maxRingMinutes)
         .put("napMinutes", s.napMinutes)
         .put("vibrate", s.vibrate)
@@ -127,7 +124,7 @@ object Wire {
         ringtoneUri = if (o.has("ringtoneUri") && !o.isNull("ringtoneUri")) o.getString("ringtoneUri") else base.ringtoneUri,
         ringtoneName = if (o.has("ringtoneName") && !o.isNull("ringtoneName")) o.getString("ringtoneName") else base.ringtoneName,
         snoozeSeconds = o.optInt("snoozeSeconds", base.snoozeSeconds),
-        snoozeThresholdDegrees = o.optInt("snoozeThresholdDegrees", base.snoozeThresholdDegrees),
+        snoozeHoldSeconds = o.optInt("snoozeHoldSeconds", base.snoozeHoldSeconds),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),
@@ -165,7 +162,6 @@ object Wire {
             evaluatedAtMs = g.optLong("evaluatedAtMs"),
             scheduleExists = gb("scheduleExists"), exactAlarm = gb("exactAlarm"),
             foregroundService = gb("foregroundService"), p2pSupported = gb("p2pSupported"),
-            gyroscopePresent = gb("gyroscopePresent"),
             groupCredentialsSet = gb("groupCredentialsSet"),
             localNetworkPermission = gb("localNetworkPermission"),
             notificationPolicyAccess = gb("notificationPolicyAccess"),
@@ -204,9 +200,7 @@ object Wire {
                     runCatching { RingPhase.valueOf(it.optString("phase")) }.getOrDefault(RingPhase.RINGING),
                     it.optInt("snoozeCount"),
                     if (it.isNull("snoozeUntilMs")) null else it.optLong("snoozeUntilMs"),
-                    it.optLong("endsByMs"), it.optDouble("rotationDeg", 0.0),
-                    it.optInt("thresholdDeg", 120), it.optDouble("gyroBiasDps", 0.0),
-                    it.optBoolean("gyroStale"), it.optBoolean("rvStale"), it.optString("audible"))
+                    it.optLong("endsByMs"), it.optString("audible"))
             },
             clock = ClockView(c.optLong("lastSyncAttemptMs"), c.optLong("lastSyncOkMs"),
                 c.optLong("offsetAppliedMs"), c.optString("source"), c.optLong("staleByMs")),

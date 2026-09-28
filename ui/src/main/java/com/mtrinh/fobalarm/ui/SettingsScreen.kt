@@ -79,9 +79,9 @@ fun SettingsScreen(
             }
         }
         LockedRow(locked) { on ->
-            NumberSetting("Turn the phone to snooze", s.settings.snoozeThresholdDegrees,
-                min = 60, max = 720, unit = "°", enabled = on) { v ->
-                app.patch("Turn the phone to snooze") { it.copy(snoozeThresholdDegrees = v) }
+            SliderSetting("Hold the snooze bar for", s.settings.snoozeHoldSeconds,
+                min = 0, max = 10, step = 1, suffix = "s", enabled = on) { v ->
+                app.patch("Hold the snooze bar for") { it.copy(snoozeHoldSeconds = v) }
             }
         }
 

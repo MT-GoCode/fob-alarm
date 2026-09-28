@@ -508,7 +508,7 @@ object Engine {
         if (a.defaultAlarmTime != b.defaultAlarmTime) add("defaultAlarmTime:${a.defaultAlarmTime}->${b.defaultAlarmTime}")
         if (a.alarmVolumePercent != b.alarmVolumePercent) add("volume:${a.alarmVolumePercent}->${b.alarmVolumePercent}")
         if (a.snoozeSeconds != b.snoozeSeconds) add("snoozeSeconds:${a.snoozeSeconds}->${b.snoozeSeconds}")
-        if (a.snoozeThresholdDegrees != b.snoozeThresholdDegrees) add("threshold:${a.snoozeThresholdDegrees}->${b.snoozeThresholdDegrees}")
+        if (a.snoozeHoldSeconds != b.snoozeHoldSeconds) add("snoozeHold:${a.snoozeHoldSeconds}->${b.snoozeHoldSeconds}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
         if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")

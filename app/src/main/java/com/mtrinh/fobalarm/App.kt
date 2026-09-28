@@ -98,8 +98,6 @@ class App : Application() {
             // no engine session and therefore no RingView.
             LaunchedEffect(Unit) {
                 while (true) {
-                    app.testRotationDeg = RingService.rotationDeg
-                    app.testQuaternion = RingService.quaternion
                     delay(80)
                 }
             }
