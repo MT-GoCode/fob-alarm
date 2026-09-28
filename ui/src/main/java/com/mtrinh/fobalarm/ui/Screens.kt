@@ -52,36 +52,39 @@ fun RootScreen(
         app.ringEndMessage?.let { snackbar.showSnackbar(it); app.clearRingEndMessage() }
     }
 
-    // ONE definition of "is setup done", used for both the tab label and its content.
+    // Setup is always a tab. It is only pushed to the front while something required is
+    // missing; once granted, nothing disappears and everything stays reachable.
     val myGates = app.localGates ?: s.gates
-    val setupDone = myGates.evaluatedAtMs != 0L &&
-            setupRows(myGates, isAlarmRole).none { it.first.blocking && !it.second }
+    val setupBlocked = myGates.evaluatedAtMs != 0L &&
+            setupRows(myGates, isAlarmRole).any { it.first.blocking && !it.second }
+    var pushed by rememberSaveable { mutableStateOf(false) }
+    if (setupBlocked && !pushed) { tab = 1; pushed = true }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                listOf(if (setupDone) "Status" else "Setup", "Settings", "History")
-                    .forEachIndexed { i, label ->
-                        NavigationBarItem(
-                            selected = tab == i, onClick = { tab = i },
-                            icon = {
-                                Icon(when (i) {
-                                    0 -> Icons.Default.Alarm
-                                    1 -> Icons.Default.Settings
-                                    else -> Icons.Default.List
-                                }, contentDescription = label)
-                            },
-                            label = { Text(label) })
-                    }
+                listOf("Status", "Setup", "Settings", "History").forEachIndexed { i, label ->
+                    NavigationBarItem(
+                        selected = tab == i, onClick = { tab = i },
+                        icon = {
+                            Icon(when (i) {
+                                0 -> Icons.Default.Alarm
+                                1 -> if (setupBlocked) Icons.Default.Error else Icons.Default.CheckCircle
+                                2 -> Icons.Default.Settings
+                                else -> Icons.Default.List
+                            }, contentDescription = label, tint = if (i == 1 && setupBlocked) Bad else LocalContentColor.current)
+                        },
+                        label = { Text(label) })
+                }
             }
         }
     ) { pad ->
         Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
             when (tab) {
-                0 -> if (setupDone) WaitingScreen(app, s, isAlarmRole)
-                     else SetupScreen(app, s, isAlarmRole, onFixGate, pairing)
-                1 -> SettingsScreen(app, s, isAlarmRole,
+                0 -> WaitingScreen(app, s, isAlarmRole)
+                1 -> SetupScreen(app, s, isAlarmRole, onFixGate, pairing)
+                2 -> SettingsScreen(app, s, isAlarmRole,
                         deviceSettings = deviceSettings?.let { ds -> { pairing(); ds() } },
                         roleSwitcher = if (isAlarmRole) roleSwitcher else ({ pairing(); roleSwitcher() }))
                 else -> HistoryScreen(app)
@@ -252,7 +255,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             Spacer(Modifier.height(S.sm))
         }
 
-        StatusBlock(s, app.nowMs, app.connected) { app.reload() }
+        StatusBlock(s, app.nowMs, app.connected, app.localGates) { app.reload() }
 
         Section("Next alarm only")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
@@ -317,9 +320,10 @@ private fun SetupScreen(
 
     Page(title = "Setup", snapshot = s) {
         if (missing > 0) {
+            val ringBlocked = required.any { !it.second && GateInfo.of(it.first.key)?.blocking == true }
             Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
                 Column(Modifier.padding(S.md)) {
-                    Text(if (isAlarmRole) "The alarm cannot ring yet" else "Not ready yet",
+                    Text(if (ringBlocked && isAlarmRole) "The alarm cannot ring yet" else "The phones cannot connect yet",
                         fontSize = T.body, fontWeight = FontWeight.Bold, color = Color.Black)
                     Text("See the $missing item${if (missing == 1) "" else "s"} marked below.",
                         fontSize = T.caption, color = Color.Black)
@@ -352,17 +356,14 @@ private fun SetupScreen(
 private val CONTROLLER_PERMISSIONS = setOf("foregroundService", "localNetworkPermission", "notHibernating")
 
 /**
- * The permission rows THIS phone's Setup shows. Also decides when Setup is done.
- * Nearby devices cannot stop the alarm phone ringing, so it does not block there; the
- * controller cannot join the link without it, so there it does.
+ * The permission rows THIS phone's Setup shows, and which count as required. Nearby
+ * devices cannot stop the ring, but without it the two phones cannot link at all, so
+ * Setup treats it as required on both phones.
  */
 private fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
     g.entries().filter { it.first.kind == GateKind.PERMISSION }
         .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
-        .map { (info, ok) ->
-            if (!isAlarmRole && info.key == "localNetworkPermission") info.copy(blocking = true) to ok
-            else info to ok
-        }
+        .map { (info, ok) -> if (info.key == "localNetworkPermission") info.copy(blocking = true) to ok else info to ok }
 
 @Composable
 private fun PermissionRow(info: GateInfo, ok: Boolean, required: Boolean, onFix: (String) -> Unit) {

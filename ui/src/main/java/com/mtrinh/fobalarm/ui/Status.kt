@@ -12,15 +12,19 @@ import androidx.compose.ui.text.font.FontWeight
 import com.mtrinh.fobalarm.core.*
 
 /**
- * Answers two questions in two seconds, without reading: will it ring, and can I stop
- * it from here. Everything else on this screen had to justify itself against that.
+ * Everything a worried owner wants to see, in the order they worry: will it ring, can I
+ * stop it from here, is the link up, is it powered, are the permissions there, when did
+ * it last check itself, what happened last night.
  */
 @Composable
-fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Unit) {
+fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?, onReload: () -> Unit) {
     val iAmAlarm = s.self.role == Role.ALARM
     val problems = s.problems
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
     val willRing = problems.isEmpty() && s.nextFire != null
+    val alarm = if (iAmAlarm) s.self else s.peer          // the phone that rings
+    val controller = if (iAmAlarm) s.peer else s.self     // the phone that stops it
+    val peerAge = s.peer?.lastSeenMs?.takeIf { it > 0 }?.let { Fmt.age(it, nowMs) }
 
     // --- will it ring, and when ------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -38,17 +42,6 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
     Text(if (iAmAlarm) "This is the alarm phone" else "This is the controller",
         fontSize = T.label, color = Muted)
 
-    // --- can I stop it from here (controller only) -------------------------
-    if (!iAmAlarm) {
-        Spacer(Modifier.height(S.sm))
-        Text(
-            if (connected) "Alarm phone: connected"
-            else "Alarm phone: not reachable" +
-                    (s.peer?.lastSeenMs?.takeIf { it > 0 }?.let { ", last heard ${Fmt.age(it, nowMs)}" } ?: ""),
-            fontSize = T.body, fontWeight = FontWeight.SemiBold,
-            color = if (connected) Good else Bad)
-    }
-
     // --- anything wrong, as sentences ----------------------------------------
     if (problems.isNotEmpty() || peerMissing.isNotEmpty()) {
         Spacer(Modifier.height(S.sm))
@@ -61,7 +54,6 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
             }
         }
     }
-
     if (s.warnings.isNotEmpty()) {
         Spacer(Modifier.height(S.sm))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
@@ -83,9 +75,60 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
         Text("Nap: rings ${Fmt.until(it, nowMs)}", fontSize = T.body, color = MaterialTheme.colorScheme.primary)
     }
 
+    // --- the link -------------------------------------------------------------
+    Section("Link")
+    if (iAmAlarm) {
+        Line("Group", if (s.ap.running) "up" else "down", ok = s.ap.running)
+        Line("Controller", when {
+            connected -> "connected"
+            peerAge != null -> "not connected, last heard $peerAge"
+            else -> "never connected"
+        }, ok = connected)
+    } else {
+        Line("Alarm phone", when {
+            connected -> "connected"
+            peerAge != null -> "not reachable, last heard $peerAge"
+            else -> "not reachable"
+        }, ok = connected)
+    }
+
+    // --- power ----------------------------------------------------------------
+    Section("Power")
+    alarm?.let { Line("Alarm phone", battery(it), ok = it.plugged) }
+        ?: Line("Alarm phone", "unknown", ok = false)
+    controller?.let { Line("Controller", battery(it), ok = null) }
+
+    // --- permissions, this phone and the other one ----------------------------
+    Section("Permissions")
+    val mine = (localGates ?: s.gates).entries().filter { it.first.kind == GateKind.PERMISSION && !it.second }
+    Line("This phone", if (mine.isEmpty()) "all allowed" else mine.joinToString { it.first.label } + " missing",
+        ok = mine.isEmpty())
+    if (iAmAlarm) {
+        Line("Controller", if (s.peer == null) "unknown" else if (peerMissing.isEmpty()) "all allowed" else peerMissing.joinToString() + " missing",
+            ok = if (s.peer == null) null else peerMissing.isEmpty())
+    } else {
+        val theirs = s.gates.entries().filter { it.first.kind == GateKind.PERMISSION && !it.second }
+        Line("Alarm phone", if (theirs.isEmpty()) "all allowed" else theirs.joinToString { it.first.label } + " missing",
+            ok = theirs.isEmpty())
+    }
+
+    // --- self checks -------------------------------------------------------------
+    Section("Checks")
+    s.armGate?.let {
+        Line("Hourly check", "${Fmt.age(it.lastRunAtMs, nowMs)}, " +
+                (if (it.failingGates.isEmpty()) "nothing wrong" else it.failingGates.mapNotNull { k -> GateInfo.of(k)?.label }.joinToString()),
+            ok = it.failingGates.isEmpty())
+    } ?: Line("Hourly check", "not yet", ok = null)
+    Line("Clock sync", if (s.clock.lastSyncOkMs > 0) Fmt.age(s.clock.lastSyncOkMs, nowMs) else "not yet",
+        ok = if (s.clock.lastSyncOkMs > 0) true else null)
+    Line("Alarm phone up since", Fmt.absolute(s.bootedAtMs), ok = null)
+    val mismatch = s.peer != null && s.peer!!.appVersion != s.self.appVersion
+    Line("Versions", if (s.peer == null) s.self.appVersion else "${s.self.appVersion} here, ${s.peer!!.appVersion} there",
+        ok = if (mismatch) false else null)
+
     // --- what happened last time -------------------------------------------
     s.lastOutcome?.let {
-        Spacer(Modifier.height(S.sm))
+        Section("Last alarm")
         val what = when (it.kind) {
             Outcome.DISMISSED_LOCAL -> "stopped on the alarm phone"
             Outcome.DISMISSED_REMOTE -> "stopped from the controller"
@@ -94,8 +137,21 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, onReload: () -> Un
             Outcome.SKIPPED -> "was skipped"
             Outcome.SUPERSEDED -> "was replaced"
         }
-        Text("Last alarm ${Fmt.absolute(it.atMs)} $what" +
+        Text("${Fmt.absolute(it.atMs)} $what" +
                 (if (it.snoozeCount > 0) ", snoozed ${it.snoozeCount}×" else ""),
             fontSize = T.label, color = if (it.kind == Outcome.CAPPED || it.kind == Outcome.MISSED) Bad else Muted)
+    }
+}
+
+private fun battery(d: DeviceView): String =
+    (if (d.batteryPct < 0) "battery unknown" else "${d.batteryPct}%") + if (d.plugged) ", plugged in" else ", on battery"
+
+/** One status line: what, then its state, coloured by whether it is fine. */
+@Composable
+private fun Line(label: String, value: String, ok: Boolean?) {
+    Row(Modifier.fillMaxWidth().padding(vertical = S.xs), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
+        Text(value, fontSize = T.label, fontWeight = FontWeight.SemiBold,
+            color = when (ok) { true -> Good; false -> Bad; null -> MaterialTheme.colorScheme.onSurface })
     }
 }

@@ -131,7 +131,11 @@ class MainActivity : ComponentActivity() {
                         // permission, credentials entered, AP reachable once. Without
                         // this a fresh controller can never join and would sit on
                         // "connecting" forever with nowhere to type the credentials.
-                        role == Role.CONTROLLER && Svc.settings.passphrase.isNullOrBlank() ->
+                        // Also while Nearby devices is missing: the join needs it, and the
+                        // pairing screen is where it is asked for.
+                        role == Role.CONTROLLER && (Svc.settings.passphrase.isNullOrBlank() ||
+                            (permTick >= 0 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) !=
+                                android.content.pm.PackageManager.PERMISSION_GRANTED)) ->
                             ControllerSetup { ssid, pass ->
                                 runCatching {
                                     Svc.patchSettings(-1,
