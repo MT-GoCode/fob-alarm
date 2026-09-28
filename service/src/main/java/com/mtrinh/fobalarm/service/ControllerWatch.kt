@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import com.mtrinh.fobalarm.core.Snapshot
+import com.mtrinh.fobalarm.core.missingFor
 import com.mtrinh.fobalarm.data.HttpStateClient
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
@@ -34,8 +35,7 @@ object ControllerWatch {
             hostProvider = { P2pJoinBridge.ownerAddress() },
             selfProvider = { Svc.selfDevice() },
             localBlockers = {
-                GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null)
-                    .failing().filter { com.mtrinh.fobalarm.core.GateInfo.of(it)?.blocking == true }
+                GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
             },
         )
     }

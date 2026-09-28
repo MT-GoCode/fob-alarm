@@ -106,8 +106,31 @@ data class GateInfo(
 
         fun of(key: String): GateInfo? = ALL.firstOrNull { it.key == key }
         fun ofKind(kind: GateKind) = ALL.filter { it.kind == kind }
+
+        /**
+         * THE list of permissions a phone in a role shows and reports, with `blocking`
+         * meaning "the product does not work on this phone without it". The alarm phone
+         * needs everything; the controller needs to run its link service, to show its
+         * alert over the lock screen, to join the group, and (recommended) to stay awake.
+         * `blocking` in the table above means "the alarm will not ring", which is what
+         * Health reports; this is the setup meaning, per role.
+         */
+        fun forRole(alarmRole: Boolean): List<GateInfo> = ofKind(GateKind.PERMISSION)
+            .filter { alarmRole || it.key in CONTROLLER_NEEDS }
+            .map { if (it.key == "localNetworkPermission") it.copy(blocking = true) else it }
+
+        private val CONTROLLER_NEEDS = setOf("foregroundService", "fullScreenIntent",
+            "localNetworkPermission", "notHibernating")
     }
 }
+
+/** Each permission a role needs, paired with whether this phone has it. */
+fun Gates.rowsFor(alarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
+    GateInfo.forRole(alarmRole).map { it to value(it.key) }
+
+/** The keys a phone in this role is missing and needs: what it reports to the other phone. */
+fun Gates.missingFor(alarmRole: Boolean): List<String> =
+    rowsFor(alarmRole).filter { it.first.blocking && !it.second }.map { it.first.key }
 
 /** Pair each definition with its measured value, so every consumer reads one list. */
 fun Gates.entries(): List<Pair<GateInfo, Boolean>> = GateInfo.ALL.map { it to value(it.key) }

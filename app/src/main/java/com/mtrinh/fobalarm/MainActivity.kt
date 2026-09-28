@@ -202,8 +202,7 @@ class MainActivity : ComponentActivity() {
             selfProvider = { Svc.selfDevice() },
             // Report our own failing gates so the alarm phone can show them.
             localBlockers = {
-                GateEval.current(this, Svc.settings, Svc.lastNextFire != null)
-                    .failing().filter { com.mtrinh.fobalarm.core.GateInfo.of(it)?.blocking == true }
+                GateEval.current(this, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
             },
         )
     }

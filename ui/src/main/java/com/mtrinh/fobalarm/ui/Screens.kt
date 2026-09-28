@@ -354,18 +354,8 @@ private fun SetupScreen(
     }
 }
 
-/** Permissions the CONTROLLER genuinely needs; the rest are alarm-phone concerns. */
-private val CONTROLLER_PERMISSIONS = setOf("foregroundService", "localNetworkPermission", "notHibernating")
-
-/**
- * The permission rows THIS phone's Setup shows, and which count as required. Nearby
- * devices cannot stop the ring, but without it the two phones cannot link at all, so
- * Setup treats it as required on both phones.
- */
-internal fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
-    g.entries().filter { it.first.kind == GateKind.PERMISSION }
-        .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
-        .map { (info, ok) -> if (info.key == "localNetworkPermission") info.copy(blocking = true) to ok else info to ok }
+/** The one list, from core: what this phone's role needs, and whether it has it. */
+internal fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> = g.rowsFor(isAlarmRole)
 
 @Composable
 private fun PermissionRow(info: GateInfo, ok: Boolean, required: Boolean, onFix: (String) -> Unit) {
