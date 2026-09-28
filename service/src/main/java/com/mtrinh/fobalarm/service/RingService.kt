@@ -126,8 +126,7 @@ class RingService : Service(), SensorEventListener {
 
         // A TEST ring has no engine session by design: it must not latch, schedule or
         // consume an occurrence. It caps itself and needs no dismiss to end.
-        if (intent != null && Svc.session == null && Svc.testUntilMs == 0L &&
-            Svc.de.pendingTest) {
+        if (intent != null && Svc.session == null && Svc.de.pendingTest) {
             Svc.de.pendingTestUntilMs = 0L
             Svc.testUntilMs = System.currentTimeMillis() + 60_000
             // Read from DE: the in-memory flag does not survive the process hop, and

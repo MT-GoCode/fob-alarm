@@ -100,16 +100,17 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
 
     // --- permissions, this phone and the other one ----------------------------
     Section("Permissions")
-    val mine = (localGates ?: s.gates).entries().filter { it.first.kind == GateKind.PERMISSION && !it.second }
+    // The same rows Setup shows for this phone, so the two screens can never disagree.
+    val mine = setupRows(localGates ?: s.gates, iAmAlarm).filter { !it.second }
     Line("This phone", if (mine.isEmpty()) "all allowed" else mine.joinToString { it.first.label } + " missing",
-        ok = mine.isEmpty())
+        ok = if (mine.isEmpty()) true else if (mine.any { it.first.blocking }) false else null)
     if (iAmAlarm) {
         Line("Controller", if (s.peer == null) "unknown" else if (peerMissing.isEmpty()) "all allowed" else peerMissing.joinToString() + " missing",
             ok = if (s.peer == null) null else peerMissing.isEmpty())
     } else {
-        val theirs = s.gates.entries().filter { it.first.kind == GateKind.PERMISSION && !it.second }
+        val theirs = setupRows(s.gates, true).filter { !it.second }
         Line("Alarm phone", if (theirs.isEmpty()) "all allowed" else theirs.joinToString { it.first.label } + " missing",
-            ok = theirs.isEmpty())
+            ok = if (theirs.isEmpty()) true else if (theirs.any { it.first.blocking }) false else null)
     }
 
     // --- self checks -------------------------------------------------------------

@@ -63,9 +63,8 @@ fun SettingsScreen(
             }
         }
         LockedRow(locked) { on ->
-            ChoiceSetting("Turn the phone to snooze", null,
-                listOf("quarter turn" to 90, "half turn" to 180, "full turn" to 360),
-                s.settings.snoozeThresholdDegrees, enabled = on) { v ->
+            NumberSetting("Turn the phone to snooze", s.settings.snoozeThresholdDegrees,
+                min = 60, max = 720, unit = "°", enabled = on) { v ->
                 app.patch("Turn the phone to snooze") { it.copy(snoozeThresholdDegrees = v) }
             }
         }

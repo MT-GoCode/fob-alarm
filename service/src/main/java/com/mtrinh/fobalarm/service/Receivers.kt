@@ -42,8 +42,6 @@ class AlarmReceiver : BroadcastReceiver() {
                     Svc.log("alarm_fired")
                     RingService.start(ctx); handedOff = true
                 }
-                // A test that arrives after its window has lapsed simply does nothing.
-                Scheduler.ACTION_TEST -> if (Svc.de.pendingTest) RingService.start(ctx)
                 Scheduler.ACTION_WATCHDOG -> {
                     val open = Svc.session
                     if (open != null && open.endsByMs > System.currentTimeMillis()) {

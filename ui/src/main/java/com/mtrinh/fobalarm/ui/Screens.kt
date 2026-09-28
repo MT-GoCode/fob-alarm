@@ -259,10 +259,11 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
         Section("Next alarm only")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
-            OutlinedButton(onClick = { pickTime = true }) { Text("Move it") }
-            OutlinedButton(onClick = { confirmSkip = true }) { Text("Skip it") }
             if (s.tomorrow.kind != "NONE") {
-                OutlinedButton(onClick = { app.clearOverride() }) { Text("Undo") }
+                OutlinedButton(onClick = { app.clearOverride() }) { Text("Revert") }
+            } else {
+                OutlinedButton(onClick = { pickTime = true }) { Text("Move it") }
+                OutlinedButton(onClick = { confirmSkip = true }) { Text("Skip it") }
             }
         }
 
@@ -360,7 +361,7 @@ private val CONTROLLER_PERMISSIONS = setOf("foregroundService", "localNetworkPer
  * devices cannot stop the ring, but without it the two phones cannot link at all, so
  * Setup treats it as required on both phones.
  */
-private fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
+internal fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
     g.entries().filter { it.first.kind == GateKind.PERMISSION }
         .filter { isAlarmRole || it.first.key in CONTROLLER_PERMISSIONS }
         .map { (info, ok) -> if (info.key == "localNetworkPermission") info.copy(blocking = true) to ok else info to ok }

@@ -159,7 +159,7 @@ class AppState(
             testOk = true
             testMessage = "Ringing"
             client.testRing(silent, UUID.randomUUID().toString())
-                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
+                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); delay(1500); refresh() }
                 .onFailure {
                     testOk = false
                     testMessage = if (it is ClientError.Transport)

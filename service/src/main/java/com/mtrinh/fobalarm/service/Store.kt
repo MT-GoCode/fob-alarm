@@ -181,6 +181,9 @@ interface Dao_ {
     fun all(): List<EventRow>
     @Query("DELETE FROM events WHERE atMs < :before")
     fun prune(before: Long)
+    /** Earlier builds re-latched the same occurrences many times; keep the first record of each. */
+    @Query("DELETE FROM events WHERE type IN ('missed','latch') AND seq NOT IN (SELECT MIN(seq) FROM events WHERE type IN ('missed','latch') GROUP BY type, detail)")
+    fun dedupe()
     @Query("DELETE FROM events")
     fun clearEvents()
 

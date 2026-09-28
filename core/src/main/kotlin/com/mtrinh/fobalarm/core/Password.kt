@@ -57,16 +57,27 @@ object Auth {
  * rectifies gyro bias -- monotonic, never cancelling, reaching threshold while motionless.
  * SPEC.md section 7.
  */
+/**
+ * How far the phone has turned from where it started: the angle between the orientation
+ * at the start of the gesture and now. NOT a sum of every wobble along the way: on the
+ * phone, one buzz of the vibrator summed to ten degrees and the alarm snoozed itself.
+ * The reference re-anchors after three seconds of stillness (a snooze is one gesture)
+ * or after ten seconds of going nowhere (vibration jitter, sensor drift).
+ */
 class RotationAccumulator(
     private val thresholdDeg: Int,
     private val deadbandDegPerSec: Double = 15.0,
     private val decayAfterMs: Long = 3_000,
+    private val nowhereDeg: Double = 15.0,
+    private val nowhereAfterMs: Long = 10_000,
 ) {
     var degrees: Double = 0.0; private set
     var gyroBiasDps: Double = 0.0; private set
+    private var ref: DoubleArray? = null
     private var lastQ: DoubleArray? = null
     private var lastQAtMs: Long = 0
     private var lastMotionMs: Long = 0
+    private var smallSinceMs: Long = 0
     private var biasSamples = 0
     private var biasSum = 0.0
 
@@ -74,7 +85,7 @@ class RotationAccumulator(
     var lastRvMs: Long = 0; private set
 
     fun reset() {
-        degrees = 0.0; lastQ = null; lastQAtMs = 0; lastMotionMs = 0
+        degrees = 0.0; ref = null; lastQ = null; lastQAtMs = 0; lastMotionMs = 0; smallSinceMs = 0
     }
 
     fun gyroStale(nowMs: Long) = lastGyroMs != 0L && nowMs - lastGyroMs > 2_000
@@ -102,20 +113,21 @@ class RotationAccumulator(
         val dtSec = (nowMs - prevAt) / 1000.0
         if (dtSec <= 0.0) return false
 
-        val angle = geodesicAngleDeg(prev, q)
-        val rate = angle / dtSec
+        val rate = geodesicAngleDeg(prev, q) / dtSec
+        val r = ref ?: run { ref = prev; lastMotionMs = prevAt; smallSinceMs = prevAt; prev }
+        degrees = geodesicAngleDeg(r, q)
 
         // Deadband on the QUATERNION rate, not on the gyro stream: a pure fusion
         // correction shows ~0 gyro and would otherwise never be discarded.
-        if (rate < deadbandDegPerSec) {
-            if (lastMotionMs != 0L && nowMs - lastMotionMs > decayAfterMs && degrees > 0.0) {
-                degrees = 0.0      // a snooze is ONE continuous gesture, not a sum over an hour
-            }
+        if (rate >= deadbandDegPerSec) lastMotionMs = nowMs
+        val still = nowMs - lastMotionMs > decayAfterMs
+        if (degrees >= nowhereDeg) smallSinceMs = nowMs
+        val nowhere = nowMs - smallSinceMs > nowhereAfterMs
+
+        if (still || nowhere) {            // one gesture, not a sum over an hour
+            ref = q; degrees = 0.0; lastMotionMs = nowMs; smallSinceMs = nowMs
             return false
         }
-
-        lastMotionMs = nowMs
-        degrees += angle
         return degrees >= thresholdDeg
     }
 

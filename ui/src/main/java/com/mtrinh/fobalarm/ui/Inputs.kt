@@ -57,39 +57,37 @@ fun TimeSetting(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Discrete durations: the values anyone would actually pick, as one tap each.
-// A 5..600 slider made 30s and 600s the same gesture, and neither landable.
-// ---------------------------------------------------------------------------
-
+/** A whole number with a unit, bounded with the limit stated rather than silently clamped. */
 @Composable
-fun ChoiceSetting(
-    label: String,
-    help: String? = null,
-    options: List<Pair<String, Int>>,
-    value: Int,
-    enabled: Boolean = true,
-    onSet: (Int) -> Unit,
-) {
-    Column(Modifier.padding(vertical = S.sm)) {
-        Text(label, fontSize = T.body)
-        help?.let { Text(it, fontSize = T.caption, color = Muted) }
-        Spacer(Modifier.height(S.sm))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            options.forEach { (text, v) ->
-                // Selected is still tappable: for actions like "nap 20m" the selected
-                // value is exactly the one you want to press again.
-                if (v == value) {
-                    Button(onClick = { onSet(v) }, enabled = enabled,
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
-                } else {
-                    OutlinedButton(onClick = { onSet(v) }, enabled = enabled,
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(36.dp)) { Text(text, fontSize = T.caption) }
+fun NumberSetting(label: String, value: Int, min: Int, max: Int, unit: String, enabled: Boolean = true, onSet: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    ValueRow(label, "$value$unit", enabled) { open = true }
+    if (open) {
+        var text by remember { mutableStateOf(value.toString()) }
+        var err by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(label) },
+            text = {
+                Column {
+                    NumberBox(text, unit) { text = it; err = null }
+                    Spacer(Modifier.height(S.sm))
+                    Text("Between $min$unit and $max$unit", fontSize = T.caption, color = Muted)
+                    err?.let { Text(it, color = Bad, fontSize = T.caption) }
                 }
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val n = text.toIntOrNull()
+                    when {
+                        n == null || n < min -> err = "Too small. Minimum is $min$unit."
+                        n > max -> err = "Too large. Maximum is $max$unit."
+                        else -> { onSet(n); open = false }
+                    }
+                }) { Text("Set") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+        )
     }
 }
 

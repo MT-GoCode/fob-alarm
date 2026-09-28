@@ -158,6 +158,7 @@ object Svc : AlarmHost {
             log("db_loaded", "reason" to reason)
             recompute("db_loaded")
             dropDefaultPassword()
+            pruneHistory()
         }.onFailure {
             log("db_unavailable", "reason" to reason, "error" to it.javaClass.simpleName)
         }
@@ -524,12 +525,12 @@ object Svc : AlarmHost {
         de.testSilent = silent
         // Short window: long enough to reach the fire, far too short to survive to 04:00.
         de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
-        log("test_ring", "silent" to silent.toString())
-        // Local: start now. Remote: the app is backgrounded with no FGS allowlist, so
-        // go through a test-specific alarm rather than a generic retry that could
-        // become a real ring and latch an occurrence.
-        if (fromController) Scheduler.armTestFire(app, 1)
-        else urgent.execute { RingService.start(app) }
+        log("test_ring", "silent" to silent.toString(), "from" to if (fromController) "controller" else "here")
+        // Live from this instant, so the caller's snapshot already shows a test in
+        // progress and both phones' screens flip to the ring at once. The link service
+        // keeps this process at foreground importance, so the start is allowed either way.
+        testUntilMs = System.currentTimeMillis() + 60_000
+        urgent.execute { RingService.start(app) }
         return snapshot()
     }
 
@@ -542,7 +543,7 @@ object Svc : AlarmHost {
 
     fun pruneHistory() {
         if (!dbReady) return
-        io.execute { runCatching { db.dao().prune(System.currentTimeMillis() - 90L * 86400_000) } }
+        io.execute { runCatching { db.dao().prune(System.currentTimeMillis() - 90L * 86400_000); db.dao().dedupe() } }
     }
 }
 
@@ -560,7 +561,6 @@ object Scheduler {
     const val ACTION_TICK = "com.mtrinh.fobalarm.TICK"
     const val ACTION_ARMGATE = "com.mtrinh.fobalarm.ARMGATE"
     const val ACTION_DISMISS = "com.mtrinh.fobalarm.DISMISS"
-    const val ACTION_TEST = "com.mtrinh.fobalarm.TEST"
 
     fun pi(ctx: Context, action: String, rc: Int): PendingIntent = PendingIntent.getBroadcast(
         ctx, rc, Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName),
@@ -588,10 +588,6 @@ object Scheduler {
 
     /** Separate request code from the scheduled fire, so a retry cannot clobber it. */
     fun armFireRetry(ctx: Context) = set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000)
-
-    /** Its own ACTION and request code: a test can neither overwrite nor become a real alarm. */
-    fun armTestFire(ctx: Context, seconds: Int) =
-        set(ctx, ACTION_TEST, 1006, System.currentTimeMillis() + seconds * 1000L)
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 

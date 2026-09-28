@@ -322,6 +322,32 @@ class RotationTest {
         repeat(300) { t += 20; acc.onRotationVector(still, t) }
         assertEquals(0.0, acc.degrees, 0.001)
     }
+
+    /** Seen on the phone: one buzz of the vibrator read as ten degrees, and it snoozed itself. */
+    @Test fun `vibration jitter never snoozes`() {
+        val acc = RotationAccumulator(thresholdDeg = 120)
+        var t = 0L
+        repeat(30 * 50) {                      // thirty seconds of buzzing at 50 Hz
+            t += 20
+            val ang = Math.toRadians(if (it % 2 == 0) 6.0 else -6.0) / 2   // +-6 deg wobble, 600 deg/s
+            assertFalse(acc.onRotationVector(doubleArrayOf(Math.cos(ang), Math.sin(ang), 0.0, 0.0), t),
+                "a wobble that goes nowhere must not count as a turn")
+        }
+        assertTrue(acc.degrees <= 12.5, "a wobble reads as its own amplitude, never more")
+    }
+
+    @Test fun `slow sensor drift over an hour of ringing never snoozes`() {
+        val acc = RotationAccumulator(thresholdDeg = 120)
+        var t = 0L
+        var fired = false
+        repeat(60 * 60 * 50) {                 // one hour at 50 Hz, drifting 3 deg per minute
+            t += 20
+            val drift = 3.0 / 60.0 / 50.0 * (it + 1)
+            val ang = Math.toRadians(drift) / 2
+            if (acc.onRotationVector(doubleArrayOf(Math.cos(ang), Math.sin(ang), 0.0, 0.0), t)) fired = true
+        }
+        assertFalse(fired, "drift is not a gesture")
+    }
 }
 
 class AuthTest {
