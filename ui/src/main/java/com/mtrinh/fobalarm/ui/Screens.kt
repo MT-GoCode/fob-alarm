@@ -1,6 +1,8 @@
 package com.mtrinh.fobalarm.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,15 +34,37 @@ fun RootScreen(
     deviceSettings: (@Composable () -> Unit)? = null, // alarm phone: ringtone, password
     roleSwitcher: @Composable () -> Unit,
     onFixGate: (String) -> Unit = {},
-    onRepair: (() -> Unit)? = null,
+    /** CONTROLLER: the whole "trying to connect" screen. Name, passphrase, permission, log. */
+    trying: (@Composable () -> Unit)? = null,
 ) {
     val s = app.snapshot
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
-    if (s == null) {
-        NotConnectedScreen(app, isAlarmRole, onRepair)
+    // The alarm phone is its own truth; it is "starting" for a moment and then connected.
+    if (isAlarmRole && s == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
+
+    // The controller has exactly two states: connected, or trying. Trying is one screen
+    // with everything you can do about it, and whatever the alarm phone last said, dimmed.
+    // A ring seen before the link dropped still wins: the dismiss button keeps retrying.
+    val ringing = s != null && (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs)
+    if (!isAlarmRole && !app.connected && !ringing && trying != null) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            LinkBar(app, isAlarmRole)
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = S.page)) {
+                trying()
+                if (s != null) {
+                    Section("What it last said")
+                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, false, app.localGates) { app.reload() } } }
+                }
+                Spacer(Modifier.height(S.lg))
+            }
+        }
+        return
+    }
+    s!!
 
     if (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -105,39 +129,6 @@ fun RootScreen(
 // pairing; after that it is a problem with a next step. On the alarm phone it is
 // only ever a momentary startup state.
 // ---------------------------------------------------------------------------
-
-@Composable
-private fun NotConnectedScreen(app: AppState, isAlarmRole: Boolean, onRepair: (() -> Unit)?) {
-    val stuck = !isAlarmRole && app.nowMs - app.startedMs > 60_000
-
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) { LinkBar(app, isAlarmRole) }
-    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
-        contentAlignment = Alignment.Center) {
-        Column(Modifier.padding(S.page), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (!stuck) CircularProgressIndicator()
-            Spacer(Modifier.height(S.md))
-            Text(
-                when {
-                    isAlarmRole -> "Starting"
-                    stuck -> "Still not connected"
-                    else -> "Connecting to the alarm phone"
-                },
-                fontSize = T.headline, fontWeight = FontWeight.SemiBold,
-                color = if (stuck) Bad else MaterialTheme.colorScheme.onSurface)
-            if (!isAlarmRole) {
-                Spacer(Modifier.height(S.sm))
-                Text(
-                    if (stuck) "Check that the name and passphrase match the alarm phone, and that it is on."
-                    else "The alarm phone rings on its own either way.",
-                    fontSize = T.label, color = Muted)
-                if (stuck && onRepair != null) {
-                    Spacer(Modifier.height(S.lg))
-                    Button(onClick = onRepair) { Text("Pair again") }
-                }
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // RINGING
@@ -438,6 +429,19 @@ private fun HistoryScreen(app: AppState) {
 }
 
 private val BAD_EVENTS = setOf("capped", "missed", "crash", "force_stopped_detected", "probe_fail")
+
+/** The link's own events, as sentences, for the trying screen. Null means not a link event. */
+fun linkSentence(e: Event): String? = when (e.type) {
+    "p2p_waiting_permission" -> "Waiting for the Nearby devices permission"
+    "p2p_connect_requested" -> "Asked Android to join the group"
+    "p2p_connect_failed" -> "Android refused the join (error ${e.detail["reason"] ?: "?"})"
+    "p2p_request_failed" -> "The join request failed"
+    "p2p_joined" -> "Joined the group"
+    "p2p_lost" -> "Left the group"
+    "p2p_left_own_group" -> "Was still hosting a group of its own; left it"
+    "role_changed" -> "Role set to ${if (e.detail["to"] == "ALARM") "alarm phone" else "controller"}"
+    else -> null
+}
 
 private fun sentence(e: Event): String? {
     val ringing = e.detail["ringingMs"]?.toLongOrNull()?.let { " after " + Fmt.duration(it) } ?: ""

@@ -43,6 +43,10 @@ class App : Application() {
         // foreground-service importance so Wi-Fi Direct is not evicted.
         P2pJoinBridge.ownerProvider = { P2pJoin.ownerAddress }
         P2pJoinBridge.joiner = { ctx, ssid, pass -> P2pJoin.join(ctx, ssid, pass) }
+        P2pJoinBridge.allowed = {
+            checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
         LinkService.start(this)
 
         // Everything that touches disk, sensors, audio or a service binding goes to a

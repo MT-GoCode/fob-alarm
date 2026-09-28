@@ -86,11 +86,14 @@ object Group {
                 reportedClients = g?.clientList?.size ?: 0
                 val was = running
                 val s = Svc.settings
-                val stale = g != null && (g.networkName != s.ssid?.let(::networkName) ||
+                // A group is ours only if we OWN it with the current credentials. Anything
+                // else (a client membership left over from the controller role, an old
+                // passphrase) is torn down, and the tick creates the right one.
+                val stale = g != null && (!g.isGroupOwner || g.networkName != s.ssid?.let(::networkName) ||
                         (g.passphrase != null && g.passphrase != s.passphrase))
                 running = g != null && !stale
                 if (was && !running) Server.closeControl()     // socket bound to a dead address
-                if (stale) { Svc.log("ap_stale_group"); stop(ctx) }   // old credentials: tear it down, the tick recreates it
+                if (stale) { Svc.log("ap_stale_group", "owner" to g!!.isGroupOwner.toString()); stop(ctx) }
                 ownerAddress = "192.168.49.1"
             }
         }

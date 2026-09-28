@@ -128,28 +128,6 @@ class MainActivity : ComponentActivity() {
                             if (chosen == Role.ALARM) perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
                                 Manifest.permission.ACCESS_FINE_LOCATION))
                         }
-                        // CONTROLLER INIT: its own thinner gates -- nearby-devices
-                        // permission, credentials entered, AP reachable once. Without
-                        // this a fresh controller can never join and would sit on
-                        // "connecting" forever with nowhere to type the credentials.
-                        // Also while Nearby devices is missing: the join needs it, and the
-                        // pairing screen is where it is asked for.
-                        role == Role.CONTROLLER && (Svc.settings.passphrase.isNullOrBlank() ||
-                            (permTick >= 0 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) !=
-                                android.content.pm.PackageManager.PERMISSION_GRANTED)) ->
-                            ControllerSetup { ssid, pass ->
-                                runCatching {
-                                    Svc.patchSettings(-1,
-                                        Svc.settings.copy(ssid = ssid, passphrase = pass),
-                                        java.util.UUID.randomUUID().toString(),
-                                        Svc.unlockToken, Actor.CONTROLLER)
-                                }.onSuccess {
-                                    P2pJoin.stop()      // drop any request for the old credentials
-                                    recreate()          // the link service issues the new one
-                                }.onFailure {
-                                    Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
-                                }
-                            }
                         else -> {
                             val client = remember(role) { buildClient(role!!) }
                             app = remember(client) {
@@ -177,15 +155,7 @@ class MainActivity : ComponentActivity() {
                                 deviceSettings = if (role == Role.ALARM) ({ DeviceSettings() }) else null,
                                 roleSwitcher = { RoleSwitcher() },
                                 onFixGate = { fix(it) },
-                                onRepair = {
-                                    runCatching {
-                                        Svc.patchSettings(-1, Svc.settings.copy(passphrase = null),
-                                            java.util.UUID.randomUUID().toString(),
-                                            Svc.unlockToken, Actor.CONTROLLER)
-                                    }.onSuccess { P2pJoin.stop(); recreate() }.onFailure {
-                                        Toast.makeText(this@MainActivity, "Not saved. Try again.", Toast.LENGTH_LONG).show()
-                                    }
-                                },
+                                trying = if (role == Role.CONTROLLER) ({ Trying() }) else null,
                             )
                         }
                     }
@@ -528,49 +498,70 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Controller-side pairing. Must match the alarm phone's group byte for byte. */
+    /**
+     * The controller's other state. Everything about the link on one screen: what it is
+     * trying to join, the permission it needs, Connect, and a live log of each attempt.
+     * It never stops trying on its own; this screen just shows it and lets you change it.
+     */
     @Composable
-    private fun ControllerSetup(onSet: (String, String) -> Unit) {
-        var ssid by remember { mutableStateOf(Settings.DEFAULT_SSID) }
-        var pass by remember { mutableStateOf(Settings.DEFAULT_PASSPHRASE) }
+    private fun Trying() {
+        var ssid by remember { mutableStateOf(Svc.settings.ssid ?: Settings.DEFAULT_SSID) }
+        var pass by remember { mutableStateOf(Svc.settings.passphrase ?: Settings.DEFAULT_PASSPHRASE) }
         val hasPerm = remember(permTick) {
             checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
                     android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         var asked by remember { mutableIntStateOf(0) }
-        Page(
-            title = "Pair with the alarm phone",
-            subtitle = "Both phones start with these. Change them only if the alarm phone's were changed.",
-            applyInsets = true,
-        ) {
-            if (!hasPerm) {
-                Spacer(Modifier.height(S.sm))
-                Text("Nearby devices permission is needed to connect.", fontSize = T.label, color = Bad)
-                Spacer(Modifier.height(S.xs))
-                // After two denials Android stops showing the dialog; send them to
-                // the page that can still grant it instead of a button that does nothing.
-                val exhausted = asked >= 2
-                Button(onClick = {
-                    if (exhausted) startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.parse("package:$packageName")))
-                    else { asked++; perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
-                        Manifest.permission.ACCESS_FINE_LOCATION)) }
-                }) { Text(if (exhausted) "Open settings" else "Allow") }
-            }
-            Spacer(Modifier.height(S.sm))
-            OutlinedTextField(ssid, { ssid = it }, label = { Text("Name", fontSize = T.caption) },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(S.sm))
-            OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
+        val now = app.nowMs
+        val events = remember(now / 1000) { Svc.recentEvents(60).mapNotNull { e -> linkSentence(e)?.let { e to it } }.takeLast(6) }
+
+        Spacer(Modifier.height(S.md))
+        Text("Trying to reach the alarm phone", fontSize = T.title, fontWeight = FontWeight.Bold)
+        Text("It keeps trying on its own. Change what it looks for below.", fontSize = T.label, color = Muted)
+
+        if (!hasPerm) {
             Spacer(Modifier.height(S.md))
-            Button(onClick = { onSet(ssid.trim(), pass) },
-                enabled = hasPerm && pass.length in 8..63 && ssid.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()) { Text("Connect") }
-            Spacer(Modifier.height(S.lg))
-            TextButton(onClick = { Svc.setRole(Role.ALARM); recreate() }) {
-                Text("This is actually the alarm phone")
+            Text("Nearby devices permission is needed before it can try.", fontSize = T.label, color = Bad)
+            Spacer(Modifier.height(S.xs))
+            val exhausted = asked >= 2
+            Button(onClick = {
+                if (exhausted) startActivity(Intent(ASettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")))
+                else { asked++; perms.launch(arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES,
+                    Manifest.permission.ACCESS_FINE_LOCATION)) }
+            }) { Text(if (exhausted) "Open settings" else "Allow") }
+        }
+
+        Section("Looking for")
+        OutlinedTextField(ssid, { ssid = it }, label = { Text("Name", fontSize = T.caption) },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(S.sm))
+        OutlinedTextField(pass, { pass = it }, label = { Text("Passphrase", fontSize = T.caption) },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(S.sm))
+        val changed = ssid.trim() != Svc.settings.ssid || pass != Svc.settings.passphrase
+        Button(onClick = {
+            runCatching {
+                Svc.patchSettings(-1, Svc.settings.copy(ssid = ssid.trim(), passphrase = pass),
+                    java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.CONTROLLER)
+            }.onSuccess { P2pJoin.stop(); LinkService.nudge() }
+             .onFailure { Toast.makeText(this@MainActivity, "Not saved. Check the name and passphrase.", Toast.LENGTH_LONG).show() }
+        }, enabled = hasPerm && pass.length in 8..63 && ssid.trim().startsWith("DIRECT-"),
+            modifier = Modifier.fillMaxWidth()) { Text(if (changed) "Save and connect" else "Try now") }
+
+        Section("What it has been doing")
+        if (events.isEmpty()) Text("Nothing yet", fontSize = T.label, color = Muted)
+        events.forEach { (e, text) ->
+            Row(Modifier.fillMaxWidth().padding(vertical = S.xs)) {
+                Text(Fmt.clock(e.atMs), fontSize = T.caption, color = Muted, modifier = Modifier.width(80.dp))
+                Text(text, fontSize = T.label,
+                    color = if (e.type in setOf("p2p_connect_failed", "p2p_request_failed", "p2p_lost")) Bad else MaterialTheme.colorScheme.onSurface)
             }
+        }
+
+        Spacer(Modifier.height(S.md))
+        TextButton(onClick = { P2pJoin.stop(); Group.stop(this@MainActivity); Svc.setRole(Role.ALARM); recreate() }) {
+            Text("This is actually the alarm phone")
         }
     }
 

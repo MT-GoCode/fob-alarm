@@ -107,6 +107,7 @@ class LinkService : Service() {
 
     /** Owns the group (alarm) or the join loop (controller). Backoff with jitter. */
     private var backoffMs = 5_000L
+    private var waitingLogged = false
     private val tick = object : Runnable {
         override fun run() {
             val s = Svc.settings
@@ -126,7 +127,8 @@ class LinkService : Service() {
                 Role.CONTROLLER -> {
                     if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank() &&
                         !P2pJoinBridge.joined()) {
-                        P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!)
+                        if (P2pJoinBridge.allowed()) P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!)
+                        else if (!waitingLogged) { waitingLogged = true; Svc.log("p2p_waiting_permission") }
                         // 15s, not 120s: a human is standing in front of this phone
                         // waiting for the dismiss button to work.
                         backoffMs = (backoffMs * 2).coerceAtMost(15_000)
@@ -168,6 +170,8 @@ class LinkService : Service() {
 object P2pJoinBridge {
     @Volatile var ownerProvider: () -> String? = { null }
     @Volatile var joiner: (Context, String, String) -> Unit = { _, _, _ -> }
+    /** Whether this phone may join at all (Nearby devices granted). Supplied by the app. */
+    @Volatile var allowed: () -> Boolean = { true }
     fun ownerAddress() = ownerProvider()
     fun joined() = ownerProvider() != null
     fun join(ctx: Context, ssid: String, pass: String) = joiner(ctx, ssid, pass)

@@ -54,6 +54,12 @@ object P2pJoin {
             // while any app holds a channel); connecting again then fails every time.
             readConnection { formed ->
                 if (formed) { pendingSinceMs = 0L; return@readConnection }
+                if (hostingOwnGroup) {
+                    // Left over from the alarm role: a phone that hosts a group cannot join
+                    // another. Leave it; the next tick joins.
+                    Svc.log("p2p_left_own_group"); m.removeGroup(ch, null); pendingSinceMs = 0L
+                    return@readConnection
+                }
                 val cfg = WifiP2pConfig.Builder()
                     .setNetworkName(ssid)
                     .setPassphrase(passphrase)
@@ -70,11 +76,14 @@ object P2pJoin {
         }.onFailure { pendingSinceMs = 0L; Svc.log("p2p_request_failed", "error" to it.toString()) }
     }
 
+    @Volatile private var hostingOwnGroup = false
+
     private fun readConnection(then: (formed: Boolean) -> Unit) {
         val m = manager ?: return
         val ch = channel ?: return
         runCatching {
             m.requestConnectionInfo(ch) { info ->
+                hostingOwnGroup = info?.groupFormed == true && info.isGroupOwner
                 val addr = info?.takeIf { it.groupFormed && !it.isGroupOwner }?.groupOwnerAddress?.hostAddress
                 val was = ownerAddress
                 ownerAddress = addr
