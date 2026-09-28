@@ -27,9 +27,13 @@ fun SettingsScreen(
 ) {
     var showUnlock by remember { mutableStateOf(false) }
     val hasPassword = s.settings.hasPassword
-    // Only the alarm phone can ever hold an unlock, so on the controller a password
-    // means locked, full stop. There is no remote unlock to offer.
-    val locked = hasPassword && !(isAlarmRole && app.unlocked)
+    // ALARM PHONE ONLY. The controller never renders lock state -- not a header, not a
+    // greyed row, not an icon. It has no way to know whether the gate is open right now
+    // without asking, and a cached answer is exactly how it ended up showing "locked"
+    // after the alarm phone had been unlocked. It simply sends the change; if the alarm
+    // phone refuses, the reply says so and the usual did-not-save message carries it.
+    // One source of truth, and everything else is knocking on the door.
+    val locked = isAlarmRole && hasPassword && !app.unlocked
 
     Page(title = "Settings", snapshot = s, onReload = { app.reload() }) {
 
@@ -45,21 +49,21 @@ fun SettingsScreen(
         }
 
         Section("Alarm")
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             TimeSetting("Alarm time", s.settings.defaultAlarmTime, enabled = on) { v ->
                 app.patch("Alarm time") { it.copy(defaultAlarmTime = v) }
             }
         }
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             SliderSetting("Volume", s.settings.alarmVolumePercent,
                 min = Settings.VOLUME_FLOOR, max = 100, step = 5, suffix = "%", enabled = on) { v ->
                 app.patch("Volume") { it.copy(alarmVolumePercent = v) }
             }
         }
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             ToggleSetting("Vibrate", s.settings.vibrate, enabled = on) { v -> app.patch("Vibrate") { it.copy(vibrate = v) } }
         }
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             DurationSetting("Stop ringing after", s.settings.maxRingMinutes * 60,
                 minSeconds = 5 * 60, maxSeconds = 120 * 60, enabled = on) { secs ->
                 app.patch("Stop ringing after") { it.copy(maxRingMinutes = secs / 60) }
@@ -67,14 +71,14 @@ fun SettingsScreen(
         }
 
         Section("Snooze")
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             DurationSetting("Snooze for", s.settings.snoozeSeconds,
                 minSeconds = 10, maxSeconds = Settings.SNOOZE_CEILING_S,
                 allowSeconds = true, enabled = on) { secs ->
                 app.patch("Snooze for") { it.copy(snoozeSeconds = secs) }
             }
         }
-        LockedRow(locked, isAlarmRole) { on ->
+        LockedRow(locked) { on ->
             NumberSetting("Turn the phone to snooze", s.settings.snoozeThresholdDegrees,
                 min = 60, max = 720, unit = "°", enabled = on) { v ->
                 app.patch("Turn the phone to snooze") { it.copy(snoozeThresholdDegrees = v) }
@@ -106,7 +110,7 @@ fun SettingsScreen(
 
 /** Locked settings stay readable but look disabled; tapping says why rather than doing nothing. */
 @Composable
-fun LockedRow(locked: Boolean, onAlarmPhone: Boolean = true, content: @Composable (enabled: Boolean) -> Unit) {
+fun LockedRow(locked: Boolean, content: @Composable (enabled: Boolean) -> Unit) {
     var explain by remember { mutableStateOf(false) }
     Box {
         Box(Modifier.padding(end = if (locked) 24.dp else 0.dp)) { content(!locked) }
@@ -120,10 +124,7 @@ fun LockedRow(locked: Boolean, onAlarmPhone: Boolean = true, content: @Composabl
         AlertDialog(
             onDismissRequest = { explain = false },
             title = { Text("Locked") },
-            text = { Text(
-                if (onAlarmPhone) "Unlock at the top of this screen to change it."
-                else "This can only be changed on the alarm phone, after unlocking it there.",
-                fontSize = T.label) },
+            text = { Text("Unlock at the top of this screen to change it.", fontSize = T.label) },
             confirmButton = { TextButton(onClick = { explain = false }) { Text("OK") } })
     }
 }

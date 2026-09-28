@@ -153,8 +153,13 @@ phone. The row stays visible until it is.
 ## Recovery
 
 **Forgotten password.** There is no recovery code. The password only guards settings;
-the alarm still rings and can still be dismissed. To get rid of it: uninstall, reinstall,
-set the dozen settings again from `backups/`.
+the alarm still rings and can still be dismissed. To get rid of it: Android Settings →
+Apps → Fob Alarm → Storage → **Clear storage**. The hash lives in the app's own data,
+both the device-protected mirror and the database, and clearing wipes both. No uninstall
+and no re-download needed.
+
+It is a full reset, though: role, pairing, alarm time, ringtone and history go too, and
+you land back at the role picker. Set the dozen settings again from `backups/`.
 
 **The alarm phone died.** It is the sole source of truth. `./backup` keeps a copy in
 this repo and the controller keeps its own. Provision the replacement per `SPEC.md`

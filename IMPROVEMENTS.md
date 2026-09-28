@@ -698,3 +698,18 @@ JSON to `POST /v1/unlock` over the Wi-Fi Direct link — WPA2, but on the passph
 published in this repo. So the honest statement is: not retrievable from anything stored, but it was
 on the air, protected by a passphrase anyone can read. If that matters, change it once on 0.2.74; from
 this build on it never leaves the alarm phone.
+
+## Round 21 — the controller renders no lock state at all
+
+It was still deciding, locally, that rows were locked, from `hasPassword` in a snapshot. So it greyed
+everything out while the alarm phone was locked, and **kept greying it out after the alarm phone had
+been unlocked**, because nothing in the snapshot says whether the gate is open right now — and
+nothing should. A cached answer to a question only the other phone can answer is the bug.
+
+The controller now renders no lock state whatever: no header, no greyed rows, no lock icon. It sends
+the change like any other. If the alarm phone refuses, the reply carries it and the ordinary
+did-not-save line says "Locked — unlock on the alarm phone". One source of truth; everything else is
+knocking on the door.
+
+Also: the Status headline is plain "Next alarm" again. Which of the three produced the next fire is
+already the blue line under the time, and saying it twice made the headline noisy.
