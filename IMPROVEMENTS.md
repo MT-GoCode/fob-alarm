@@ -742,3 +742,10 @@ SNOOZE"; a 4 s hold snoozes and the bar becomes "SNOOZED — rings again in 26s"
 half-length drag springs back with the test still running; a full drag stops it, `test_ring_stopped` logged nine
 seconds into a sixty-second window, so it was the drag and not the window expiring. The first attempt at that last
 one proved nothing — the test's own 60 s window had already lapsed — which is why the timestamps are quoted.
+
+**The hold is contiguous, and that is now tested rather than asserted.** Releasing clears the press timestamp and
+zeroes the fill, so the next press measures from itself; repeated jabs cannot add up. Proven on the emulator with
+the threshold at 3 s: three separate 2 s holds — six seconds of finger-down in total — left `testSnoozedUntilMs`
+at 0 every time, with the bar still reading "HOLD 3s TO SNOOZE"; one contiguous 3.5 s hold then snoozed it. It
+matters because the bar is the only control reachable with the box shut, so accumulating partial presses would
+hand a sleeping hand precisely what the box exists to prevent.

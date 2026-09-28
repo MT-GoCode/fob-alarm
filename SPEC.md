@@ -440,9 +440,11 @@ The layout is built around what the cutouts expose:
 | **Snooze** | a bar across the very bottom, flush to the glass | in the bottom cutout — the one control reachable with the box shut |
 | **Dismiss** | a ~60 dp grip flush to the **right** edge, starting 30 % down, dragged to the bottom | target *and* path are behind acrylic, so finishing it means opening the box |
 
-**Snooze must be held.** `snoozeHoldSeconds`, 0–10, default 3, **password-gated like every other kill** — it is the
-only defence on the only control a sleeping hand can reach. The bar fills as you hold so the wait is visible;
-letting go early abandons it. 0 makes it a plain tap. While snoozed the bar becomes the countdown, in place.
+**Snooze must be held, contiguously.** `snoozeHoldSeconds`, 0–10, default 3, **password-gated like every other
+kill** — it is the only defence on the only control a sleeping hand can reach. Releasing clears the press
+timestamp, so the next press measures from itself and **repeated short presses never accumulate**; that is the
+property, not an implementation detail. The bar fills as you hold so the wait is visible; letting go early
+abandons it. 0 makes it a plain tap. While snoozed the bar becomes the countdown, in place.
 
 **Dismiss is a drag, not a button.** It springs back if released early. This is the mechanism, not a confirmation
 dialog: a tap target anywhere reachable through a cutout would defeat the box entirely.

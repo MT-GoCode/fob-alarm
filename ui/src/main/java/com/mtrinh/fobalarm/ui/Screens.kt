@@ -259,8 +259,17 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 }
 
 /**
- * Hold to snooze. The fill is the hold, so the wait is visible rather than mysterious,
- * and letting go before the end abandons it. Zero seconds means a plain tap.
+ * Hold to snooze.
+ *
+ * **The hold must be contiguous.** Releasing clears `pressedAt`, which restarts the
+ * effect and zeroes `progress`; the next press stamps a fresh start, so elapsed time is
+ * always measured from the current press and repeated short jabs never add up to a
+ * snooze. That is the safety property this control exists for -- the bar is the one
+ * thing reachable with the box shut, so accumulating partial presses would hand a
+ * sleeping hand exactly the thing the box is meant to prevent.
+ *
+ * The fill is the hold, so the wait is visible rather than a dead press. Zero seconds
+ * means a plain tap.
  */
 @Composable
 private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, onSnooze: () -> Unit) {
