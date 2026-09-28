@@ -275,9 +275,9 @@ class MainActivity : ComponentActivity() {
     // ---- role-conditional UI ------------------------------------------------
 
     /**
-     * Pairing. On the alarm phone: a name and passphrase to invent, shown large once set,
-     * with the instruction to type them on the other phone. On the controller: what it is
-     * paired to, and a way to pair again. Same words on both phones.
+     * Pairing. On the alarm phone: the group name and passphrase it hosts, editable. On the
+     * controller: the group it is configured to join, editable. Neither is the live link;
+     * the bar at the top of every screen is. Same words on both phones.
      */
     @Composable
     private fun Pairing(role: Role) {
