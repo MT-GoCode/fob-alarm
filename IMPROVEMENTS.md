@@ -381,3 +381,16 @@ the controller's pairing screen is pre-filled with them for when they are change
 alarm-time row follows the phone's clock style (4:00 AM). Every setting is one row
 grammar: label left, value right, tap to edit, same fonts and padding. The ring screen
 keeps the globe centred in the free space instead of pinned to the bottom.
+
+## Round 8 — your corrections after the device run
+
+There is no settings password until you set one; a leftover 12345678 hash from earlier
+builds is cleared on first start (after the database merge too, which had been bringing
+it back). 12345678 is now the Wi-Fi Direct passphrase and DIRECT-fa-alarm the name, on
+both phones out of the box, so the controller connects at first install without typing;
+the controller's pairing screen is pre-filled with them for when they are changed. The
+alarm-time row follows the phone's clock style (4:00 AM). Every setting is one row
+grammar: label left, value right, tap to edit, same fonts and padding. The ring screen
+centres the time, the button and the globe as one group. While the ring screen is
+showing, its notification drops to a quiet channel so no heads-up sits on top of it; when
+the screen goes away it comes back loud with its full-screen intent.

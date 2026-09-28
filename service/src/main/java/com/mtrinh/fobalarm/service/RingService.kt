@@ -14,6 +14,8 @@ class RingService : Service(), SensorEventListener {
 
     companion object {
         const val CHANNEL_RING = "ring"
+        /** Same notification, no heads-up: used while the ring screen itself is showing. */
+        const val CHANNEL_RING_QUIET = "ring_quiet"
         const val CHANNEL_STATUS = "status"
         const val NOTIF_ID = 42
         const val ACTION_STOP = "stop"
@@ -21,6 +23,40 @@ class RingService : Service(), SensorEventListener {
         const val ACTION_RESUME = "resume"
 
         @Volatile var serviceAlive = false
+
+        /**
+         * The ring screen reports when it is on screen. Then the notification drops to a
+         * quiet channel so a heads-up does not sit on top of the very screen it opens;
+         * when the screen goes away it comes back loud, with its full-screen intent.
+         */
+        fun uiVisible(ctx: Context, visible: Boolean) {
+            if (!serviceAlive) return
+            ctx.getSystemService(NotificationManager::class.java)
+                .notify(NOTIF_ID, ringNotification(ctx, quiet = visible))
+        }
+
+        private fun ringNotification(ctx: Context, quiet: Boolean): Notification {
+            val full = PendingIntent.getActivity(ctx, 0,
+                Intent().setClassName(ctx.packageName, "com.mtrinh.fobalarm.ui.RingActivity")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            // A tappable body AND an explicit action: if the ring activity is ever gone
+            // (recreated, or its content null) the notification is the only control surface.
+            val dismiss = PendingIntent.getBroadcast(ctx, 7,
+                Intent(ctx, AlarmReceiver::class.java).setAction(Scheduler.ACTION_DISMISS)
+                    .setPackage(ctx.packageName),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            return Notification.Builder(ctx, if (quiet) CHANNEL_RING_QUIET else CHANNEL_RING)
+                .setContentTitle("Alarm ringing")
+                .setContentText("Press to dismiss")
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setContentIntent(full)
+                .apply { if (!quiet) setFullScreenIntent(full, true) }
+                .addAction(Notification.Action.Builder(null, "DISMISS", dismiss).build())
+                .build()
+        }
         @Volatile var rotationDeg: Double = 0.0
         @Volatile var gyroBiasDps: Double = 0.0
         @Volatile var gyroStale = false
@@ -337,31 +373,14 @@ class RingService : Service(), SensorEventListener {
             setSound(null, null); enableVibration(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         })
+        nm.createNotificationChannel(NotificationChannel(CHANNEL_RING_QUIET, "Alarm ringing (screen showing)",
+            NotificationManager.IMPORTANCE_LOW).apply {
+            setSound(null, null); enableVibration(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        })
         nm.createNotificationChannel(NotificationChannel(CHANNEL_STATUS, "Status",
             NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null) })
     }
 
-    private fun ringNotification(): Notification {
-        val full = PendingIntent.getActivity(this, 0,
-            Intent().setClassName(packageName, "com.mtrinh.fobalarm.ui.RingActivity")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        // A tappable body AND an explicit action: if the ring activity is ever gone
-        // (recreated, or its content null) the notification is the only control surface.
-        val dismiss = PendingIntent.getBroadcast(this, 7,
-            Intent(this, AlarmReceiver::class.java).setAction(Scheduler.ACTION_DISMISS)
-                .setPackage(packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(this, CHANNEL_RING)
-            .setContentTitle("Alarm ringing")
-            .setContentText("Press to dismiss")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setCategory(Notification.CATEGORY_ALARM)
-            .setOngoing(true)
-            .setContentIntent(full)
-            .setFullScreenIntent(full, true)
-            .addAction(Notification.Action.Builder(
-                null, "DISMISS", dismiss).build())
-            .build()
-    }
+    private fun ringNotification(): Notification = ringNotification(this, quiet = false)
 }

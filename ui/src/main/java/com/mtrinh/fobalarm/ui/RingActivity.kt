@@ -30,7 +30,12 @@ open class RingActivity : ComponentActivity() {
     companion object {
         /** Set by the app module at startup so this class stays free of service deps. */
         @Volatile var content: (@Composable (RingActivity) -> Unit)? = null
+        /** Told whether this screen is showing, so the ring notification can stay out of its way. */
+        @Volatile var onVisible: ((Boolean) -> Unit)? = null
     }
+
+    override fun onStart() { super.onStart(); onVisible?.invoke(true) }
+    override fun onStop() { onVisible?.invoke(false); super.onStop() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

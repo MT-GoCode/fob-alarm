@@ -148,26 +148,25 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     val threshold = ring?.thresholdDeg ?: s.settings.snoozeThresholdDegrees
     val sending = app.dismissUi is DismissUi.Waiting
 
+    // Three things, centred as one group: the time, the button, the globe. The small
+    // lines (TEST, whose alarm, muted) sit at the edges and never push the group around.
     Column(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(S.page),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (isTest) Text("TEST", fontSize = T.label, fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary)
-
         // The controller must say, in the first line, that the noise is elsewhere.
-        if (!isAlarmRole) {
-            Spacer(Modifier.height(S.sm))
-            Text("ALARM PHONE IS RINGING", fontSize = T.headline, fontWeight = FontWeight.Bold)
-        }
+        if (!isAlarmRole) Text("ALARM PHONE IS RINGING", fontSize = T.headline, fontWeight = FontWeight.Bold)
 
-        Spacer(Modifier.height(S.sm))
+        Spacer(Modifier.weight(1f))
+
         Text(Fmt.clock(now), fontSize = T.hero, fontWeight = FontWeight.Light,
             color = if (isAlarmRole) MaterialTheme.colorScheme.onSurface else Muted)
 
         if (snoozed) {
             val left = ((ring?.snoozeUntilMs ?: now) - now).coerceAtLeast(0)
-            Spacer(Modifier.height(S.sm))
+            Spacer(Modifier.height(S.md))
             Card(colors = CardDefaults.cardColors(containerColor = Good),
                 modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(S.md), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -177,7 +176,7 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             }
         }
 
-        Spacer(Modifier.height(S.md))
+        Spacer(Modifier.height(S.lg))
 
         val locked = now < app.buttonLockedUntilMs
         Button(
@@ -199,23 +198,24 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         (app.dismissUi as? DismissUi.RingChanged)?.let { RedCard(it.message) }
         (app.dismissUi as? DismissUi.Unreachable)?.let { RedCard(it.message) }
 
-        Spacer(Modifier.weight(1f))
         if (isAlarmRole) {
+            Spacer(Modifier.height(S.lg))
             Text(if (snoozed) "Snoozed" else "Turn the box to snooze",
                 fontSize = T.body, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(S.sm))
-            Box(Modifier.fillMaxWidth().height(260.dp)) {
+            Box(Modifier.fillMaxWidth().height(240.dp)) {
                 RotationInstrument(
                     degrees = deg, threshold = threshold,
                     quaternion = ring?.quaternion ?: app.testQuaternion,
                     snoozed = snoozed, modifier = Modifier.fillMaxSize())
             }
-            Spacer(Modifier.weight(1f))
         }
+
+        Spacer(Modifier.weight(1f))
+
         if (ring?.audible?.contains("muted=true") == true) {
             Text(if (isAlarmRole) "Sound is muted. Vibration only."
                  else "Sound is muted on the alarm phone. Vibration only.", fontSize = T.label, color = Bad)
-            Spacer(Modifier.height(S.md))
         }
     }
 }

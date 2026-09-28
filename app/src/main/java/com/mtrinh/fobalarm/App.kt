@@ -62,6 +62,7 @@ class App : Application() {
      * only ever appears on the alarm phone.
      */
     private fun wireRingScreen() {
+        RingActivity.onVisible = { RingService.uiVisible(this, it) }
         RingActivity.content = { activity ->
             // Its own scope, cancelled with the activity: an Application-scoped poll
             // would accumulate a forever-loop on every recreation.
