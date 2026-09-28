@@ -41,7 +41,7 @@ fun RootScreen(
         return
     }
 
-    if (s.mode == Mode.RINGING) {
+    if (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) {
         RingingScreen(app, s, isAlarmRole)
         return
     }

@@ -208,16 +208,6 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun requestRuntimePermissions() {
-        val want = mutableListOf(
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.NEARBY_WIFI_DEVICES,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        )
-        runCatching { want.add("android.permission.ACCESS_LOCAL_NETWORK") }
-        perms.launch(want.toTypedArray())
-    }
-
     /**
      * Runtime permissions are REQUESTED so Android shows its own dialog. Only the
      * special-access items (exact alarms, full-screen intent, hibernation, DND policy)

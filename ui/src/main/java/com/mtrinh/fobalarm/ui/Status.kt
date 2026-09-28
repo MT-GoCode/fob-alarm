@@ -25,6 +25,7 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
     val alarm = if (iAmAlarm) s.self else s.peer          // the phone that rings
     val controller = if (iAmAlarm) s.peer else s.self     // the phone that stops it
     val peerAge = s.peer?.lastSeenMs?.takeIf { it > 0 }?.let { Fmt.age(it, nowMs) }
+    val peerRecent = s.peer != null && nowMs - s.peer!!.lastSeenMs < 120_000
 
     // --- will it ring, and when ------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -96,21 +97,20 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
     Section("Power")
     alarm?.let { Line("Alarm phone", battery(it), ok = it.plugged) }
         ?: Line("Alarm phone", "unknown", ok = false)
-    controller?.let { Line("Controller", battery(it), ok = null) }
+    controller?.let { Line("Controller", if (iAmAlarm && !peerRecent) "not heard from" else battery(it), ok = null) }
 
     // --- permissions, this phone and the other one ----------------------------
     Section("Permissions")
     // The same rows Setup shows for this phone, so the two screens can never disagree.
-    val mine = setupRows(localGates ?: s.gates, iAmAlarm).filter { !it.second }
-    Line("This phone", if (mine.isEmpty()) "all allowed" else mine.joinToString { it.first.label } + " missing",
-        ok = if (mine.isEmpty()) true else if (mine.any { it.first.blocking }) false else null)
+    PermissionLine("This phone", localGates ?: s.gates, iAmAlarm)
     if (iAmAlarm) {
-        Line("Controller", if (s.peer == null) "unknown" else if (peerMissing.isEmpty()) "all allowed" else peerMissing.joinToString() + " missing",
-            ok = if (s.peer == null) null else peerMissing.isEmpty())
+        Line("Controller", when {
+            !peerRecent -> "not heard from"
+            peerMissing.isEmpty() -> "all allowed"
+            else -> peerMissing.joinToString() + " missing"
+        }, ok = if (!peerRecent) null else peerMissing.isEmpty())
     } else {
-        val theirs = setupRows(s.gates, true).filter { !it.second }
-        Line("Alarm phone", if (theirs.isEmpty()) "all allowed" else theirs.joinToString { it.first.label } + " missing",
-            ok = if (theirs.isEmpty()) true else if (theirs.any { it.first.blocking }) false else null)
+        PermissionLine("Alarm phone", s.gates, true)
     }
 
     // --- self checks -------------------------------------------------------------
@@ -142,6 +142,14 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
                 (if (it.snoozeCount > 0) ", snoozed ${it.snoozeCount}×" else ""),
             fontSize = T.label, color = if (it.kind == Outcome.CAPPED || it.kind == Outcome.MISSED) Bad else Muted)
     }
+}
+
+@Composable
+private fun PermissionLine(label: String, g: Gates, alarmRole: Boolean) {
+    if (g.evaluatedAtMs == 0L) { Line(label, "checking", ok = null); return }
+    val missing = setupRows(g, alarmRole).filter { !it.second }
+    Line(label, if (missing.isEmpty()) "all allowed" else missing.joinToString { it.first.label } + " missing",
+        ok = if (missing.isEmpty()) true else if (missing.any { it.first.blocking }) false else null)
 }
 
 private fun battery(d: DeviceView): String =

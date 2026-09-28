@@ -149,7 +149,7 @@ doesn't, `staleBy` grows visibly and the arm gate complains at 22:00 — loud, n
   // `mode` is DERIVED, never stored: open session → RINGING (outranks all);
   // else blocking gate failing → INIT; else WAITING.
   gates:   { evaluatedAtMs, scheduleExists, exactAlarm, foregroundService, p2pSupported, gyroscopePresent,
-             staApConcurrent, groupCredentialsSet, localNetworkPermission, notificationPolicyAccess,
+             groupCredentialsSet, localNetworkPermission, notificationPolicyAccess,
              dndAllowsAlarms, volumeNotFixed, fullScreenIntent, notHibernating, thermalOk,
              audioPlayable, powerOk, allPass },
   armGate: { lastRunAtMs, result, failingGates[] },

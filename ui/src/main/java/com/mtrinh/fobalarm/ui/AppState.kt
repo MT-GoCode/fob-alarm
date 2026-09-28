@@ -240,8 +240,9 @@ class AppState(
     /** Same path on both phones: the client stops it, wherever it rings. */
     fun stopTest() {
         scope.launch {
-            client.stopTest().onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
-            ringEndMessage = "Test stopped"
+            client.stopTest()
+                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); ringEndMessage = "Test stopped" }
+                .onFailure { ringEndMessage = "Could not stop the test" }
         }
     }
 }

@@ -50,11 +50,11 @@ dismiss an alarm.
    ("Done"). Both phones ship with the same link name and passphrase (`DIRECT-fa-alarm`
    / `12345678`), so pairing needs no typing. Change them under "Pair the other phone"
    only if you want to.
-3. Controller: allow Notifications and Nearby devices, then Connect. Android shows its
-   own box, "wants to connect using a temporary network": tap the network in it. That is
-   Android's rule, once. It can take a few minutes the first time while Android scans.
-   Then Status says "Alarm phone: connected" on the controller and "Controller:
-   connected" on the alarm phone.
+3. Controller: Allow (Nearby devices), then Connect. Android shows its own box, "wants
+   to connect using a temporary network": tap the network in it. That is Android's rule,
+   once. It can take a few minutes the first time while Android scans. Then the Setup tab
+   asks for Notifications; allow it. Status then says "Alarm phone: connected" on the
+   controller and "Controller: connected" on the alarm phone.
 4. Settings on either phone: alarm time, volume, vibrate, stop-after, snooze. Every
    change says "saved" or "not saved" with the reason. Nothing is locked until you set
    a password on the alarm phone; with one set, Unlock at the top of Settings, and the
