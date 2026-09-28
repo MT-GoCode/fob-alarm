@@ -58,22 +58,22 @@ object Auth {
  * SPEC.md section 7.
  */
 /**
- * How far the phone has been turned: the rotation between consecutive samples, as a
- * vector (axis times angle) summed along the path. A buzz of the vibrator is a wobble
- * back and forth about one axis, so its contributions cancel; a spin about one axis
- * keeps adding, so a full turn and more are reachable. Motion under the deadband is
- * ignored (fusion corrections, drift), and three seconds of stillness ends the gesture.
+ * How far the phone has been turned, in total, in any direction: tilting up thirty and
+ * back down counts sixty. Each step is the movement over one short window (100 ms), so a
+ * buzz of the vibrator, which shakes the phone back and forth many times inside that
+ * window, nets to nothing; a hand turn nets to the turn. Steps under a degree are noise
+ * and are dropped, and three seconds of no steps ends the gesture.
  */
 class RotationAccumulator(
     private val thresholdDeg: Int,
-    private val deadbandDegPerSec: Double = 15.0,
+    private val windowMs: Long = 100,
+    private val minStepDeg: Double = 1.0,
     private val decayAfterMs: Long = 3_000,
 ) {
     var degrees: Double = 0.0; private set
     var gyroBiasDps: Double = 0.0; private set
-    private val sum = DoubleArray(3)
-    private var lastQ: DoubleArray? = null
-    private var lastQAtMs: Long = 0
+    private var winStart: DoubleArray? = null
+    private var winStartMs: Long = 0
     private var lastMotionMs: Long = 0
     private var biasSamples = 0
     private var biasSum = 0.0
@@ -82,7 +82,7 @@ class RotationAccumulator(
     var lastRvMs: Long = 0; private set
 
     fun reset() {
-        degrees = 0.0; sum.fill(0.0); lastQ = null; lastQAtMs = 0; lastMotionMs = 0
+        degrees = 0.0; winStart = null; winStartMs = 0; lastMotionMs = 0
     }
 
     fun gyroStale(nowMs: Long) = lastGyroMs != 0L && nowMs - lastGyroMs > 2_000
@@ -92,8 +92,8 @@ class RotationAccumulator(
     fun onGyro(wx: Double, wy: Double, wz: Double, accelMagG: Double, nowMs: Long) {
         lastGyroMs = nowMs
         val mag = Math.sqrt(wx * wx + wy * wy + wz * wz) * 180.0 / Math.PI
-        // Zero-rate update: while under the deadband and |accel| ~= 1g, average the gyro.
-        if (mag < deadbandDegPerSec && Math.abs(accelMagG - 1.0) < 0.1) {
+        // Zero-rate update: while barely moving and |accel| ~= 1g, average the gyro.
+        if (mag < 15.0 && Math.abs(accelMagG - 1.0) < 0.1) {
             biasSum += mag; biasSamples++
             if (biasSamples > 50) { gyroBiasDps = biasSum / biasSamples; biasSum = 0.0; biasSamples = 0 }
         }
@@ -102,40 +102,20 @@ class RotationAccumulator(
     /** Primary stream. Returns true when the threshold is crossed on this sample. */
     fun onRotationVector(q: DoubleArray, nowMs: Long): Boolean {
         lastRvMs = nowMs
-        val prev = lastQ
-        val prevAt = lastQAtMs
-        lastQ = q; lastQAtMs = nowMs
-        if (prev == null || prevAt == 0L) return false
-        val dtSec = (nowMs - prevAt) / 1000.0
-        if (dtSec <= 0.0) return false
+        val start = winStart
+        if (start == null) { winStart = q; winStartMs = nowMs; lastMotionMs = nowMs; return false }
+        if (nowMs - winStartMs < windowMs) return false
 
-        // Rotation from prev to q in the phone's own frame: d = conj(prev) * q.
-        val d = multiply(conjugate(prev), q)
-        var w = d[0]; var x = d[1]; var y = d[2]; var z = d[3]
-        if (w < 0) { w = -w; x = -x; y = -y; z = -z }     // shortest arc
-        val v = Math.sqrt(x * x + y * y + z * z)
-        val angle = 2.0 * Math.atan2(v, w) * 180.0 / Math.PI
-
-        // Deadband on the QUATERNION rate, not on the gyro stream: a pure fusion
-        // correction shows ~0 gyro and would otherwise never be discarded.
-        if (angle / dtSec < deadbandDegPerSec) {
-            if (lastMotionMs != 0L && nowMs - lastMotionMs > decayAfterMs && degrees > 0.0) {
-                sum.fill(0.0); degrees = 0.0      // a snooze is ONE continuous gesture
-            }
+        val step = geodesicAngleDeg(start, q)      // net movement over the window
+        winStart = q; winStartMs = nowMs
+        if (step < minStepDeg) {
+            if (degrees > 0.0 && nowMs - lastMotionMs > decayAfterMs) degrees = 0.0   // one gesture
             return false
         }
         lastMotionMs = nowMs
-        if (v > 0.0) { sum[0] += angle * x / v; sum[1] += angle * y / v; sum[2] += angle * z / v }
-        degrees = Math.sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2])
+        degrees += step
         return degrees >= thresholdDeg
     }
-
-    private fun conjugate(a: DoubleArray) = doubleArrayOf(a[0], -a[1], -a[2], -a[3])
-    private fun multiply(a: DoubleArray, b: DoubleArray) = doubleArrayOf(
-        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
-        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
-        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
-        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0])
 
     private fun geodesicAngleDeg(a: DoubleArray, b: DoubleArray): Double {
         var dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
