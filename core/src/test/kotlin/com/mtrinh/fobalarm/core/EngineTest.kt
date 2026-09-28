@@ -83,9 +83,77 @@ class EngineTest {
 
         val (c2, s2) = fresh("2026-09-26T05:00:00-07:00[America/Los_Angeles]")
         val r = Engine.setOverrideTime(s2, c2, "07:00")
-        // Binds to tomorrow's occurrence, but the instant itself is the next 07:00 -- today.
         assertEquals(OccurrenceId("2026-09-27", OccurrenceSource.SCHEDULED),
             r.state.override!!.boundOccurrenceId)
+        // And the instant belongs to that occurrence's day. It used to be today's
+        // 07:00, two hours away, which is not what "move tomorrow's alarm" means.
+        assertEquals(at("2026-09-27T07:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    // --- a Move only ever pushes an alarm later ---------------------------
+
+    @Test fun `a Move to a time still ahead tonight lands after the alarm, not before it`() {
+        // 23:00 Saturday, alarm 04:00. "23:30" must not ring in half an hour and
+        // silently spend Sunday morning's alarm.
+        val (c, s0) = fresh("2026-09-26T23:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.setOverrideTime(s0, c, "23:30")
+        assertEquals(at("2026-09-27T23:30:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+        assertEquals(OccurrenceId("2026-09-27", OccurrenceSource.SCHEDULED),
+            r.state.override!!.boundOccurrenceId)
+    }
+
+    @Test fun `a Move earlier in the day than the alarm rolls past it`() {
+        val (c, s0) = fresh("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+        // 02:00 is before today's 04:00, so it means the 02:00 after it.
+        val r = Engine.setOverrideTime(s0, c, "02:00")
+        assertEquals(at("2026-09-27T02:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    @Test fun `a Move to the alarm's own time means the next one`() {
+        val (c, s0) = fresh("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.setOverrideTime(s0, c, "04:00")
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    @Test fun `a Move is always after the alarm it replaces, for every wall time`() {
+        val (c, s0) = fresh("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+        val boundAt = Engine.nextUnlatchedScheduled(s0, c).second
+        for (h in 0..23) for (m in listOf(0, 30)) {
+            val r = Engine.setOverrideTime(s0, c, "%02d:%02d".format(h, m))
+            assertTrue(r.nextFire!!.atMs > boundAt,
+                "%02d:%02d landed at or before the alarm it replaces".format(h, m))
+        }
+    }
+
+    // --- naps: duration and wall time -------------------------------------
+
+    @Test fun `nap until a time already gone today means tomorrow`() {
+        val (c, s0) = fresh("2026-09-26T23:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.setNapUntil(s0, c, "07:30")
+        assertEquals(at("2026-09-27T07:30:00-07:00[America/Los_Angeles]"), r.state.nap!!.fireAtMs)
+    }
+
+    @Test fun `nap until a time later today means today`() {
+        val (c, s0) = fresh("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.setNapUntil(s0, c, "03:15")
+        assertEquals(at("2026-09-26T03:15:00-07:00[America/Los_Angeles]"), r.state.nap!!.fireAtMs)
+    }
+
+    @Test fun `nap until does not overwrite the remembered nap duration`() {
+        val (c, s0) = fresh("2026-09-26T01:00:00-07:00[America/Los_Angeles]")
+        val withMinutes = Engine.setNap(s0, c, 45).state
+        assertEquals(45, withMinutes.settings.napMinutes)
+        val r = Engine.setNapUntil(withMinutes, c, "03:15")
+        assertEquals(45, r.state.settings.napMinutes, "the picker default is the duration form's")
+    }
+
+    @Test fun `nextWallTimeAfter is strict, never equal`() {
+        val zone = ZoneId.of("America/Los_Angeles")
+        val anchor = at("2026-09-26T04:00:00-07:00[America/Los_Angeles]")
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"),
+            Engine.nextWallTimeAfter(anchor, "04:00", zone))
+        assertEquals(at("2026-09-26T04:01:00-07:00[America/Los_Angeles]"),
+            Engine.nextWallTimeAfter(anchor, "04:01", zone))
     }
 
     @Test fun `spring forward into a non-existent local time still fires`() {
@@ -105,15 +173,34 @@ class EngineTest {
         assertEquals(at("2027-11-07T01:30:00-07:00[America/Los_Angeles]"), ms)
     }
 
-    @Test fun `timezone change clears override and nap`() {
+    @Test fun `a timezone change drops the override and keeps the nap`() {
+        // Err toward ringing. Dropping the override hands the day back to the ordinary
+        // alarm in the new zone; dropping the nap would lose an alarm outright.
         val (c, s0) = fresh()
         val withOv = Engine.setOverrideTime(s0, c, "07:00").state
         val withNap = Engine.setNap(withOv, c, 30).state
+        val napAt = withNap.nap!!.fireAtMs
         c.z = ZoneId.of("America/New_York")
         val r = Engine.recompute(withNap, c, "tz")
         assertNull(r.state.override)
-        assertNull(r.state.nap)
+        assertEquals(napAt, r.state.nap?.fireAtMs, "a nap is a fixed instant; a zone change does not move it")
         assertTrue(r.events.any { it.type == "tz_change" })
+        assertTrue(r.events.any { it.type == "override_cleared" && it.detail["reason"] == "tz_change" })
+    }
+
+    @Test fun `a DST transition is not a zone change and clears nothing`() {
+        // US DST 2027-03-14. ZoneId is unchanged, so step 0 must not fire.
+        val c = FakeClock(at("2027-03-13T23:00:00-08:00[America/Los_Angeles]"))
+        val st = EngineState(settings = Settings(defaultAlarmTime = "04:00"),
+            lastAliveMs = at("2026-01-01T00:00:00-08:00[America/Los_Angeles]"),
+            lastTimeZone = "America/Los_Angeles")
+        val moved = Engine.setOverrideTime(st, c, "09:00").state
+        c.set("2027-03-14T05:00:00-07:00[America/Los_Angeles]")   // after the jump
+        val r = Engine.recompute(moved, c, "tick")
+        assertNotNull(r.state.override, "DST is not a zone change")
+        assertTrue(r.events.none { it.type == "tz_change" })
+        // 09:00 local on the 14th, resolved through that date's rules.
+        assertEquals(at("2027-03-14T09:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
     }
 
     // --- clock jumps ------------------------------------------------------

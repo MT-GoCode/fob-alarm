@@ -137,6 +137,12 @@ fun SliderSetting(
 fun TimePickerDialog(
     title: String,
     initial: String,
+    /**
+     * What the chosen time will actually mean, recomputed as the dial turns. A Move and
+     * a nap both resolve to a day the user did not type, so the answer has to be on
+     * screen before Set is pressed, not discovered afterwards on Status.
+     */
+    preview: ((String) -> String?)? = null,
     onCancel: () -> Unit,
     onSet: (String) -> Unit,
 ) {
@@ -150,7 +156,14 @@ fun TimePickerDialog(
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(title) },
-        text = { TimePicker(state = state) },
+        text = {
+            Column {
+                TimePicker(state = state)
+                preview?.invoke("%02d:%02d".format(state.hour, state.minute))?.let {
+                    Text(it, fontSize = T.label, color = Muted)
+                }
+            }
+        },
         confirmButton = {
             TextButton(onClick = { onSet("%02d:%02d".format(state.hour, state.minute)) }) {
                 Text("Set")

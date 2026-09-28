@@ -275,12 +275,14 @@ object Svc : AlarmHost {
         val gates = GateEval.current(app, state.settings, lastNextFire != null)
         val s = state.session
         val ovFire = state.override?.fireAtMs
+        // The scheduled alarm the override replaces -- or WOULD replace when there is
+        // none yet, which is what lets the Move dialog show where a time will land.
         val boundAt = state.override?.let {
             runCatching {
                 Engine.scheduledInstant(java.time.LocalDate.parse(it.boundOccurrenceId.localDate),
                     state.settings.defaultAlarmTime, ts.zone())
             }.getOrNull()
-        }
+        } ?: runCatching { Engine.nextUnlatchedScheduled(state, ts).second }.getOrNull()
         return Snapshot(
             stateVersion = state.stateVersion,
             serverTimeMs = System.currentTimeMillis(),
@@ -427,6 +429,11 @@ object Svc : AlarmHost {
     override fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot {
         if (seen(requestId)) return snapshot()
         return synchronized(lock) { commit(requestId); apply(Engine.setNap(state, ts, minutes)) }
+    }
+
+    override fun napUntil(hhmm: String, requestId: String, actor: Actor): Snapshot {
+        if (seen(requestId)) return snapshot()
+        return synchronized(lock) { commit(requestId); apply(Engine.setNapUntil(state, ts, hhmm)) }
     }
 
     override fun clearNap(requestId: String, actor: Actor): Snapshot {

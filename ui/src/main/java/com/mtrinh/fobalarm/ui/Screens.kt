@@ -270,6 +270,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
     var confirmSkip by remember { mutableStateOf(false) }
     var pickTime by remember { mutableStateOf(false) }
     var pickNap by remember { mutableStateOf(false) }
+    var pickNapUntil by remember { mutableStateOf(false) }
 
     Page(snapshot = s) {
         if (nag != Nag.Reason.NONE) {
@@ -296,18 +297,41 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
         Section("Nap")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
-            Button(onClick = { pickNap = true }) { Text("Nap") }
+            Button(onClick = { pickNap = true }) { Text("Nap for") }
+            Button(onClick = { pickNapUntil = true }) { Text("Nap until") }
             if (s.nap.armed) OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap") }
         }
     }
 
     if (pickTime) {
+        // Anchored to the alarm being replaced, the same number the engine uses, so the
+        // preview and the result cannot disagree.
+        val replaces = s.tomorrow.replacesMs
         TimePickerDialog("Ring the next alarm at",
             s.tomorrow.timeMs?.let { Fmt.hhmm(it) } ?: s.settings.defaultAlarmTime,
+            preview = { hhmm ->
+                replaces?.let {
+                    val at = Engine.nextWallTimeAfter(it, hhmm, java.time.ZoneId.systemDefault())
+                    "Rings ${Fmt.absolute(at)}, instead of ${Fmt.absolute(it)}"
+                }
+            },
             onCancel = { pickTime = false }) { v -> app.overrideTime(v); pickTime = false }
     }
+    if (pickNapUntil) {
+        // Opens on now + the remembered nap length, not on now: "now" is a wall time
+        // that has just gone, so the strict rule resolves it to tomorrow and the dialog
+        // would greet you with "in 23h 59m".
+        TimePickerDialog("Nap until", Fmt.hhmm(app.nowMs + s.settings.napMinutes * 60_000L),
+            preview = { hhmm ->
+                val at = Engine.nextWallTimeAfter(app.nowMs, hhmm, java.time.ZoneId.systemDefault())
+                "Rings ${Fmt.absolute(at)}, ${Fmt.until(at, app.nowMs)}"
+            },
+            onCancel = { pickNapUntil = false }) { v -> app.napUntil(v); pickNapUntil = false }
+    }
     if (confirmSkip) {
-        val next = s.nextFire?.let { Fmt.absolute(it.atMs) } ?: "the next alarm"
+        // The scheduled alarm, not nextFire: an armed nap can be sooner and is not
+        // what Skip touches.
+        val next = s.tomorrow.replacesMs?.let { Fmt.absolute(it) } ?: "the next alarm"
         AlertDialog(
             onDismissRequest = { confirmSkip = false },
             title = { Text("Skip $next?") },

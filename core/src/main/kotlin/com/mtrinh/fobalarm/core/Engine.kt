@@ -70,6 +70,29 @@ object Engine {
     fun localDateOf(ms: Long, zone: ZoneId): String =
         Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().format(DATE)
 
+    /**
+     * The first instant whose wall clock reads [hhmm] and which is STRICTLY after
+     * [afterMs]. The one resolver for every "at what time" the user types, so the
+     * engine and the screen that previews the answer cannot disagree.
+     *
+     * Strictly after, not at-or-after: anchored to the alarm it replaces, a Move to the
+     * alarm's own time means "not this one, the next one", which is the same thing as a
+     * Skip and is the only sane reading.
+     *
+     * Three steps, not two: on a spring-forward day the literal wall time may not exist
+     * and scheduledInstant resolves it forward, which can land it before the anchor.
+     */
+    fun nextWallTimeAfter(afterMs: Long, hhmm: String, zone: ZoneId): Long {
+        var date = Instant.ofEpochMilli(afterMs).atZone(zone).toLocalDate()
+        var at = scheduledInstant(date, hhmm, zone)
+        repeat(3) {
+            if (at > afterMs) return at
+            date = date.plusDays(1)
+            at = scheduledInstant(date, hhmm, zone)
+        }
+        return at
+    }
+
     /** The next SCHEDULED occurrence with no latch, starting from today. */
     fun nextUnlatchedScheduled(st: EngineState, ts: TimeSource): Pair<OccurrenceId, Long> {
         val zone = ts.zone()
@@ -97,12 +120,19 @@ object Engine {
         val now = ts.nowMs()
         val today = LocalDate.parse(localDateOf(now, zone))
 
-        // 0. Timezone change clears wall-clock-relative intent.
+        // 0. A change of timezone -- the zone ITSELF, not a DST transition, which does
+        //    not change the id and needs nothing here because every instant is resolved
+        //    through the zone's rules for its own date.
+        //
+        //    The rule is: err toward ringing. The override is dropped, which hands the
+        //    day back to the ordinary alarm in the new zone. The nap is kept: it is a
+        //    fixed instant minutes away, and dropping it is the one outcome that loses
+        //    an alarm outright.
         val zoneId = zone.id
         if (st.lastTimeZone != null && st.lastTimeZone != zoneId) {
             events += PendingEvent("tz_change", mapOf("from" to st.lastTimeZone!!, "to" to zoneId))
             if (st.override != null) events += PendingEvent("override_cleared", mapOf("reason" to "tz_change"))
-            st = st.copy(override = null, nap = null)
+            st = st.copy(override = null)
         }
         st = st.copy(lastTimeZone = zoneId)
 
@@ -248,19 +278,22 @@ object Engine {
     // Transactions. Each returns a new state and ends by calling recompute().
     // -----------------------------------------------------------------------
 
-    /** Set the next-alarm override by absolute wall time ("HH:mm"). */
+    /**
+     * Move the next alarm to wall time [hhmm].
+     *
+     * **A Move only ever pushes an alarm later.** The instant is resolved against the
+     * occurrence being replaced, not against now, so a time that has not come round yet
+     * before that alarm lands on the following day instead of in front of it. At 23:00
+     * with a 04:00 alarm, "move to 23:30" used to ring half an hour later and silently
+     * eat tomorrow morning; now it means 23:30 tomorrow.
+     *
+     * The invariant that follows is worth having: the replacement instant is always
+     * after the alarm it replaces, so the original time comes and goes with the override
+     * still live, and Revert is a real choice for the whole night rather than a race.
+     */
     fun setOverrideTime(st: EngineState, ts: TimeSource, hhmm: String): RecomputeResult {
-        val (boundId, _) = nextUnlatchedScheduled(st, ts)
-        val (h, m) = hhmm.split(":").map { it.toInt() }
-        val zone = ts.zone()
-        val now = ts.nowMs()
-        // First instant >= now matching that wall time.
-        var date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
-        var at = ZonedDateTime.of(date.atTime(LocalTime.of(h, m)), zone).toInstant().toEpochMilli()
-        if (at < now) {
-            date = date.plusDays(1)
-            at = ZonedDateTime.of(date.atTime(LocalTime.of(h, m)), zone).toInstant().toEpochMilli()
-        }
+        val (boundId, boundAt) = nextUnlatchedScheduled(st, ts)
+        val at = nextWallTimeAfter(boundAt, hhmm, ts.zone())
         val next = st.copy(override = Override(boundId, OverrideKind.TIME, at))
         return recompute(next, ts, "override_set").let {
             it.copy(events = it.events + PendingEvent("override_set",
@@ -281,12 +314,32 @@ object Engine {
             it.copy(events = it.events + PendingEvent("override_cleared", mapOf("reason" to "user")))
         }
 
+    /**
+     * Nap for a duration. The minutes are also remembered as the default the picker
+     * opens on; "nap until" deliberately does not touch that.
+     */
     fun setNap(st: EngineState, ts: TimeSource, minutes: Int): RecomputeResult {
         val m = minutes.coerceIn(1, 720)
         val at = ts.nowMs() + m * 60_000L
         val next = st.copy(nap = Nap(at), settings = st.settings.copy(napMinutes = m))
         return recompute(next, ts, "nap_set").let {
-            it.copy(events = it.events + PendingEvent("nap_set", mapOf("minutes" to m.toString(), "atMs" to at.toString())))
+            it.copy(events = it.events + PendingEvent("nap_set",
+                mapOf("kind" to "for", "minutes" to m.toString(), "atMs" to at.toString())))
+        }
+    }
+
+    /**
+     * Nap until a wall clock time: the first [hhmm] from now, so a time already gone
+     * today means tomorrow. Uncapped, unlike the duration form, because it cannot say
+     * anything longer than a day and a nap that outlives the next real alarm is dropped
+     * when that alarm rings anyway.
+     */
+    fun setNapUntil(st: EngineState, ts: TimeSource, hhmm: String): RecomputeResult {
+        val at = nextWallTimeAfter(ts.nowMs(), hhmm, ts.zone())
+        val next = st.copy(nap = Nap(at))
+        return recompute(next, ts, "nap_set").let {
+            it.copy(events = it.events + PendingEvent("nap_set",
+                mapOf("kind" to "until", "hhmm" to hhmm, "atMs" to at.toString())))
         }
     }
 

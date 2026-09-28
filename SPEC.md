@@ -170,7 +170,10 @@ on both phones. **The controller binds per-socket, not per-process**, so it also
                  // ONE answer to "what happened last time an alarm was due?" — replaces
                  // lastSession + missed, which could contradict each other on screen.
   appVersion, settingsSchemaVersion,
-  tomorrow:{ kind: NONE|TIME|SKIP, time },
+  tomorrow:{ kind: NONE|TIME|SKIP, timeMs, replacesMs },
+                 // replacesMs is the scheduled alarm the override replaces -- or WOULD
+                 // replace when kind is NONE, which is what lets the Move picker show
+                 // where a time lands before it is committed.
   nap:     { armed, atMs } ,
   settings:{ …fully enumerated — the controller both renders and edits it… },
   lastEvents: [ last 10 ] }
@@ -363,6 +366,7 @@ implementation differs.
                  suspend fun dismiss(ringId, requestId): Result<Snapshot>
                  suspend fun patchSettings(ifVersion, patch, requestId): Result<Snapshot>
                  suspend fun nap(minutes, requestId): Result<Snapshot>
+                 suspend fun napUntil(hhmm, requestId): Result<Snapshot>
                  suspend fun setOverride(kind, time, requestId): Result<Snapshot>
                  suspend fun history(since, limit): Result<List<Event>>
                  suspend fun export(): Result<Backup>            // §14 — everything needed to rebuild a phone
@@ -687,6 +691,52 @@ with a fixture test alongside the DST fixtures.
 **Charger failure does not wait for the 22:00 gate.** The gate is the only charger check in the design and runs
 once a day, so a charger that dies at 23:00 gets no warning until it is far too late. The controller already
 renders `peer.plugged`; it goes red the moment that field goes false, at any hour, at zero additional cost.
+
+## 10a. Move, Skip and Nap — what "the next alarm" means
+
+One record holds every one-off change, bound to a day and never to a word:
+
+```
+Override(boundOccurrenceId, kind: TIME|SKIP, fireAtMs)
+```
+
+`boundOccurrenceId` is `(localDate, SCHEDULED)` — the day of the next un-latched scheduled alarm.
+The day after is untouched by construction; nothing has to be reset, because the override names the
+one occurrence it owns.
+
+**A Move only ever pushes an alarm later.** The wall time you type is resolved by
+`Engine.nextWallTimeAfter(boundAt, hhmm, zone)` — the first instant with that clock reading *strictly
+after the alarm being replaced*. Not "the first one after now", which is what it used to be and which
+meant that at 23:00, with a 04:00 alarm, "move to 23:30" rang in half an hour and silently spent the
+next morning. A time earlier in the day than the alarm therefore lands on the following day, and a
+Move to the alarm's own time is the next one, which is the same thing as a Skip.
+
+Two things follow, and both are the point:
+
+- The replacement is always after the original, so the original time comes and goes with the override
+  still live. **Revert is a real choice for the whole night**, not a race against a Move that may
+  already have fired.
+- Nothing can be moved more than about 48 hours out, because the input is a clock face.
+
+Because the resolution rule is not guessable from a clock face alone, **the picker previews it**:
+"Rings Sun 27 Sep 07:00, instead of Sun 27 Sep 04:00", live as the dial turns, from the same
+`nextWallTimeAfter` the engine will use.
+
+**Nap has two forms.** *For* a duration (1–720 min, remembered as the picker's default) and *until*
+a wall time (the first such time from now, so one already gone today means tomorrow; uncapped,
+because a clock face cannot say more than a day and a nap outliving the next real alarm is dropped
+when that alarm rings). The wall time crosses the wire as a string — `POST /v1/nap {until}` — so the
+engine owns every resolution and the previewing screen calls the same function.
+
+**An override clears** when its bound occurrence acquires any latch (FIRED, SKIPPED, MISSED,
+SUPERSEDED), on Revert, on a timezone change, and when `defaultAlarmTime` changes. A nap clears when
+it fires, when a real alarm rings first, and on Revert.
+
+**Timezone.** A DST transition is *not* a zone change: `ZoneId` is unchanged and every instant is
+resolved through that date's rules, so scheduled alarms and a pending Move are both already correct
+across one. An actual change of zone follows one rule — **err toward ringing**. The override is
+dropped, handing the day back to the ordinary alarm in the new zone. The nap is kept: it is a fixed
+instant minutes away, and dropping it is the one outcome that loses an alarm outright.
 
 ## 11. History
 

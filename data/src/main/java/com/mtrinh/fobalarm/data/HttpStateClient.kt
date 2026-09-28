@@ -93,6 +93,11 @@ class HttpStateClient(
             JSONObject().put("minutes", minutes).put("requestId", requestId)))))
     }
 
+    override suspend fun napUntil(hhmm: String, requestId: String) = runCatching {
+        withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/nap",
+            JSONObject().put("until", hhmm).put("requestId", requestId)))))
+    }
+
     override suspend fun clearNap(requestId: String) = runCatching {
         withSelf(Wire.snapshotFrom(JSONObject(request("POST", "/v1/nap",
             JSONObject().put("clear", true).put("requestId", requestId)))))

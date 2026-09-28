@@ -31,6 +31,15 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
     // --- will it ring, and when ------------------------------------------
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
+            // A bare timestamp at the top of the screen does not say what it is, and
+            // once a Move or a nap is in force it is not the ordinary alarm either.
+            Text(
+                when (s.nextFire?.source) {
+                    OccurrenceSource.NAP -> "Next alarm — nap"
+                    OccurrenceSource.TOMORROW_OVERRIDE -> "Next alarm — moved"
+                    else -> "Next alarm"
+                },
+                fontSize = T.label, color = Muted)
             Text(
                 if (s.nextFire != null) Fmt.absolute(s.nextFire!!.atMs) else "No alarm set",
                 fontSize = T.title, fontWeight = FontWeight.Bold,

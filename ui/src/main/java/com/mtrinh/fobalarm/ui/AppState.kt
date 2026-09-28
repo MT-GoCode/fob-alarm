@@ -184,6 +184,7 @@ class AppState(
     fun refreshNow() { scope.launch { refresh() } }
 
     fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
+    fun napUntil(hhmm: String) = act("Nap") { client.napUntil(hhmm, UUID.randomUUID().toString()) }
     fun clearNap() = act("Nap") { client.clearNap(UUID.randomUUID().toString()) }
     fun overrideTime(hhmm: String) = act("Next alarm") { client.setOverride("TIME", hhmm, UUID.randomUUID().toString()) }
     fun overrideSkip() = act("Skip") { client.setOverride("SKIP", null, UUID.randomUUID().toString()) }

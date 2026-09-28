@@ -229,8 +229,11 @@ object Server {
 
                 path.startsWith("/v1/nap") && method == "POST" ->
                     200 to Wire.snapshotToJson(
-                        if (o.optBoolean("clear")) Svc.clearNap(rid, Actor.CONTROLLER)
-                        else Svc.nap(o.optInt("minutes", 20), rid, Actor.CONTROLLER)).toString()
+                        when {
+                            o.optBoolean("clear") -> Svc.clearNap(rid, Actor.CONTROLLER)
+                            o.has("until") -> Svc.napUntil(o.getString("until"), rid, Actor.CONTROLLER)
+                            else -> Svc.nap(o.optInt("minutes", 20), rid, Actor.CONTROLLER)
+                        }).toString()
 
                 path.startsWith("/v1/tomorrow") && method == "POST" ->
                     200 to Wire.snapshotToJson(Svc.setOverride(

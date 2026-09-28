@@ -601,3 +601,44 @@ that object read; folded in. Of six compiler warnings, one had a free correct fi
 → the auto-mirrored one); the other five are deliberate compat calls under minSdk 31 and are now
 annotated and explained where they sit, so nobody spends an evening "fixing" them. Zero `TODO`,
 `FIXME` or `HACK` markers in the tree.
+
+## Round 18 — what "move the next alarm" means, and naps by clock
+
+**A Move now only ever pushes an alarm later.** The wall time was resolved against *now*, so at 23:00
+with a 04:00 alarm, "move to 23:30" rang half an hour later and silently spent the next morning's
+alarm — and at 05:00, "move tomorrow's alarm to 07:00" set it for 07:00 *today*, two hours away. It is
+resolved against the alarm being replaced now: the first instant with that clock reading strictly
+after it. A time earlier in the day lands on the following day; the alarm's own time means the next
+one, which is a Skip by another name. Nine new core tests, including a sweep asserting that every one
+of the 48 half-hour wall times lands after the alarm it replaces.
+
+The reason this is worth the change is not tidiness. The replacement is now always after the original,
+so the original time passes with the override still live, and **Revert is a real choice for the whole
+night** instead of a race against a Move that may already have fired.
+
+**The picker previews where the time lands** — "Rings Sun 27 Sep 07:00, instead of Sun 27 Sep 04:00",
+live as the dial turns, computed by the same `Engine.nextWallTimeAfter` the engine will use. The rule
+is not guessable from a clock face, so it is on screen before Set rather than discovered on Status
+afterwards. `TomorrowView.replacesMs` is now populated whether or not an override exists, which is what
+makes the preview possible; the Skip dialog uses it too, and so stops naming an armed nap as the thing
+it is about to skip.
+
+**Nap has two forms: for a duration, and until a clock time.** The wall time crosses the wire as a
+string (`POST /v1/nap {until}`) so the engine owns the resolution and the preview calls the same
+function. A time already gone today means tomorrow. The duration form still remembers its minutes as
+the picker's default; the until form deliberately does not touch that.
+
+**A timezone change no longer drops the nap.** One rule now, stated in the code: err toward ringing.
+The override is dropped, which hands the day back to the ordinary alarm in the new zone; the nap is a
+fixed instant minutes away and dropping it was the one outcome that lost an alarm outright. A DST
+transition was never a zone change — `ZoneId` is unchanged and every instant resolves through its own
+date's rules — and there is now a test pinning that, across the 2027 spring-forward, with a Move in
+force.
+
+**The time at the top of Status is labelled.** "Next alarm", or "Next alarm — moved" / "Next alarm —
+nap" when that is what the next fire actually is. It was a bare timestamp that did not say what it was
+or which of the three things had produced it.
+
+Found by exercising it on the emulator rather than by reading it: the "Nap until" picker opened on
+the current time, and since the rule is strictly-after, that resolved to the same time tomorrow — the
+dialog greeted you with "in 23h 59m". It opens on now plus the remembered nap length instead.

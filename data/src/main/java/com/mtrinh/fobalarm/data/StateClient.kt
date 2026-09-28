@@ -17,6 +17,8 @@ interface StateClient {
     suspend fun dismiss(ringId: String, requestId: String): Result<Snapshot>
     suspend fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?): Result<Snapshot>
     suspend fun nap(minutes: Int, requestId: String): Result<Snapshot>
+    /** Nap until a wall clock "HH:mm". The instant is resolved on the alarm phone. */
+    suspend fun napUntil(hhmm: String, requestId: String): Result<Snapshot>
     suspend fun clearNap(requestId: String): Result<Snapshot>
     suspend fun setOverride(kind: String, time: String?, requestId: String): Result<Snapshot>
     suspend fun clearOverride(requestId: String): Result<Snapshot>
@@ -48,6 +50,7 @@ interface AlarmHost {
     fun dismiss(ringId: String, requestId: String, actor: Actor): Snapshot
     fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor): Snapshot
     fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot
+    fun napUntil(hhmm: String, requestId: String, actor: Actor): Snapshot
     fun clearNap(requestId: String, actor: Actor): Snapshot
     fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot
     fun clearOverride(requestId: String, actor: Actor): Snapshot
@@ -68,6 +71,8 @@ class LocalStateClient(private val host: AlarmHost) : StateClient {
         runCatching { host.patchSettings(ifVersion, patch, requestId, token, Actor.ALARM) }
     override suspend fun nap(minutes: Int, requestId: String) =
         runCatching { host.nap(minutes, requestId, Actor.ALARM) }
+    override suspend fun napUntil(hhmm: String, requestId: String) =
+        runCatching { host.napUntil(hhmm, requestId, Actor.ALARM) }
     override suspend fun clearNap(requestId: String) =
         runCatching { host.clearNap(requestId, Actor.ALARM) }
     override suspend fun setOverride(kind: String, time: String?, requestId: String) =

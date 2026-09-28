@@ -69,6 +69,35 @@ red or green. Red means it will not ring, and says why.
 
 ---
 
+## Move, Skip and Nap
+
+Three one-off changes, all on the Status tab, all bound to **one** alarm. The one after is never
+touched, so nothing has to be undone the next day.
+
+- **Move it** — ring the next alarm at a different time. A Move only ever pushes an alarm **later**:
+  the time you pick is the first one *after* the alarm it replaces. So with a 04:00 alarm, picking
+  07:00 means 07:00 that morning; picking 02:00 means 02:00 the *following* night, not two hours
+  before the alarm you were moving. The picker shows the answer as you turn the dial — "Rings Tue 29
+  Sep 2:00 AM, instead of Mon 28 Sep 4:00 AM" — so it is never a surprise.
+- **Skip it** — the next alarm does not ring. The one after does.
+- **Nap** — independent of the schedule. **Nap for** a duration, or **Nap until** a clock time
+  (the first one from now, so a time already gone today means tomorrow). Whichever comes first rings,
+  nap or alarm; if the real alarm rings first the nap is dropped.
+
+Once a Move or Skip is in force the buttons become **Revert**. To change a Move, Revert and set it
+again. Because the replacement always lands after the original, the original time passes with the
+change still in force, so Revert is a real choice all night rather than a race.
+
+A Move or Skip clears itself once that alarm has rung or gone by, and is wiped if you change the
+default alarm time. All three survive a reboot with nobody unlocking the phone.
+
+**Timezone.** A daylight-saving change is not a timezone change and needs nothing: alarms stay at
+their wall clock time. Actually moving the phone to another zone errs toward ringing — the Move is
+dropped so the ordinary alarm takes the day back in the new zone, and the nap is kept, because it is
+a fixed instant minutes away and dropping it is the only outcome that loses an alarm.
+
+---
+
 ## Hardware test before trusting it (do once per build)
 
 Nothing here can be verified by reading code. Rows marked ✓ passed on an Android 15

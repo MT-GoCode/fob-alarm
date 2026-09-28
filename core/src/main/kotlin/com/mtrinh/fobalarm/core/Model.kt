@@ -197,6 +197,13 @@ data class DeviceView(
     val batteryPct: Int, val plugged: Boolean, val appVersion: String,
     val role: Role?, val deviceId: String, val lastSeenMs: Long = 0,
 )
+/**
+ * The one-off change in force on the next alarm, for the screen.
+ *
+ * [replacesMs] is the scheduled alarm the override replaces -- **or would replace, when
+ * [kind] is NONE**. That second case is what lets the Move picker show where a typed
+ * time will land before anything is committed, using the same anchor the engine uses.
+ */
 data class TomorrowView(val kind: String, val timeMs: Long?, val replacesMs: Long?)
 data class NapView(val armed: Boolean, val atMs: Long?)
 
