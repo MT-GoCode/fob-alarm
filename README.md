@@ -147,9 +147,11 @@ blocked for normal apps since Android 13. So: pair nothing with the alarm phone.
 **The ring screen is built around the box's cutouts.** Snooze is the bar across the very bottom — in the bottom
 cutout, reachable with the box shut, and it must be **held** for the number of seconds set under Settings →
 Snooze ("Hold the snooze bar for", 0–10 s, locked behind the password like every other setting that can silence
-the alarm). Dismiss is the small grip against the **right** edge: it has to be dragged all the way down, and both
-the grip and its path are behind acrylic, so finishing it means opening the box. It springs back if you let go.
-The time sits on the left, out of the way of both.
+the alarm). Dismiss is the small grip against the **right** edge, at the top of the screen, sitting in a marked track with
+down arrows that runs the full height: it has to be dragged the whole way to the bottom, and the path is behind
+acrylic, so finishing it means opening the box. It springs back if you let go. The time sits on the left, out of
+the way of both. The app is portrait-only — the layout is addressed to the cutouts and a rotation would move it
+off them.
 
 **Keep the app active** is the one to care about over months. Android pauses apps that
 are not opened for a while, which cancels every alarm. The setting is under the app's

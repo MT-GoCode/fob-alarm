@@ -52,7 +52,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -63,6 +64,7 @@
         <activity
             android:name="com.mtrinh.fobalarm.ui.RingActivity"
             android:configChanges="orientation|screenSize|screenLayout|uiMode|fontScale|locale|keyboardHidden"
+            android:screenOrientation="portrait"
             android:directBootAware="true"
             android:exported="false"
             android:excludeFromRecents="true"

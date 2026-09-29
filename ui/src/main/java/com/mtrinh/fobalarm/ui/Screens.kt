@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -217,10 +218,10 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
         val barH = 108.dp
         val grip = 60.dp                                  // barely a thumb, on purpose
         val hPx = with(d) { maxHeight.toPx() }
-        val barPx = with(d) { barH.toPx() }
         val gripPx = with(d) { grip.toPx() }
-        val gripTop = hPx * 0.30f                         // below the top cutout's reach
-        val gripTravel = (hPx - barPx - gripPx - gripTop).coerceAtLeast(1f)
+        // Top of the screen to the bottom of it. The longest drag the glass allows, and
+        // the whole of it behind acrylic below the top cutout.
+        val gripTravel = (hPx - gripPx).coerceAtLeast(1f)
 
         // --- the time, left, vertically centred -------------------------------
         Column(Modifier.align(Alignment.CenterStart).padding(start = S.page, end = grip + S.md)) {
@@ -232,16 +233,21 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             (app.dismissUi as? DismissUi.Unreachable)?.let { RedCard(it.message) }
         }
 
-        // --- dismiss: drag the grip down, against the right edge ---------------
-        DismissGrip(
-            size = grip, topPx = gripTop, travelPx = gripTravel,
+        // --- dismiss: a full-height track down the right edge -------------------
+        // The track is the instruction. Without it the grip is a mystery box in the
+        // corner; with it the gesture reads at a glance at 4 AM.
+        DismissTrack(
+            width = grip, travelPx = gripTravel,
             enabled = !locked && !sending,
             label = if (isTest) "STOP" else "OFF",
             onComplete = { if (isTest) app.stopTest() else app.dismiss() },
             modifier = Modifier.align(Alignment.TopEnd))
 
         // --- snooze: the bottom bar, in the cutout -----------------------------
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(barH)) {
+        // Stops short of the track so the two controls never overlap and a thumb on
+        // the bar can never be taken for a drag.
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+            .padding(end = grip).height(barH)) {
             if (snoozed) {
                 val left = ((snoozeUntil ?: now) - now).coerceAtLeast(0)
                 Box(Modifier.fillMaxSize().background(Good), contentAlignment = Alignment.Center) {
@@ -313,39 +319,64 @@ private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, onSnooze: () -> Unit) 
 }
 
 /**
- * Drag all the way down to dismiss. Small, flush to the right edge, and it springs back
- * if released early -- the difficulty is the point, not an accident of the layout.
+ * Drag from the top of the screen to the bottom to dismiss.
+ *
+ * The visible track is the point: same width as the grip, running the full height, with
+ * arrows showing the direction. The grip starts at the very top, so the travel is the
+ * whole length of the glass -- reachable to start through the top cutout, impossible to
+ * finish without opening the box, which is the mechanism. It springs back if released
+ * early, and the colour runs to red as it approaches the end.
  */
 @Composable
-private fun DismissGrip(
-    size: Dp, topPx: Float, travelPx: Float, enabled: Boolean,
+private fun DismissTrack(
+    width: Dp, travelPx: Float, enabled: Boolean,
     label: String, onComplete: () -> Unit, modifier: Modifier = Modifier,
 ) {
     var dragged by remember { mutableFloatStateOf(0f) }
     val frac = (dragged / travelPx).coerceIn(0f, 1f)
 
-    Box(
-        modifier
-            .offset { IntOffset(0, (topPx + dragged).roundToInt()) }
-            .size(size)
-            .background(
-                if (enabled) lerp(MaterialTheme.colorScheme.primary, Bad, frac)
-                else MaterialTheme.colorScheme.surfaceVariant,
-                RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
-            .pointerInput(enabled, travelPx) {
-                if (!enabled) return@pointerInput
-                detectDragGestures(
-                    onDragEnd = { if (dragged < travelPx) dragged = 0f },
-                    onDragCancel = { dragged = 0f },
-                ) { change, drag ->
-                    change.consume()
-                    dragged = (dragged + drag.y).coerceIn(0f, travelPx)
-                    if (dragged >= travelPx) { onComplete(); dragged = 0f }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, fontSize = T.caption, fontWeight = FontWeight.Bold, color = Color.Black)
+    Box(modifier.width(width).fillMaxHeight()
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+
+        // Direction, repeated down the length so it reads from any point on the track.
+        Column(
+            Modifier.fillMaxSize().padding(vertical = width),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            repeat(5) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null,
+                    tint = Muted.copy(alpha = 0.55f))
+            }
+        }
+
+        Box(
+            Modifier
+                .offset { IntOffset(0, dragged.roundToInt()) }
+                .size(width)
+                .background(
+                    if (enabled) lerp(MaterialTheme.colorScheme.primary, Bad, frac)
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
+                .pointerInput(enabled, travelPx) {
+                    if (!enabled) return@pointerInput
+                    detectDragGestures(
+                        onDragEnd = { if (dragged < travelPx) dragged = 0f },
+                        onDragCancel = { dragged = 0f },
+                    ) { change, drag ->
+                        change.consume()
+                        dragged = (dragged + drag.y).coerceIn(0f, travelPx)
+                        if (dragged >= travelPx) { onComplete(); dragged = 0f }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, fontSize = T.caption, fontWeight = FontWeight.Bold, color = Color.Black)
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Drag down to dismiss",
+                    tint = Color.Black)
+            }
+        }
     }
 }
 

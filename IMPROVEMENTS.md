@@ -749,3 +749,25 @@ the threshold at 3 s: three separate 2 s holds — six seconds of finger-down in
 at 0 every time, with the bar still reading "HOLD 3s TO SNOOZE"; one contiguous 3.5 s hold then snoozed it. It
 matters because the bar is the only control reachable with the box shut, so accumulating partial presses would
 hand a sleeping hand precisely what the box exists to prevent.
+
+## Round 23 — the dismiss gesture is drawn, not guessed, and the app is portrait-only
+
+**The grip starts at the very top of the screen** instead of 30 % down, so the travel is the whole length of the
+glass — the longest drag available, and everything below the top cutout is behind acrylic.
+
+**There is a visible track.** Same width as the grip, full height, with repeated down arrows, and the grip itself
+carries an arrow under its label. An unlabelled box in a corner is a puzzle at 4 AM; the track states the gesture.
+The snooze bar now stops short of the track, so the two controls never overlap and a thumb on the bar can never be
+taken for the start of a drag.
+
+**Both activities are `screenOrientation="portrait"`.** The phone is bolted in a box in one orientation and the
+whole layout is addressed to the cutouts; a rotation would put the snooze bar and the track where the holes are
+not.
+
+**Verified on the emulator.** The grip renders at the top of the ring area (y 224 against a content top of ~200)
+and the snooze bar's label recentres into the narrowed bar. A half-length drag springs back with the test still
+live. A full drag from y 280 to y 2390 stops it — `test_ring_stopped` thirty-one seconds into a sixty-second
+window, so it was the drag. The bar still snoozes on a 4 s hold at x 500, well clear of the track. For the
+orientation lock the device was forced to landscape (`accelerometer_rotation 0`, `user_rotation 1`) and the app
+stayed 1080×2400 with the UI root bounds unchanged — with **RingActivity** resumed, which is the screen that
+matters.

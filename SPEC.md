@@ -438,7 +438,7 @@ The layout is built around what the cutouts expose:
 |---|---|---|
 | **Time** | left edge, vertically centred | out of the way of both controls |
 | **Snooze** | a bar across the very bottom, flush to the glass | in the bottom cutout — the one control reachable with the box shut |
-| **Dismiss** | a ~60 dp grip flush to the **right** edge, starting 30 % down, dragged to the bottom | target *and* path are behind acrylic, so finishing it means opening the box |
+| **Dismiss** | a ~60 dp grip flush to the **right** edge, starting at the **top** of the screen, dragged to the bottom, in a visible full-height track | the longest travel the glass allows; the path below the top cutout is behind acrylic, so finishing it means opening the box |
 
 **Snooze must be held, contiguously.** `snoozeHoldSeconds`, 0–10, default 3, **password-gated like every other
 kill** — it is the only defence on the only control a sleeping hand can reach. Releasing clears the press
@@ -446,8 +446,17 @@ timestamp, so the next press measures from itself and **repeated short presses n
 property, not an implementation detail. The bar fills as you hold so the wait is visible; letting go early
 abandons it. 0 makes it a plain tap. While snoozed the bar becomes the countdown, in place.
 
-**Dismiss is a drag, not a button.** It springs back if released early. This is the mechanism, not a confirmation
-dialog: a tap target anywhere reachable through a cutout would defeat the box entirely.
+**Dismiss is a drag, not a button.** It springs back if released early, and the grip runs red as it nears the
+end. This is the mechanism, not a confirmation dialog: a tap target anywhere reachable through a cutout would
+defeat the box entirely.
+
+**The track is drawn, and that is not decoration.** Same width as the grip, full height, with repeated down
+arrows. An unlabelled grip in a corner is a puzzle at 4 AM; the track states the gesture. The snooze bar stops
+short of it, so the two controls never overlap and a thumb on the bar can never be read as the start of a drag.
+
+**Both activities are `screenOrientation="portrait"`.** The phone is bolted in a box in one orientation and the
+whole layout is addressed to the cutouts; a rotation would put the snooze bar and the dismiss track somewhere the
+holes are not.
 
 **Snooze is alarm-local**: no HTTP route, and `HttpStateClient.snooze` fails without sending, so the controller
 cannot snooze — same rule as before, now enforced in the transport rather than by the gesture being physical.
