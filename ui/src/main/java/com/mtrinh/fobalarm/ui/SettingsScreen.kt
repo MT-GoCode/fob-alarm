@@ -84,6 +84,13 @@ fun SettingsScreen(
                 app.patch("Hold the snooze bar for") { it.copy(snoozeHoldSeconds = v) }
             }
         }
+        LockedRow(locked) { on ->
+            SliderSetting("Extend snooze after", s.settings.resnoozeAfterSeconds,
+                min = 0, max = s.settings.snoozeSeconds, step = 1, suffix = "s",
+                help = "Equal to the snooze length turns extending off.", enabled = on) { v ->
+                app.patch("Extend snooze after") { it.copy(resnoozeAfterSeconds = v) }
+            }
+        }
 
         Section("Test", if (isAlarmRole) "Rings this phone now." else "Rings the alarm phone now, for up to a minute.")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {

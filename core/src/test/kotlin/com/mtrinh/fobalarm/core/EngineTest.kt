@@ -302,6 +302,80 @@ class EngineTest {
         assertTrue(e.detail["diff"]!!.contains("snoozeHold:3->7"), e.detail["diff"]!!)
     }
 
+    // --- extending a snooze mid-snooze ------------------------------------
+
+    @Test fun `the extend delay normalizes down to the snooze length`() {
+        val n = SettingsValidator.normalize(Settings(snoozeSeconds = 30, resnoozeAfterSeconds = 99))
+        assertEquals(30, n.resnoozeAfterSeconds, "clamped to the snooze length")
+        assertEquals(5, Settings().resnoozeAfterSeconds, "default")
+        // Lowering the snooze under the delay must pull the delay down in the same pass.
+        val m = SettingsValidator.normalize(Settings(snoozeSeconds = 8, resnoozeAfterSeconds = 20))
+        assertEquals(8, m.resnoozeAfterSeconds)
+    }
+
+    @Test fun `equal delay and snooze means extending is off`() {
+        val s = Settings(snoozeSeconds = 30, resnoozeAfterSeconds = 30)
+        assertNull(Engine.extendableAt(s, 1_000_000))
+    }
+
+    @Test fun `extending is refused before the delay and allowed after`() {
+        val (c, s0) = fresh()
+        val st = s0.copy(settings = s0.settings.copy(snoozeSeconds = 60, resnoozeAfterSeconds = 5))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        val snoozed = Engine.snooze(ringing, c).state
+        val until = snoozed.session!!.snoozeUntilMs!!
+        assertEquals(c.ms + 60_000, until)
+
+        assertFalse(Engine.canExtendSnooze(snoozed, c.ms), "not yet: zero seconds in")
+        c.ms += 4_000
+        assertFalse(Engine.canExtendSnooze(snoozed, c.ms), "not yet: four seconds in")
+        c.ms += 2_000
+        assertTrue(Engine.canExtendSnooze(snoozed, c.ms), "six seconds in, delay is five")
+    }
+
+    @Test fun `an extend sets the end to now plus a snooze, not old end plus a snooze`() {
+        val (c, s0) = fresh()
+        val st = s0.copy(settings = s0.settings.copy(snoozeSeconds = 60, resnoozeAfterSeconds = 5))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        val snoozed = Engine.snooze(ringing, c).state
+        val t0 = c.ms
+
+        c.ms += 20_000                                   // extend twenty seconds in
+        val extended = Engine.snooze(snoozed, c)
+        assertEquals(t0 + 20_000 + 60_000, extended.state.session!!.snoozeUntilMs,
+            "now + snooze, so the twenty seconds already slept are not re-bought")
+        assertEquals(2, extended.state.session!!.snoozeCount)
+        assertEquals(RingPhase.SNOOZED, extended.state.session!!.phase)
+        // The wait restarts from the extend, so another is refused immediately.
+        assertFalse(Engine.canExtendSnooze(extended.state, c.ms))
+        c.ms += 5_000
+        assertTrue(Engine.canExtendSnooze(extended.state, c.ms))
+    }
+
+    @Test fun `a refused extend changes nothing`() {
+        val (c, s0) = fresh()
+        val st = s0.copy(settings = s0.settings.copy(snoozeSeconds = 60, resnoozeAfterSeconds = 5))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        val snoozed = Engine.snooze(ringing, c).state
+        val before = snoozed.session!!
+        c.ms += 1_000
+        val r = Engine.snooze(snoozed, c)
+        assertEquals(before.snoozeUntilMs, r.state.session!!.snoozeUntilMs)
+        assertEquals(before.snoozeCount, r.state.session!!.snoozeCount)
+        assertTrue(r.events.none { it.type == "snooze" })
+    }
+
+    @Test fun `extending is impossible when the feature is off`() {
+        val (c, s0) = fresh()
+        val st = s0.copy(settings = s0.settings.copy(snoozeSeconds = 30, resnoozeAfterSeconds = 30))
+        val ringing = Engine.onTrigger(st, c, OccurrenceSource.SCHEDULED, "r1").state
+        val snoozed = Engine.snooze(ringing, c).state
+        c.ms += 29_000
+        assertFalse(Engine.canExtendSnooze(snoozed, c.ms))
+        c.ms += 5_000                                     // past the end entirely
+        assertFalse(Engine.canExtendSnooze(snoozed, c.ms))
+    }
+
     @Test fun `nextFire is never null under normal settings`() {
         val (c, s0) = fresh()
         assertNotNull(Engine.recompute(s0, c, "t").nextFire)

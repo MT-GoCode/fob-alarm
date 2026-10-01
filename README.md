@@ -144,6 +144,10 @@ pins playback to the built-in speaker before it starts and re-pins it every five
 ring (`routing_off_speaker` in the log), but it **cannot turn Bluetooth off** — that has been
 blocked for normal apps since Android 13. So: pair nothing with the alarm phone.
 
+**Extending a snooze.** A few seconds into a snooze the bottom bar comes back as **Extend snooze** — hold it the
+same way and the snooze restarts from that moment. The wait is Settings → Snooze → "Extend snooze after"; set it
+equal to the snooze length and extending is off, and the bar just goes grey while snoozed.
+
 **The ring screen is built around the box's cutouts.** Snooze is the bar across the very bottom — in the bottom
 cutout, reachable with the box shut, and it must be **held** for the number of seconds set under Settings →
 Snooze ("Hold the snooze bar for", 0–10 s, locked behind the password like every other setting that can silence

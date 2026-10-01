@@ -106,6 +106,7 @@ object Wire {
         .put("ringtoneName", s.ringtoneName ?: JSONObject.NULL)
         .put("snoozeSeconds", s.snoozeSeconds)
         .put("snoozeHoldSeconds", s.snoozeHoldSeconds)
+        .put("resnoozeAfterSeconds", s.resnoozeAfterSeconds)
         .put("maxRingMinutes", s.maxRingMinutes)
         .put("napMinutes", s.napMinutes)
         .put("vibrate", s.vibrate)
@@ -125,6 +126,7 @@ object Wire {
         ringtoneName = if (o.has("ringtoneName") && !o.isNull("ringtoneName")) o.getString("ringtoneName") else base.ringtoneName,
         snoozeSeconds = o.optInt("snoozeSeconds", base.snoozeSeconds),
         snoozeHoldSeconds = o.optInt("snoozeHoldSeconds", base.snoozeHoldSeconds),
+        resnoozeAfterSeconds = o.optInt("resnoozeAfterSeconds", base.resnoozeAfterSeconds),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),

@@ -771,3 +771,33 @@ window, so it was the drag. The bar still snoozes on a 4 s hold at x 500, well c
 orientation lock the device was forced to landscape (`accelerometer_rotation 0`, `user_rotation 1`) and the app
 stayed 1080×2400 with the UI root bounds unchanged — with **RingActivity** resumed, which is the screen that
 matters.
+
+## Round 24 — extend a snooze from inside it
+
+A new gated setting, **`resnoozeAfterSeconds`** (default 5): how far into a snooze the bar becomes live again.
+**Equal to `snoozeSeconds` turns the feature off** — you would have to wait out the whole snooze, at which point
+it is over. Normalized down whenever it exceeds the snooze length, and `SettingsValidator.normalize` now clamps it
+against the *already-clamped* snooze so lowering the snooze underneath it pulls it down in the same pass.
+
+An extend sets the end to **now + snooze**, not old-end + snooze, so time already slept is not re-bought; the wait
+before the next extend restarts from the extend.
+
+**No new persisted state.** `Engine.extendableAt(settings, snoozeUntilMs)` is the single derivation — the snooze
+start is recovered as `snoozeUntilMs - snoozeSeconds`, because every snooze and every extend sets the end to
+`now + snoozeSeconds`. The engine, the ring screen and the test-ring path all call it, so none can drift. The one
+way to fool it is changing the snooze length mid-snooze, which is password-gated and only shifts when the button
+unlocks; it cannot lose or extend a ring. `Engine.snooze` now admits a SNOOZED session once `canExtendSnooze`
+allows it, and `RingService.doSnooze` dropped its own phase guard — one rule, in one place.
+
+**Screen.** While snoozed the countdown moved to a green card **above** the bar, and the bar itself became the
+Extend control: `EXTEND SNOOZE IN 4s` until the delay elapses, then `EXTEND SNOOZE`; grey, inert and **unlabelled**
+when the feature is off. `SnoozeBar` was generalised to take a label and an enabled flag and now serves both jobs,
+so the hold duration, the fill and the timing are physically the same code.
+
+**Verified on the emulator.** Ringing reads `HOLD 3s TO SNOOZE`. A 4 s hold snoozes: card above reads
+`SNOOZED 26s`, bar below `EXTEND SNOOZE IN 1s`, disabled. After the delay the bar reads `EXTEND SNOOZE` and is
+live. Holding it logged `test_snooze_extended`, moved the end out 19.7 s (correct for now+30 against an end 11 s
+away), jumped the card from `14s` back to `27s`, and reset the bar to `EXTEND SNOOZE IN 2s`. With the delay
+dragged up to equal the snooze, the bar carries **no text at all** and a 5 s hold moved the end 0.0 s with no
+event. Six new core tests cover the normalization, the off state, the before/after boundary, the now+snooze
+arithmetic, the restarted wait, and that a refused extend changes nothing. 60 pass.

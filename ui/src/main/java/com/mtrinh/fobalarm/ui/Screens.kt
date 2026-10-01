@@ -243,22 +243,36 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
             onComplete = { if (isTest) app.stopTest() else app.dismiss() },
             modifier = Modifier.align(Alignment.TopEnd))
 
-        // --- snooze: the bottom bar, in the cutout -----------------------------
+        // --- the bottom block, in the cutout -----------------------------------
         // Stops short of the track so the two controls never overlap and a thumb on
-        // the bar can never be taken for a drag.
-        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-            .padding(end = grip).height(barH)) {
+        // the bar can never be taken for a drag. While snoozed the countdown sits
+        // ABOVE the bar and the bar itself becomes Extend.
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = grip)) {
             if (snoozed) {
                 val left = ((snoozeUntil ?: now) - now).coerceAtLeast(0)
-                Box(Modifier.fillMaxSize().background(Good), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("SNOOZED", fontSize = T.headline, fontWeight = FontWeight.Bold, color = Color.Black)
-                        Text("rings again in ${Fmt.duration(left)}", fontSize = T.body, color = Color.Black)
-                    }
+                Box(Modifier.fillMaxWidth().background(Good).padding(S.sm),
+                    contentAlignment = Alignment.Center) {
+                    Text("SNOOZED  ${Fmt.duration(left)}", fontSize = T.headline,
+                        fontWeight = FontWeight.Bold, color = Color.Black)
                 }
-            } else {
-                SnoozeBar(holdSeconds = s.settings.snoozeHoldSeconds,
-                    enabled = !sending, onSnooze = { app.snooze() })
+            }
+            // One control, two jobs. Extending waits out resnoozeAfterSeconds; equal to
+            // the snooze length means the feature is off, and then it is simply dead.
+            val extendableAt = snoozeUntil?.let { Engine.extendableAt(s.settings, it) }
+            val extendOff = snoozed && extendableAt == null
+            val extendIn = if (!snoozed || extendableAt == null) 0L
+                           else (extendableAt - now).coerceAtLeast(0)
+            Box(Modifier.fillMaxWidth().height(barH)) {
+                SnoozeBar(
+                    holdSeconds = s.settings.snoozeHoldSeconds,
+                    enabled = !sending && !extendOff && extendIn == 0L,
+                    label = when {
+                        !snoozed -> "HOLD ${s.settings.snoozeHoldSeconds}s TO SNOOZE"
+                        extendOff -> null
+                        extendIn > 0L -> "EXTEND SNOOZE IN ${Fmt.duration(extendIn)}"
+                        else -> "EXTEND SNOOZE"
+                    },
+                    onHold = { app.snooze() })
             }
         }
     }
@@ -276,26 +290,32 @@ private fun RingingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
  *
  * The fill is the hold, so the wait is visible rather than a dead press. Zero seconds
  * means a plain tap.
+ *
+ * One component serves both jobs on this screen -- snooze, and extend a snooze -- so the
+ * gesture, the fill and the timing can never drift apart between them. A null [label]
+ * is the dead state: grey, inert, unlabelled.
  */
 @Composable
-private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, onSnooze: () -> Unit) {
+private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, label: String?, onHold: () -> Unit) {
     var pressedAt by remember { mutableLongStateOf(0L) }
     var progress by remember { mutableFloatStateOf(0f) }
     val holdMs = holdSeconds * 1000L
 
     LaunchedEffect(pressedAt, holdMs) {
         if (pressedAt == 0L) { progress = 0f; return@LaunchedEffect }
-        if (holdMs <= 0L) { onSnooze(); pressedAt = 0L; return@LaunchedEffect }
+        if (holdMs <= 0L) { onHold(); pressedAt = 0L; return@LaunchedEffect }
         while (pressedAt != 0L) {
             progress = ((System.currentTimeMillis() - pressedAt).toFloat() / holdMs).coerceAtMost(1f)
-            if (progress >= 1f) { onSnooze(); pressedAt = 0L; break }
+            if (progress >= 1f) { onHold(); pressedAt = 0L; break }
             kotlinx.coroutines.delay(16)
         }
     }
 
     Box(
         Modifier.fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(
+                if (enabled) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant)
             .pointerInput(enabled, holdMs) {
                 if (!enabled) return@pointerInput
                 detectTapGestures(onPress = {
@@ -307,14 +327,14 @@ private fun SnoozeBar(holdSeconds: Int, enabled: Boolean, onSnooze: () -> Unit) 
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(Good).align(Alignment.CenterStart))
-        Text(
-            when {
-                holdSeconds <= 0 -> "PRESS TO SNOOZE"
-                pressedAt != 0L -> "KEEP HOLDING"
-                else -> "HOLD ${holdSeconds}s TO SNOOZE"
-            },
+        if (label != null) Text(
+            if (pressedAt != 0L) "KEEP HOLDING" else label,
             fontSize = T.title, fontWeight = FontWeight.Bold,
-            color = if (progress > 0.5f) Color.Black else MaterialTheme.colorScheme.onSurface)
+            color = when {
+                progress > 0.5f -> Color.Black
+                enabled -> MaterialTheme.colorScheme.onSurface
+                else -> Muted
+            })
     }
 }
 

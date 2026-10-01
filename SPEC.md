@@ -440,6 +440,20 @@ The layout is built around what the cutouts expose:
 | **Snooze** | a bar across the very bottom, flush to the glass | in the bottom cutout — the one control reachable with the box shut |
 | **Dismiss** | a ~60 dp grip flush to the **right** edge, starting at the **top** of the screen, dragged to the bottom, in a visible full-height track | the longest travel the glass allows; the path below the top cutout is behind acrylic, so finishing it means opening the box |
 
+**A snooze can be extended mid-snooze.** `resnoozeAfterSeconds` (default 5) is how long into a snooze the bar
+becomes live again; **equal to `snoozeSeconds` turns the feature off**, because you would have to wait out the
+whole snooze, by which point it is over. It is normalized down whenever it exceeds the snooze length, including
+when the snooze length is lowered underneath it, in the same pass. Password-gated like the rest.
+
+An extend sets the end to **now + `snoozeSeconds`** — from where you are, not from the old end — so time already
+slept is not re-bought, and the wait before the next extend restarts from the extend. `Engine.extendableAt` is
+the single derivation, shared by the engine, the ring screen and the test-ring path; the snooze start is
+recovered from `snoozeUntilMs - snoozeSeconds`, so nothing extra is persisted, mirrored or put on the wire.
+
+While snoozed the countdown is a green card **above** the bar and the bar becomes Extend: a countdown label until
+the delay elapses, then live; dead, grey and unlabelled when the feature is off. **One component** (`SnoozeBar`)
+serves both jobs, so the hold, the fill and the timing cannot drift between them.
+
 **Snooze must be held, contiguously.** `snoozeHoldSeconds`, 0–10, default 3, **password-gated like every other
 kill** — it is the only defence on the only control a sleeping hand can reach. Releasing clears the press
 timestamp, so the next press measures from itself and **repeated short presses never accumulate**; that is the

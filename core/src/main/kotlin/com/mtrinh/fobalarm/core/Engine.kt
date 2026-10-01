@@ -452,9 +452,48 @@ object Engine {
         return null
     }
 
+    /**
+     * When a snooze in progress may be extended: `resnoozeAfterSeconds` after it began,
+     * and never when that delay equals the snooze length (the feature is off).
+     *
+     * The start is DERIVED -- `snoozeUntilMs - snoozeSeconds` -- because every snooze and
+     * every extend sets the end to `now + snoozeSeconds`, so no extra field has to be
+     * persisted, mirrored and put on the wire. The one way to fool it is changing
+     * `snoozeSeconds` mid-snooze, which is password-gated and only shifts when the button
+     * unlocks; it cannot lose or extend a ring.
+     */
+    fun canExtendSnooze(st: EngineState, nowMs: Long): Boolean {
+        val s = st.session ?: return false
+        if (s.phase != RingPhase.SNOOZED) return false
+        val at = extendableAt(st.settings, s.snoozeUntilMs ?: return false) ?: return false
+        return nowMs >= at
+    }
+
+    /**
+     * The instant a snooze ending at [snoozeUntilMs] becomes extendable, or null when the
+     * feature is off (the delay equals the snooze length).
+     *
+     * The single derivation, shared by the engine, the ring screen and the test-ring path,
+     * so none of them can drift. Nothing new is persisted or put on the wire: the snooze
+     * start is recovered from the end, because every snooze and every extend sets the end
+     * to `now + snoozeSeconds`.
+     */
+    fun extendableAt(settings: Settings, snoozeUntilMs: Long): Long? {
+        if (settings.resnoozeAfterSeconds >= settings.snoozeSeconds) return null
+        return snoozeUntilMs - settings.snoozeSeconds * 1000L +
+                settings.resnoozeAfterSeconds * 1000L
+    }
+
+    /**
+     * Snooze a ringing alarm, or extend one already snoozing. An extend sets the end to
+     * `now + snoozeSeconds` -- from where you are, not from the old end -- so the wait
+     * before the next extend restarts too.
+     */
     fun snooze(st: EngineState, ts: TimeSource): RecomputeResult {
         val s = st.session ?: return recompute(st, ts, "snooze_noop")
         val now = ts.nowMs()
+        if (s.phase == RingPhase.SNOOZED && !canExtendSnooze(st, now))
+            return recompute(st, ts, "snooze_noop")
         val until = now + st.settings.snoozeSeconds * 1000L
         val next = st.copy(session = s.copy(
             phase = RingPhase.SNOOZED, snoozeCount = s.snoozeCount + 1, snoozeUntilMs = until))
@@ -509,6 +548,7 @@ object Engine {
         if (a.alarmVolumePercent != b.alarmVolumePercent) add("volume:${a.alarmVolumePercent}->${b.alarmVolumePercent}")
         if (a.snoozeSeconds != b.snoozeSeconds) add("snoozeSeconds:${a.snoozeSeconds}->${b.snoozeSeconds}")
         if (a.snoozeHoldSeconds != b.snoozeHoldSeconds) add("snoozeHold:${a.snoozeHoldSeconds}->${b.snoozeHoldSeconds}")
+        if (a.resnoozeAfterSeconds != b.resnoozeAfterSeconds) add("resnoozeAfter:${a.resnoozeAfterSeconds}->${b.resnoozeAfterSeconds}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
         if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")

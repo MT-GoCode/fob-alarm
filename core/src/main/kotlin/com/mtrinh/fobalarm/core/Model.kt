@@ -20,6 +20,12 @@ data class Settings(
      * reachable without a key, so this is the whole defence against a half-asleep palm.
      */
     val snoozeHoldSeconds: Int = 3,               // 0..10
+    /**
+     * How long into a snooze before it may be extended. **Equal to [snoozeSeconds]
+     * disables extending** -- you would have to wait out the whole snooze, by which
+     * point it is over. Normalized down whenever it exceeds the snooze length.
+     */
+    val resnoozeAfterSeconds: Int = 5,            // 0..snoozeSeconds
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
@@ -52,13 +58,19 @@ object SettingsValidator {
     private val HHMM = Regex("^([01]\\d|2[0-3]):([0-5]\\d)$")
 
     /** Clamp to the floors/ceilings. These are safety rails, not preferences. */
-    fun normalize(s: Settings): Settings = s.copy(
+    fun normalize(s: Settings): Settings {
+        // Against the CLAMPED snooze, not the raw one: lowering the snooze below the
+        // extend delay has to pull the delay down with it, in the same pass.
+        val snooze = s.snoozeSeconds.coerceIn(5, Settings.SNOOZE_CEILING_S)
+        return s.copy(
         alarmVolumePercent = s.alarmVolumePercent.coerceIn(Settings.VOLUME_FLOOR, 100),
-        snoozeSeconds = s.snoozeSeconds.coerceIn(5, Settings.SNOOZE_CEILING_S),
+        snoozeSeconds = snooze,
         snoozeHoldSeconds = s.snoozeHoldSeconds.coerceIn(0, 10),
+        resnoozeAfterSeconds = s.resnoozeAfterSeconds.coerceIn(0, snooze),
         maxRingMinutes = s.maxRingMinutes.coerceIn(Settings.MAX_RING_FLOOR_M, 120),
         napMinutes = s.napMinutes.coerceIn(1, 720),
-    )
+        )
+    }
 
     fun validate(s: Settings): List<Invalid> = buildList {
         if (!HHMM.matches(s.defaultAlarmTime)) add(Invalid.Field("defaultAlarmTime", "must be HH:mm"))

@@ -229,18 +229,28 @@ class RingService : Service() {
     @Volatile private var testSnoozedUntilMs = 0L
         set(v) { field = v; Svc.testSnoozedUntilMs = v }   // the snapshot shows the countdown
 
+    /** Snooze a ringing alarm, or extend one already snoozing. The engine decides which. */
     private fun doSnooze() {
+        val now = System.currentTimeMillis()
         val s = Svc.session
         if (s == null) {
-            // Test ring: snooze it the same way, so the gesture is genuinely testable.
+            // Test ring: snoozes and extends the same way, so both are genuinely testable.
             if (!Svc.testActive) return
-            if (testSnoozedUntilMs > System.currentTimeMillis()) return
-            testSnoozedUntilMs = System.currentTimeMillis() + Svc.settings.snoozeSeconds * 1000L
-            Svc.log("test_snooze")
+            val set = Svc.settings
+            if (testSnoozedUntilMs > now) {
+                // Mid-snooze: the same derivation the engine uses for a real session.
+                val at = Engine.extendableAt(set, testSnoozedUntilMs) ?: return
+                if (now < at) return
+                Svc.log("test_snooze_extended")
+            } else {
+                Svc.log("test_snooze")
+            }
+            testSnoozedUntilMs = now + set.snoozeSeconds * 1000L
             audio.stop()
             return
         }
-        if (s.phase != RingPhase.RINGING) return
+        // No phase guard here: Engine.snooze admits a RINGING session, and a SNOOZED one
+        // only once canExtendSnooze allows it. One rule, in one place.
         Svc.onSnooze()
         audio.stop()                       // SNOOZED is fully silent: no hum, no pulse
     }
