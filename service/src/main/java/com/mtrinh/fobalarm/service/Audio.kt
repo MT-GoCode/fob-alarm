@@ -28,19 +28,48 @@ class Audio(private val ctx: Context) {
     companion object {
         const val BUNDLED = "bundled"
 
+        /** The user's pick, in DEVICE-PROTECTED storage so a locked boot can read it. */
+        fun ringtoneFile(ctx: Context): File =
+            File(ctx.createDeviceProtectedStorageContext().filesDir, "ringtone.bin")
+
+        /** Where builds before 0.2.80 put it: credential-encrypted, hence the bug. */
+        private fun legacyRingtoneFile(ctx: Context) = File(ctx.filesDir, "ringtone.bin")
+
+        /**
+         * Move a pre-0.2.80 pick into DE storage, so nobody has to choose their file
+         * again. Called when the Room read first succeeds, which IS the moment
+         * credential-encrypted storage became readable. No-op once done.
+         */
+        fun migrateRingtone(ctx: Context) {
+            val de = ringtoneFile(ctx)
+            if (de.exists() && de.length() > 0) return
+            runCatching {
+                val ce = legacyRingtoneFile(ctx)
+                if (!ce.exists() || ce.length() == 0L) return
+                ce.inputStream().use { i -> de.outputStream().use { o -> i.copyTo(o) } }
+                Svc.log("ringtone_migrated_to_de", "bytes" to de.length().toString())
+            }
+        }
+
         /**
          * Fallback chain: user copy -> bundled asset -> system alarm default -> tone.
          * The user's pick is copied into app-private storage AT PICK TIME, so there is no
          * READ_MEDIA at 04:00, no SAF grant to lose, and no file that can vanish.
          *
-         * The bundled asset is mirrored into device-protected storage so it is readable
-         * after a reboot nobody unlocks -- a res/raw URI resolves through the package
-         * manager and is fine, but the DE copy removes any doubt.
+         * **It must be DE storage, not `filesDir`.** For months it was `filesDir`, which is
+         * credential-encrypted: after a reboot nobody unlocked, `exists()` was false and the
+         * chain fell through to the bundled tone -- so the alarm blared the wrong sound with
+         * nothing in the log to say why. The legacy path is still read as a fallback for an
+         * install that has not migrated yet.
          */
         fun resolveUri(ctx: Context, ringtoneUri: String?): Uri? {
             if (ringtoneUri != null && ringtoneUri != BUNDLED) {
-                val f = File(ctx.filesDir, "ringtone.bin")
-                if (f.exists()) return Uri.fromFile(f)
+                val de = ringtoneFile(ctx)
+                if (de.exists() && de.length() > 0) return Uri.fromFile(de)
+                val ce = runCatching { legacyRingtoneFile(ctx) }.getOrNull()
+                if (ce != null && ce.exists() && ce.length() > 0) return Uri.fromFile(ce)
+                // Never substitute in silence again.
+                Svc.log("ringtone_unavailable", "uri" to ringtoneUri)
             }
             val de = File(ctx.createDeviceProtectedStorageContext().filesDir, "bundled_alarm.wav")
             if (de.exists()) return Uri.fromFile(de)

@@ -150,6 +150,9 @@ object Svc : AlarmHost {
             // so no event is written twice and none is lost.
             val backlog = synchronized(memTail) { roomLoaded = true; memTail.toList() }
             backlog.forEach { persist(it) }
+            // A successful Room read means credential-encrypted storage is open, which is
+            // the only moment a pre-0.2.80 ringtone can be lifted into DE storage.
+            runCatching { Audio.migrateRingtone(app) }
             synchronized(lock) {
                 // MERGE, never replace. An empty or wiped kv table returns a default
                 // EngineState whose role is null -- assigning it wholesale would throw

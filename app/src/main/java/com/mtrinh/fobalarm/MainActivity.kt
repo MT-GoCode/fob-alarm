@@ -271,13 +271,26 @@ class MainActivity : ComponentActivity() {
                 Toast.LENGTH_LONG).show()
             return
         }
+        // DE storage: readable at 04:00 after a reboot nobody unlocked. `?: error` is
+        // load-bearing -- a null stream used to leave runCatching succeeding, so no bytes
+        // were written and the setting still claimed the file.
         runCatching {
             contentResolver.openInputStream(uri)?.use { input ->
-                File(filesDir, "ringtone.bin").outputStream().use { input.copyTo(it) }
-            }
+                Audio.ringtoneFile(this).outputStream().use { input.copyTo(it) }
+            } ?: error("openInputStream returned null for $uri")
+            val n = Audio.ringtoneFile(this).length()
+            if (n == 0L) error("copied zero bytes")
+            Svc.log("ringtone_copied", "bytes" to n.toString())
         }.onFailure {
             Svc.log("ringtone_copy_failed", "error" to it.toString())
-            Toast.makeText(this, "Could not read that file", Toast.LENGTH_LONG).show()
+            // Roll the setting back. Leaving it pointing at a file that is not there is
+            // how a chosen ringtone quietly became the bundled tone every morning.
+            runCatching {
+                Svc.patchSettings(-1, Svc.settings.copy(ringtoneUri = null, ringtoneName = null),
+                    java.util.UUID.randomUUID().toString(), Svc.unlockToken, Actor.ALARM)
+            }
+            Toast.makeText(this, "Could not read that file. Ringtone left as the built-in tone.",
+                Toast.LENGTH_LONG).show()
         }
     }
 

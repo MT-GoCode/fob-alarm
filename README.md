@@ -166,6 +166,13 @@ phone. The row stays visible until it is.
 
 ## Recovery
 
+**The alarm played the wrong sound.** Look for `ringtone_unavailable` in `./logs <ip> history`: the chosen file
+could not be read at ring time and the bundled tone was used instead. Before 0.2.80 the pick was stored in
+credential-encrypted storage, so any reboot nobody unlocked lost it until the next unlock — fixed by storing it
+in device-protected storage, and 0.2.80 migrates an existing pick across on the first unlock after the update.
+If there is a `ringtone_copy_failed` instead, the file never copied and the setting now rolls itself back; pick
+it again.
+
 **Forgotten password.** There is no recovery code. The password only guards settings;
 the alarm still rings and can still be dismissed. To get rid of it: Android Settings →
 Apps → Fob Alarm → Storage → **Clear storage**. The hash lives in the app's own data,

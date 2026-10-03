@@ -801,3 +801,39 @@ away), jumped the card from `14s` back to `27s`, and reset the bar to `EXTEND SN
 dragged up to equal the snooze, the bar carries **no text at all** and a 5 s hold moved the end 0.0 s with no
 event. Six new core tests cover the normalization, the off state, the before/after boundary, the now+snooze
 arithmetic, the restarted wait, and that a refused extend changes nothing. 60 pass.
+
+## Round 25 — the chosen ringtone was lost on every locked boot
+
+Reported: "the alarms today blared instead of using the file i had set." The controller's log put the ring at
+05:30:01, so the alarm and the link were fine — only the sound was wrong.
+
+**`resolveUri` looked for the user's file in `ctx.filesDir`, which is credential-encrypted.** After a reboot
+nobody unlocks, that path is not mounted, `exists()` is false, and the fallback chain dropped silently through to
+the bundled tone in DE storage. Meanwhile the DE *mirror* still carried `ringtoneUri` and `ringtoneName`, so the
+app went on reporting the chosen file on every screen. Nothing in the log said otherwise.
+
+Reproduced on the emulator, pre-unlock, as root: `/data/data/.../files/ringtone.bin` →
+**"No such file or directory"**, with `db_unavailable SQLiteCantOpenDatabaseException` alongside it confirming CE
+was shut, while the snapshot still read `ringtoneName: 'testtone.wav'`. Forced a ring in that state and got
+`ring_start` followed by `ringtone_unavailable`.
+
+Three fixes, because there were three holes:
+
+1. **The pick is written to device-protected storage.** `Audio.ringtoneFile` is the one accessor; the legacy CE
+   path stays a read fallback for an install that has not migrated.
+2. **Existing picks migrate.** `Audio.migrateRingtone` runs when the Room read first succeeds — which *is* the
+   moment CE became readable — so nobody has to choose their file again. Proven: `ringtone_migrated_to_de`
+   `{bytes: 64044}` landed in the same instant as `db_loaded {reason: boot_completed}`.
+3. **A failed copy no longer leaves the setting lying.** `copyRingtone` patched the setting first (correctly, for
+   the password gate) and then wrote bytes; if the write failed the setting still claimed the file forever. It now
+   rolls the setting back to the built-in tone and says so. The `?: error(...)` on `openInputStream` is
+   load-bearing too: a null stream used to leave `runCatching` *succeeding* with nothing written.
+
+And **the silence is gone**: a configured ringtone that cannot be read now logs `ringtone_unavailable` with the
+URI, and a successful copy logs `ringtone_copied` with the byte count.
+
+**Verified end to end on the emulator.** A real pick through the system file picker logged
+`ringtone_copied {bytes: 64044}` and landed in DE with nothing in CE. Moved to the old CE-only placement, a
+locked reboot reproduced the bug. Unlocking migrated it. A second locked reboot then rang with
+**zero `ringtone_unavailable`** — same `db_unavailable` proving CE was still shut, same `ring_start`, and the
+user's file played. 60 core tests pass.
