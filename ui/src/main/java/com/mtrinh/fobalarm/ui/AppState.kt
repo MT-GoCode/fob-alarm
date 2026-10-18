@@ -89,8 +89,11 @@ class AppState(
                     client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
                 }
                 val s = snapshot
+                // Same bound as the ring screen, for the same reason: the fast cadence has
+                // to last as long as the ring can, not ten minutes.
+                val liveUntil = maxOf(s?.ring?.endsByMs ?: 0L, s?.testUntilMs ?: 0L)
                 val live = (s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)) &&
-                        (isLocal || System.currentTimeMillis() - lastOkMs < 10 * 60_000)
+                        (isLocal || System.currentTimeMillis() < liveUntil)
                 delay(if (live) fastMs else if (!isLocal && !connected) retryMs else idleMs)
             }
         }

@@ -61,10 +61,15 @@ fun RootScreen(
     // The controller has exactly two states: connected, or trying. Trying is one screen
     // with everything you can do about it, and whatever the alarm phone last said, dimmed.
     // A ring seen before the link dropped still wins: the dismiss button keeps retrying.
-    // Bounded by link age: a snapshot from before the link dropped cannot hold the ring
-    // screen up after the alarm phone has long since stopped on its own.
+    // Bounded by the ring's OWN cap, not by link age. It was a flat ten minutes, which is
+    // shorter than maxRingMinutes (40 here): a link that dropped at ring start took the
+    // dismiss button off this screen half an hour before the alarm actually stopped, which
+    // is precisely when you would walk over and need it. endsByMs is already in the
+    // snapshot and is the instant the alarm phone will stop by on its own; testUntilMs is
+    // the same bound for a test. Past that, a stale snapshot can no longer hold the screen.
+    val liveUntil = maxOf(s?.ring?.endsByMs ?: 0L, s?.testUntilMs ?: 0L)
     val ringing = s != null && (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) &&
-            (isAlarmRole || app.nowMs - app.linkAtMs < 10 * 60_000)
+            (isAlarmRole || app.nowMs < liveUntil)
     if (!isAlarmRole && !app.connected && !ringing && trying != null) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             LinkBar(app, isAlarmRole)

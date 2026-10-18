@@ -137,7 +137,15 @@ class RingService : Service() {
         // consume an occurrence. It caps itself and needs no dismiss to end.
         if (intent != null && Svc.session == null && Svc.de.pendingTest) {
             Svc.de.pendingTestUntilMs = 0L
-            Svc.testUntilMs = System.currentTimeMillis() + 60_000
+            // Only if it is not already live. Svc.testRing sets this before starting the
+            // service so the caller's snapshot shows the test at once; writing it again
+            // here moved the window by ~45ms, and the controller keys its alert on
+            // "test-$testUntilMs" -- so a poll landing inside that gap saw one value and
+            // the next poll saw another, and it raised the full-screen alert TWICE for one
+            // test. Still needed for the process-hop case, where the in-memory value is 0.
+            if (Svc.testUntilMs <= System.currentTimeMillis()) {
+                Svc.testUntilMs = System.currentTimeMillis() + 60_000
+            }
             // Read from DE: the in-memory flag does not survive the process hop, and
             // losing it turns a silent test into a full-volume siren.
             val silent = Svc.de.testSilent

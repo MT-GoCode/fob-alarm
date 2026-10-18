@@ -891,3 +891,32 @@ Detecting it was considered and **declined** (`AlarmManager.getNextAlarmClock()`
 alarm for the user from any app, no permission needed, so a "something rings before this" row was available). The
 decision was to keep the Setup list short and simply not set a second alarm. Recorded so the option is not
 rediscovered as if it were new.
+
+## Round 27 — one test ring raised the controller's alert twice
+
+Found while chasing a reported auto-dismissal of the controller's test-ring screen. That turned out to be a
+person physically stopping the alarm phone, not the app — but the hunt surfaced a real race.
+
+`testUntilMs` was written **twice**, about 45 ms apart: once by `Svc.testRing` (deliberately, so the caller's own
+snapshot already shows a test in progress and both screens flip together) and again by `RingService` as it
+started. The controller keys its full-screen alert on `"test-$testUntilMs"`, so a poll landing inside that gap
+read one value and the next poll read another, and it raised the alert a **second time for the same test**.
+Observed on the real phones on both tests in the window:
+
+```
+06:52:21  remote_ring_alert {ringId: test-1792331600013}
+06:52:25  remote_ring_alert {ringId: test-1792331600064}   ← same test, +51ms in the key
+```
+
+`RingService` now writes the window only if it is not already live. The write is still needed for the process-hop
+case — a test resumed after the process died has nothing in memory — but in the normal path `Svc.testRing` has
+already set it and the second write only moved the goalposts.
+
+Also confirmed while in here, since both were asked: a test ring is a genuinely different path from a real one —
+no engine session, no latch, no schedule, no override, a 60 s self-cap instead of `maxRingMinutes` — and the test
+rings that morning did play the user's own ringtone, evidenced by zero `ringtone_unavailable` across the log.
+
+**Left undone, deliberately, pending a decision:** the controller shows the ring screen only while the snapshot is
+less than ten minutes old, but `maxRingMinutes` is 40. A link that drops at ring start therefore takes the dismiss
+button off the controller half an hour before the alarm actually stops — exactly when someone would walk over and
+need it. `endsByMs` is already in the snapshot and is the correct bound.
