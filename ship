@@ -11,7 +11,9 @@ export JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Con
 TASK=":app:assembleRelease"
 APK=app/build/outputs/apk/release/app-release.apk
 FLAVOR="release"
-PORT=8000
+# NOT 8000: yes-reborn's launch.sh supervises a server there permanently on this Mac,
+# and an earlier run of this script killed it by mistake. Override with PORT=... if needed.
+PORT="${PORT:-8010}"
 
 echo "==> core tests (the whole state machine, no phone needed)"
 ./gradlew --no-daemon :core:test -q
