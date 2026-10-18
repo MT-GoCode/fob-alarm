@@ -92,6 +92,14 @@ fun SettingsScreen(
             }
         }
 
+        if (isAlarmRole) {
+            Section("Away")
+            LockedRow(locked) { on ->
+                ToggleSetting("Don't ring if the sentinel is away", s.settings.blockRingIfAway,
+                    enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfAway = v) } }
+            }
+        }
+
         Section("Test", if (isAlarmRole) "Rings this phone now." else "Rings the alarm phone now, for up to a minute.")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
             Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) { Text("Test ring") }

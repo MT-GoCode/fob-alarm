@@ -88,11 +88,12 @@ class LinkService : Service() {
             Thread { ControllerWatch.dismissNow(this) }.start()
             return START_STICKY
         }
-        if (Svc.settings.role == Role.CONTROLLER && wakeLock == null) {
+        val needsWatchLock = Svc.settings.role == Role.CONTROLLER || Svc.settings.role == Role.SENTINEL
+        if (needsWatchLock && wakeLock == null) {
             wakeLock = getSystemService(android.os.PowerManager::class.java)
                 .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "fobalarm:watch")
                 .also { it.acquire() }
-        } else if (Svc.settings.role != Role.CONTROLLER && wakeLock != null) {
+        } else if (!needsWatchLock && wakeLock != null) {
             runCatching { wakeLock?.release() }; wakeLock = null
         }
         runCatching { startForeground(NOTIF_ID, notification()) }
@@ -120,6 +121,21 @@ class LinkService : Service() {
                         } else backoffMs = 5_000L
                         Group.refresh(this@LinkService)
                         Health.probe(this@LinkService)
+                        Thread { SentinelLan.refresh() }.start()
+                    }
+                }
+                Role.SENTINEL -> {
+                    // Presence only. It joins the group so that BEING joined is the proof, and
+                    // polls so the alarm phone learns it is here. It raises no alert and has no
+                    // authority: ControllerWatch is deliberately not called.
+                    if (!s.ssid.isNullOrBlank() && !s.passphrase.isNullOrBlank() &&
+                        !P2pJoinBridge.joined()) {
+                        if (P2pJoinBridge.allowed()) { waitingLogged = false; P2pJoinBridge.join(this@LinkService, s.ssid!!, s.passphrase!!) }
+                        else if (!waitingLogged) { waitingLogged = true; Svc.log("p2p_waiting_permission") }
+                        backoffMs = (backoffMs * 2).coerceAtMost(15_000)
+                    } else {
+                        Thread { SentinelWatch.poll(this@LinkService) }.start()
+                        backoffMs = 30_000L      // presence at minute granularity; saves battery
                     }
                 }
                 Role.CONTROLLER -> {

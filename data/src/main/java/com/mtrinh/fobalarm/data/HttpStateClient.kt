@@ -16,6 +16,11 @@ class HttpStateClient(
     private val selfProvider: () -> DeviceView,
     /** This phone's own failing blocking gates, sent so the peer can show them. */
     private val localBlockers: () -> List<String> = { emptyList() },
+    /**
+     * Anything else this phone reports about itself on the poll. Supplied from :service, where a
+     * Context exists -- role, power-save mode, the LAN address. Values are URL-encoded here.
+     */
+    private val extraParams: () -> Map<String, String> = { emptyMap() },
 ) : StateClient {
 
     companion object { const val PORT = 8765 }
@@ -72,7 +77,10 @@ class HttpStateClient(
         val me = selfProvider()
         val q = "?deviceId=${me.deviceId}&batteryPct=${me.batteryPct}&plugged=${me.plugged}" +
                 "&appVersion=${me.appVersion}" +
-                "&blockers=" + localBlockers().joinToString(",")
+                "&blockers=" + localBlockers().joinToString(",") +
+                extraParams().entries.joinToString("") { (k, v) ->
+                    "&" + k + "=" + java.net.URLEncoder.encode(v, "UTF-8")
+                }
         withSelf(Wire.snapshotFrom(JSONObject(request("GET", "/v1/snapshot$q"))))
     }
 

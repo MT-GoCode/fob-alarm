@@ -41,6 +41,8 @@ object ControllerWatch {
             localBlockers = {
                 GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
             },
+            // Explicit, though a missing role already defaults to CONTROLLER for older builds.
+            extraParams = { mapOf("role" to com.mtrinh.fobalarm.core.Role.CONTROLLER.name) },
         )
     }
 

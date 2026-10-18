@@ -98,6 +98,21 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
         }, ok = connected)
     }
 
+    // One row. Only on the alarm phone, which is the only phone that knows.
+    if (iAmAlarm) {
+        val sen = s.sentinel
+        Line("Sentinel", when {
+            sen == null -> "not set up"
+            nowMs - sen.lastSeenMs < 120_000 -> "here"
+            else -> "away " + Fmt.duration(nowMs - sen.lastSeenMs)
+        }, ok = if (sen == null) null else nowMs - sen.lastSeenMs < 120_000)
+        // Shown only when a ring would actually be blocked right now, so it is never a
+        // theoretical warning the owner learns to ignore.
+        s.ringBlock?.let {
+            Text("Next ring blocked: $it", fontSize = T.label, color = Bad)
+        }
+    }
+
     // --- power ----------------------------------------------------------------
     Section("Power")
     alarm?.let { Line("Alarm phone", battery(it), ok = it.plugged) }

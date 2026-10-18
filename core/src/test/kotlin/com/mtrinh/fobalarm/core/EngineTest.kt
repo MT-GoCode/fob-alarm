@@ -376,6 +376,74 @@ class EngineTest {
         assertFalse(Engine.canExtendSnooze(snoozed, c.ms))
     }
 
+    // --- blocked rings (the sentinel being away) --------------------------
+
+    /** Running normally right up to the fire, so no backlog of genuine misses. */
+    private fun liveTo(iso: String, aliveIso: String) =
+        FakeClock(at(iso)) to EngineState(
+            settings = Settings(defaultAlarmTime = "04:00"), lastAliveMs = at(aliveIso))
+
+    @Test fun `a blocked ring latches the due occurrence SKIPPED and never fires`() {
+        val (c, s0) = liveTo("2026-09-26T04:00:01-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val r = Engine.suppressTrigger(s0, c, "sentinel away 900s")
+        assertTrue(r.state.latches.any {
+            it.id.localDate == "2026-09-26" && it.reason == LatchReason.SKIPPED
+        }, "today is latched SKIPPED, not MISSED: ${r.state.latches}")
+        assertNull(r.fireNow, "a blocked ring must never set fireNow -- that is the recursion")
+        assertTrue(r.events.any { it.type == "ring_blocked" })
+        assertTrue(r.events.none { it.type == "missed" }, "a block is not a miss")
+    }
+
+    @Test fun `a blocked occurrence does not ring later and tomorrow is normal`() {
+        val (c, s0) = liveTo("2026-09-26T04:00:01-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val blocked = Engine.suppressTrigger(s0, c, "away").state
+        // Later the same morning: nothing is owed.
+        c.set("2026-09-26T09:00:00-07:00[America/Los_Angeles]")
+        val later = Engine.recompute(blocked, c, "tick")
+        assertNull(later.fireNow, "the blocked occurrence must not come back")
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), later.nextFire!!.atMs)
+    }
+
+    @Test fun `a Move is spent by the block it was bound to`() {
+        val (c, s0) = liveTo("2026-09-26T01:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T00:59:00-07:00[America/Los_Angeles]")
+        val moved = Engine.setOverrideTime(s0, c, "07:00").state
+        assertNotNull(moved.override)
+        c.set("2026-09-26T07:00:01-07:00[America/Los_Angeles]")
+        val r = Engine.suppressTrigger(moved, c, "away")
+        assertNull(r.state.override, "the override is spent with the occurrence it owned")
+        assertNull(r.fireNow)
+        assertEquals(at("2026-09-27T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs)
+    }
+
+    /**
+     * The gate can be consulted twice for one occurrence -- an FGS start failure arms a 5 s retry
+     * that re-enters ACTION_FIRE. The second pass must do nothing, or it would latch SKIPPED over
+     * an alarm that is already ringing or has already rung.
+     */
+    @Test fun `blocking an occurrence that already rang is a no-op`() {
+        val (c, s0) = liveTo("2026-09-26T04:00:01-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val rang = Engine.onTrigger(s0, c, OccurrenceSource.SCHEDULED, "r1").state
+        val done = Engine.endSession(rang, c, Outcome.DISMISSED_LOCAL).state
+        val before = done.latches.size
+
+        val r = Engine.suppressTrigger(done, c, "away")
+        assertEquals(before, r.state.latches.size, "no second latch for an occurrence already spent")
+        assertTrue(r.events.none { it.type == "ring_blocked" })
+        assertNull(r.fireNow)
+    }
+
+    @Test fun `the block setting defaults off and is reported in the diff`() {
+        assertFalse(Settings().blockRingIfAway, "must default OFF")
+        val (c, s0) = fresh()
+        val r = Engine.patchSettings(s0, c, s0.settings.copy(blockRingIfAway = true), Actor.ALARM)
+        assertTrue(r.events.first { it.type == "settings_change" }
+            .detail["diff"]!!.contains("blockRingIfAway:false->true"))
+    }
+
     @Test fun `nextFire is never null under normal settings`() {
         val (c, s0) = fresh()
         assertNotNull(Engine.recompute(s0, c, "t").nextFire)

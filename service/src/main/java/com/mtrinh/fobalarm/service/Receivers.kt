@@ -40,7 +40,21 @@ class AlarmReceiver : BroadcastReceiver() {
             when (intent.action) {
                 Scheduler.ACTION_FIRE -> {
                     Svc.log("alarm_fired")
-                    RingService.start(ctx); handedOff = true
+                    // The ONE gate. Only here, because of the seven paths that reach
+                    // RingService.start this is the only one that opens a NEW session -- the
+                    // watchdog and boot paths resume an OPEN one, and suppressing those would
+                    // silence an alarm that is already ringing. A session already open means this
+                    // trigger will be absorbed, so the decision has passed.
+                    val blocked = if (Svc.session != null) null else Svc.ringBlockDecision()
+                    // Naps are exempt: a nap is a fresh, explicit "ring me in 20 minutes" from
+                    // someone standing right there.
+                    val isNap = Svc.de.nextFireSource == OccurrenceSource.NAP.name
+                    if (blocked != null && !isNap) {
+                        runCatching { Svc.suppressRing(blocked) }
+                    } else {
+                        if (blocked != null) Svc.log("ring_block_skipped", "why" to "nap")
+                        RingService.start(ctx); handedOff = true
+                    }
                 }
                 Scheduler.ACTION_WATCHDOG -> {
                     val open = Svc.session

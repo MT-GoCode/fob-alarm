@@ -75,6 +75,8 @@ object Wire {
         put("settings", settingsToJson(s.settings))
         put("lastEvents", JSONArray().apply { s.lastEvents.forEach { put(eventToJson(it)) } })
         put("peerBlockers", JSONArray(s.peerBlockers))
+        put("sentinel", s.sentinel?.let { deviceToJson(it) } ?: JSONObject.NULL)
+        put("ringBlock", s.ringBlock ?: JSONObject.NULL)
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
         put("testSnoozedUntilMs", s.testSnoozedUntilMs)
@@ -107,6 +109,7 @@ object Wire {
         .put("snoozeSeconds", s.snoozeSeconds)
         .put("snoozeHoldSeconds", s.snoozeHoldSeconds)
         .put("resnoozeAfterSeconds", s.resnoozeAfterSeconds)
+        .put("blockRingIfAway", s.blockRingIfAway)
         .put("maxRingMinutes", s.maxRingMinutes)
         .put("napMinutes", s.napMinutes)
         .put("vibrate", s.vibrate)
@@ -127,6 +130,7 @@ object Wire {
         snoozeSeconds = o.optInt("snoozeSeconds", base.snoozeSeconds),
         snoozeHoldSeconds = o.optInt("snoozeHoldSeconds", base.snoozeHoldSeconds),
         resnoozeAfterSeconds = o.optInt("resnoozeAfterSeconds", base.resnoozeAfterSeconds),
+        blockRingIfAway = o.optBoolean("blockRingIfAway", base.blockRingIfAway),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),
@@ -231,6 +235,8 @@ object Wire {
             peerBlockers = o.optJSONArray("peerBlockers")?.let { a ->
                 (0 until a.length()).map { a.getString(it) }
             } ?: emptyList(),
+            sentinel = o.optJSONObject("sentinel")?.let { deviceFrom(it) },
+            ringBlock = if (o.isNull("ringBlock")) null else o.optString("ringBlock").takeIf { it.isNotBlank() },
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
             testSnoozedUntilMs = o.optLong("testSnoozedUntilMs", 0),

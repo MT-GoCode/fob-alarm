@@ -489,6 +489,32 @@ object Engine {
      * `now + snoozeSeconds` -- from where you are, not from the old end -- so the wait
      * before the next extend restarts too.
      */
+    /**
+     * The owner was not here, so this occurrence is spent without ringing.
+     *
+     * The occurrence comes from [occurrenceBeingFired] -- the SAME resolver `onTrigger` uses -- not
+     * from `nextUnlatchedScheduled`. That distinction is load-bearing: at fire time
+     * `nextUnlatchedScheduled` returns TOMORROW (it requires `at > now`), so binding to it would
+     * latch the wrong day, leave today unlatched to fire as a MISSED alarm, and re-enter this gate
+     * from `fireNow` -- unbounded recursion inside `Svc.apply`, with tomorrow silently skipped.
+     *
+     * Latches SKIPPED, not MISSED, so `occurrenceBeingFired` will not hand it back and history can
+     * tell a block from a miss. Returns the state unchanged when nothing is due.
+     */
+    fun suppressTrigger(st: EngineState, ts: TimeSource, reason: String): RecomputeResult {
+        val now = ts.nowMs()
+        val occId = occurrenceBeingFired(st, ts)
+            ?: return recompute(st, ts, "ring_blocked_nothing_due")
+        var next = st.copy(latches = st.latches + Latch(occId, LatchReason.SKIPPED, now))
+        // An override bound to this occurrence is spent with it, exactly as a real ring spends it.
+        if (next.override?.boundOccurrenceId == occId) next = next.copy(override = null)
+        return recompute(next, ts, "ring_blocked").let {
+            it.copy(events = listOf(
+                PendingEvent("ring_blocked", mapOf("reason" to reason, "occurrence" to occId.toString())),
+            ) + it.events)
+        }
+    }
+
     fun snooze(st: EngineState, ts: TimeSource): RecomputeResult {
         val s = st.session ?: return recompute(st, ts, "snooze_noop")
         val now = ts.nowMs()
@@ -549,6 +575,7 @@ object Engine {
         if (a.snoozeSeconds != b.snoozeSeconds) add("snoozeSeconds:${a.snoozeSeconds}->${b.snoozeSeconds}")
         if (a.snoozeHoldSeconds != b.snoozeHoldSeconds) add("snoozeHold:${a.snoozeHoldSeconds}->${b.snoozeHoldSeconds}")
         if (a.resnoozeAfterSeconds != b.resnoozeAfterSeconds) add("resnoozeAfter:${a.resnoozeAfterSeconds}->${b.resnoozeAfterSeconds}")
+        if (a.blockRingIfAway != b.blockRingIfAway) add("blockRingIfAway:${a.blockRingIfAway}->${b.blockRingIfAway}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
         if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")

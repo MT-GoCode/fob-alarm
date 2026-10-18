@@ -933,3 +933,84 @@ a two-hour maximum ring, which errs the safe way.
 
 (Process note: this change was made, interrupted mid-review, and then swept into this commit unnoticed and
 reported to the user as *not* done. It was wanted, so it stays — but it shipped in 0.2.84 undeclared.)
+
+## Round 28 — the location sentinel
+
+A third role. A phone in the owner's pocket joins the alarm phone's Wi-Fi Direct group, and *being
+joined* is the proximity proof — range is ~50-100 m indoors. No GPS, no relay, no internet, no
+location permission; nothing is sent or stored. When the sentinel is away, the alarm can be blocked
+so a 40-minute siren does not wake a shared house for nobody.
+
+Planned in `PLAN.md`, then reviewed adversarially on three axes — functionality, robustness,
+simplicity. 28 findings, **six of which could have stopped the alarm while the owner was home
+asleep**. The plan was rewritten rather than patched. Two of the findings were against claims in my
+own plan:
+
+- I offered "0 `p2p_lost` in 11 days" as proof the heartbeat holds. **`p2p_lost` is logged only by
+  `P2pJoin` on the joining phone** (`P2pJoin.kt:98`); the alarm phone never emits it, so querying
+  its history measured nothing. Peer gaps were logged nowhere at all.
+- Even as a controller measurement it would not transfer: the controller holds a permanent
+  `PARTIAL_WAKE_LOCK` that `LinkService.kt:91` granted to `CONTROLLER` **only**, and it never leaves
+  range. `Handler.postDelayed` runs on `uptimeMillis`, which does not advance in CPU suspend, so a
+  sentinel would simply have stopped polling in a pocket. Battery-unrestricted lifts Doze's
+  *network* block, not suspend.
+
+**The design change that made it safe: a second presence channel.** Presence is now *reachable over
+P2P **or** over home Wi-Fi*. Everything that makes Wi-Fi Direct membership flap — Android's 10 s
+client-group idle timeout, the 45 s rejoin guard, this phone tearing down its own group with up to
+120 s of rebuild backoff — leaves home Wi-Fi untouched. `SentinelLan` has the alarm phone **pull**
+the sentinel's read-only `:8766/v1/health`, and only once the P2P heartbeat has been quiet a minute.
+Pull, never push: an endpoint reachable from the home network that could assert presence would let
+anything on that network suppress an alarm, which is strictly worse than letting it dismiss one.
+
+Everything fails toward ringing. `Svc.ringBlockReason()` is one predicate, and the sentinel must be
+positively known-absent **and** have been trustworthy when last heard from — gates green, not in
+battery saver, not under 20 % unplugged — **and** this phone's own group must have been up since
+before that sighting (`Group.listenerUpSinceElapsed`), so an outage here can never read as the owner
+leaving. Never seen at all means ring. Presence is in memory only and stamped with
+`SystemClock.elapsedRealtime()`: mirroring it would make every reboot a suppression (a cold start at
+04:00 would read "last seen 03:00, healthy, an hour absent"), and a wall clock would make the
+forward jump that *produces* the `fireNow` path look like an absence.
+
+**One gate, at `ACTION_FIRE` only.** Of the seven `RingService.start`/`forceSession` call sites, only
+that one and the `fireNow` branch open a *new* session; the watchdog and boot paths resume an open
+one, and suppressing those would silence an alarm already ringing. It is skipped entirely when a
+session exists, and naps are exempt — a nap is a fresh, explicit "ring me" from someone standing
+there. `Engine.suppressTrigger` takes its occurrence from `occurrenceBeingFired`, the same resolver
+`onTrigger` uses: binding to `nextUnlatchedScheduled` instead would have returned **tomorrow** (it
+requires `at > now`), latching the wrong day, leaving today to fire as a MISSED alarm, and
+re-entering the gate from `fireNow` — unbounded recursion inside `Svc.apply`.
+
+Cut from the plan on the simplicity review: the sentinel's ENABLED/BLOCKED headline and transition
+notifications (while away it cannot reach the alarm phone, so the verdict would be a second copy of
+the policy, drifting); `blockRingIfControllerAway` (the controller is wall-mounted — when it vanishes
+the link has failed, which is exactly when the alarm must ring); one-slot-per-role with 409 and a
+reset path (one slot *per role* already gives one of each under last-writer-wins, without the
+lockout the rejection created); a role-keyed map for two peers; DE-mirrored presence; and a six-row
+health table that was one boolean expression.
+
+**Absence floor: 10 minutes**, not the 2 I invented. Deliberately conservative, and it costs nothing
+— leaving before a 04:00 alarm means being gone far longer. `peer_gap`, `sentinel_gap`,
+`sentinel_seen_on_lan` and `sentinel_lan_unreachable` are logged so it can be tuned down from data
+rather than taste.
+
+**Accepted residual, the owner's explicit decision:** a sentinel in airplane mode, or rebooting
+across the alarm, is indistinguishable from one that left the house, and the ring is blocked. The
+alternative considered and declined was having the sentinel ring *itself* when unlinked at alarm
+time. The setting therefore defaults **off** and is password-gated — the only setting in this app
+that can stop an alarm.
+
+**Verified.** Five new core tests (65 total): a blocked ring latches SKIPPED and never sets
+`fireNow`; it does not come back later and tomorrow is normal; a Move bound to it is spent with it;
+blocking an occurrence that already rang is a no-op (the FGS retry re-enters `ACTION_FIRE`); the
+setting defaults off and appears in the diff. On the emulator: three roles in the picker, the locked
+Away toggle, the Status row, and with the setting **on** and no sentinel an `ACTION_FIRE` logged
+`ring_block_skipped{sentinel_never_seen}` and **rang** — the fail-safe default.
+
+Found by running it rather than reading it: `ringBlockReason` logged its reasoning, and the snapshot
+calls it on every poll, so it emitted dozens of lines a second and would have buried history exactly
+as round 17's bug did. It is pure now; `ringBlockDecision` is the single place that records an answer.
+
+**Not verifiable on an emulator, and stated rather than faked:** the blocking path itself. With no
+Wi-Fi Direct group, `Group.listenerUpSinceElapsed` is 0, so the own-link guard vetoes every block.
+Proving a real block needs two phones.

@@ -172,12 +172,22 @@ class MainActivity : ComponentActivity() {
     /** Role selects a CLIENT, not a screen. Everything visual downstream is shared. */
     private fun buildClient(role: Role): StateClient = when (role) {
         Role.ALARM -> LocalStateClient(Svc)
-        Role.CONTROLLER -> HttpStateClient(
+        // The sentinel reads the alarm phone the same way; it simply never acts on what it sees.
+        Role.CONTROLLER, Role.SENTINEL -> HttpStateClient(
             hostProvider = { P2pJoin.ownerAddress },
             selfProvider = { Svc.selfDevice() },
             // Report our own failing gates so the alarm phone can show them.
             localBlockers = {
                 GateEval.current(this, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
+            },
+            extraParams = {
+                buildMap {
+                    put("role", role.name)
+                    if (role == Role.SENTINEL) {
+                        put("powerSave", Power.saveMode(this@MainActivity).toString())
+                        Power.lanIp()?.let { put("lanIp", it) }
+                    }
+                }
             },
         )
     }
@@ -469,20 +479,35 @@ class MainActivity : ComponentActivity() {
         var rolePw by remember { mutableStateOf("") }
         var roleErr by remember { mutableStateOf<String?>(null) }
         Section("Role")
-        OutlinedButton(onClick = { asking = true }) {
-            Text(if (Svc.settings.role == Role.ALARM) "Make this the controller" else "Make this the alarm phone")
+        // Three roles, so offer the two this phone is not rather than flipping a pair.
+        var pendingTarget by remember { mutableStateOf<Role?>(null) }
+        Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
+            Role.entries.filter { it != Svc.settings.role }.forEach { r ->
+                OutlinedButton(onClick = { pendingTarget = r; asking = true }) {
+                    Text(when (r) {
+                        Role.ALARM -> "Make this the alarm phone"
+                        Role.CONTROLLER -> "Make this the controller"
+                        Role.SENTINEL -> "Make this the sentinel"
+                    }, fontSize = T.label)
+                }
+            }
         }
         if (asking) {
-            val target = if (Svc.settings.role == Role.ALARM) Role.CONTROLLER else Role.ALARM
+            val target = pendingTarget ?: Role.CONTROLLER
             AlertDialog(
                 onDismissRequest = { asking = false },
-                title = { Text(if (target == Role.ALARM) "Make this the alarm phone?" else "Make this the controller?") },
+                title = { Text(when (target) {
+                    Role.ALARM -> "Make this the alarm phone?"
+                    Role.CONTROLLER -> "Make this the controller?"
+                    Role.SENTINEL -> "Make this the sentinel?"
+                }) },
                 text = {
                     Column {
-                        Text(if (target == Role.CONTROLLER)
-                                "This phone will stop ringing entirely. The pairing is cleared."
-                             else "This phone will ring at the alarm time. The pairing is cleared.",
-                            fontSize = T.label)
+                        Text(when (target) {
+                            Role.ALARM -> "This phone will ring at the alarm time. The pairing is cleared."
+                            Role.CONTROLLER -> "This phone will stop ringing entirely. The pairing is cleared."
+                            Role.SENTINEL -> "This phone will only prove you are home. It cannot stop the alarm."
+                        }, fontSize = T.label)
                         Spacer(Modifier.height(S.sm))
                         Text("Type ${target.name} to confirm:", fontSize = T.caption, color = Muted)
                         OutlinedTextField(typed, { typed = it }, singleLine = true)
@@ -602,13 +627,26 @@ class MainActivity : ComponentActivity() {
             Button(onClick = { chosen = Role.CONTROLLER }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
                 Text("The controller, in the other room", fontSize = T.button)
             }
+            Spacer(Modifier.height(S.sm))
+            Button(onClick = { chosen = Role.SENTINEL }, modifier = Modifier.fillMaxWidth().height(80.dp)) {
+                Text("The sentinel, in my pocket", fontSize = T.button)
+            }
         }
         chosen?.let { r ->
             AlertDialog(
                 onDismissRequest = { chosen = null },
-                title = { Text(if (r == Role.ALARM) "This phone will ring" else "This phone will not ring") },
-                text = { Text(if (r == Role.ALARM) "It lives in the box and rings at the alarm time."
-                              else "It watches the alarm phone and can stop it.", fontSize = T.label) },
+                title = { Text(when (r) {
+                    Role.ALARM -> "This phone will ring"
+                    Role.CONTROLLER -> "This phone will not ring"
+                    else -> "This phone only proves you are home"
+                }) },
+                text = { Text(when (r) {
+                    Role.ALARM -> "It lives in the box and rings at the alarm time."
+                    Role.CONTROLLER -> "It watches the alarm phone and can stop it."
+                    // No authority, deliberately: a sentinel that could dismiss would be a
+                    // controller with extra steps.
+                    else -> "Carry it. The alarm phone can see it while you are in range, and that is all it does \u2014 it cannot stop the alarm."
+                }, fontSize = T.label) },
                 confirmButton = { TextButton(onClick = { onPick(r); chosen = null }) { Text("Yes") } },
                 dismissButton = { TextButton(onClick = { chosen = null }) { Text("No") } })
         }

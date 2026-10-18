@@ -210,15 +210,21 @@ object Server {
                     // The controller piggybacks its own device on the poll it already
                     // makes, so the alarm phone can render both devices. No new endpoint.
                     param(path, "deviceId")?.let { id ->
-                        Svc.peerDevice = com.mtrinh.fobalarm.core.DeviceView(
+                        // A MISSING role means CONTROLLER: builds before the sentinel existed send
+                        // no role, and this endpoint hardcoded CONTROLLER. Never guess SENTINEL.
+                        val role = runCatching {
+                            com.mtrinh.fobalarm.core.Role.valueOf(param(path, "role") ?: "CONTROLLER")
+                        }.getOrDefault(com.mtrinh.fobalarm.core.Role.CONTROLLER)
+                        Svc.notePresence(role, Svc.Presence(
+                            deviceId = id,
+                            lastSeenElapsed = android.os.SystemClock.elapsedRealtime(),
                             batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,
                             plugged = param(path, "plugged") == "true",
-                            appVersion = param(path, "appVersion") ?: "?",
-                            role = com.mtrinh.fobalarm.core.Role.CONTROLLER,
-                            deviceId = id,
-                            lastSeenMs = System.currentTimeMillis())
-                        Svc.peerBlockers = param(path, "blockers")
-                            ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                            powerSave = param(path, "powerSave") == "true",
+                            missingGates = param(path, "blockers")
+                                ?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+                            lanIp = param(path, "lanIp")?.takeIf { it.isNotBlank() },
+                            appVersion = param(path, "appVersion") ?: "?"))
                     }
                     200 to Wire.snapshotToJson(Svc.snapshot()).toString()
                 }

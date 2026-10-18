@@ -5,7 +5,12 @@ package com.mtrinh.fobalarm.core
 // a floor that the local path enforces. SPEC.md section 8.
 // ---------------------------------------------------------------------------
 
-enum class Role { ALARM, CONTROLLER }
+/**
+ * SENTINEL is a presence beacon with a screen. It joins the alarm phone's group exactly as the
+ * controller does, so being joined IS proof of being within Wi-Fi Direct range (~50-100 m). It
+ * cannot dismiss, snooze, change settings or unlock. See PLAN.md.
+ */
+enum class Role { ALARM, CONTROLLER, SENTINEL }
 
 data class Settings(
     val role: Role? = null,
@@ -26,6 +31,14 @@ data class Settings(
      * point it is over. Normalized down whenever it exceeds the snooze length.
      */
     val resnoozeAfterSeconds: Int = 5,            // 0..snoozeSeconds
+    /**
+     * Block the ring when the sentinel phone is away. **Defaults OFF**, and gated behind the
+     * password, because it is the only setting in this app that can stop an alarm ringing.
+     *
+     * Known residual, accepted by the owner: a sentinel in airplane mode or rebooting across the
+     * alarm is indistinguishable from one that left the house, and the ring is blocked.
+     */
+    val blockRingIfAway: Boolean = false,
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
@@ -242,6 +255,10 @@ data class Snapshot(
     val lastEvents: List<Event>,
     /** Blocking gates failing on the OTHER phone, reported by it. */
     val peerBlockers: List<String> = emptyList(),
+    /** The sentinel phone, if one has ever reported in. Null means never set up. */
+    val sentinel: DeviceView? = null,
+    /** Non-null when the next ring would be blocked right now, with the reason. */
+    val ringBlock: String? = null,
     /** Last successful exchange between the two phones, either direction. */
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */

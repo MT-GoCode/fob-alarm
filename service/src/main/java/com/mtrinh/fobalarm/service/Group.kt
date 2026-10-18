@@ -53,6 +53,7 @@ object Group {
             m.createGroup(ch, cfg, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     running = true; lastError = null
+                    if (listenerUpSinceElapsed == 0L) listenerUpSinceElapsed = android.os.SystemClock.elapsedRealtime()
                     lastStartedAtMs = System.currentTimeMillis()
                     Svc.log("ap_start")          // no ssid: this log is readable on the LAN
                     refresh(ctx)
@@ -68,6 +69,7 @@ object Group {
                         return
                     }
                     running = false
+                    listenerUpSinceElapsed = 0L
                     lastError = "createGroup failed ($reason)"
                     Svc.log("ap_error", "reason" to reason.toString())
                 }
@@ -93,7 +95,7 @@ object Group {
                 val stale = g != null && (!g.isGroupOwner || g.networkName != s.ssid?.let(::networkName) ||
                         (g.passphrase != null && g.passphrase != s.passphrase))
                 running = g != null && !stale
-                if (was && !running) Server.closeControl()     // socket bound to a dead address
+                if (was && !running) { Server.closeControl(); listenerUpSinceElapsed = 0L }
                 if (stale) { Svc.log("ap_stale_group", "owner" to g!!.isGroupOwner.toString()); stop(ctx) }
                 ownerAddress = "192.168.49.1"
             }
@@ -101,6 +103,14 @@ object Group {
     }
 
     @Volatile private var reportedClients = 0
+
+    /**
+     * When THIS phone's group last came up, on the monotonic clock. 0 means down.
+     * `ringBlockReason` refuses to block unless the group has been up since before the sentinel
+     * was last heard -- otherwise an outage on the alarm phone (teardown, 120 s rebind backoff)
+     * would read as the owner having left.
+     */
+    @Volatile var listenerUpSinceElapsed = 0L
 
     /**
      * A peer that polled us in the last minute IS connected, whatever the P2P client
@@ -121,6 +131,7 @@ object Group {
             m.removeGroup(ch, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     running = false
+                    listenerUpSinceElapsed = 0L
                     Server.closeControl()      // the bound address is going away
                     Svc.log("ap_stop")
                 }
@@ -132,14 +143,14 @@ object Group {
     /** Leaving the alarm role: drop the group and forget the channel, so nothing here runs again. */
     fun reset(ctx: Context) {
         stop(ctx)
-        running = false; manager = null; channel = null
+        running = false; listenerUpSinceElapsed = 0L; manager = null; channel = null
     }
 
     /** Credentials changed: tear down and restart. The controller must re-enter them. */
     fun restart(ctx: Context, s: Settings) {
         stop(ctx)
         Thread.sleep(1500)
-        running = false
+        running = false; listenerUpSinceElapsed = 0L
         start(ctx, s)
     }
 }
