@@ -683,11 +683,28 @@ object Scheduler {
             .truncatedTo(java.time.temporal.ChronoUnit.HOURS)
             .plusHours(1).toInstant().toEpochMilli() + offsetMs
 
-    fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, topOfNextHour(0))
+    /**
+     * **Twenty seconds past the hour, never on it.**
+     *
+     * Round 19 aligned this to :00:00 exactly, which put it on the same millisecond as
+     * any alarm set to a whole hour -- and 04:00 is the default. Both are `setAlarmClock`
+     * for the same instant, so which one Android delivers first is a coin toss. When the
+     * tick won, `recompute` ran with the alarm due and no session open, decided the
+     * occurrence had been MISSED, latched it, cleared the override and fired immediately;
+     * the real trigger then arrived a second later and was absorbed. The alarm always
+     * rang on time, but the history recorded a miss that never happened -- which is the
+     * one signal in this product that has to mean exactly what it says. Observed twice on
+     * the real phone, at 13 Oct 05:00 and 17 Oct 08:00, both on moved alarms.
+     *
+     * Alarm times are whole minutes (`HH:mm`), so any offset strictly inside the minute
+     * cannot collide with one. Twenty seconds is ~20x the observed trigger delivery
+     * delay, and leaves the health check its own wakeup.
+     */
+    fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, topOfNextHour(20_000))
 
     /**
      * Hourly health check. Not a chirp, not a schedule: it only refreshes status.
-     * Half a minute after the tick so the two do not contend for the same wakeup.
+     * Twenty seconds after the tick so the two do not contend for the same wakeup.
      */
-    fun armGateAlarm(ctx: Context) = set(ctx, ACTION_ARMGATE, 1004, topOfNextHour(30_000))
+    fun armGateAlarm(ctx: Context) = set(ctx, ACTION_ARMGATE, 1004, topOfNextHour(40_000))
 }

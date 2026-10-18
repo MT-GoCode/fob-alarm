@@ -837,3 +837,44 @@ URI, and a successful copy logs `ringtone_copied` with the byte count.
 locked reboot reproduced the bug. Unlocking migrated it. A second locked reboot then rang with
 **zero `ringtone_unavailable`** — same `db_unavailable` proving CE was still shut, same `ring_start`, and the
 user's file played. 60 core tests pass.
+
+## Round 26 — the hourly tick was racing the alarm, and logging false misses
+
+Found by reading the alarm phone's own history after the user said the screen behaved oddly one morning. The
+screen was a red herring; this was underneath it.
+
+Round 19 aligned the hourly jobs to `:00:00` exactly. Alarm times are whole minutes and the default is **04:00**,
+so the tick and the alarm became two `setAlarmClock` wakeups for the *same millisecond*. Delivery order is a coin
+toss. When the tick won:
+
+```
+17 Oct 08:00:00  latch   {occurrence: 2026-10-17/SCHEDULED, reason: MISSED}
+17 Oct 08:00:00  missed  {occurrence: 2026-10-17/SCHEDULED}
+17 Oct 08:00:00  override_cleared {reason: occurrence_resolved}
+17 Oct 08:00:00  fire_now_after_clock_jump {source: SCHEDULED}
+17 Oct 08:00:00  ring_start
+17 Oct 08:00:01  alarm_fired            ← the real trigger, one second late
+17 Oct 08:00:01  trigger_absorbed       ← absorbed into the session the miss already opened
+```
+
+`recompute` ran with the override's instant reached and no session open, so the moved-alarm miss check concluded
+the occurrence had been missed: latched MISSED, cleared the override as `occurrence_resolved`, and set `fireNow`.
+The alarm **rang on time every time** — nothing was ever lost — but the history recorded a miss that did not
+happen, and `missed` is the one signal in this product that has to mean exactly what it says. The seven-night
+acceptance row in the README is literally "no `missed`"; it could not pass on a top-of-hour alarm, and a real miss
+had become indistinguishable from this artefact.
+
+Observed twice on the real phone, both on moved alarms set to a whole hour: **13 Oct 05:00** and **17 Oct 08:00**,
+each with `alarm_fired`/`trigger_absorbed` one second behind. The two genuine misses in the same window
+(11 Oct, occurrences for the 10th and 11th, latched on boot after the phone had been off) look completely
+different and were correctly reported.
+
+**Fix: the hourly jobs move off the minute boundary** — tick at `:00:20`, health check at `:00:40`. Alarm times
+are whole minutes, so any offset strictly inside the minute cannot collide with one; twenty seconds is about
+twenty times the observed trigger-delivery delay. No engine semantics changed: the miss check is right to call an
+overdue occurrence with no session a miss, it was simply being asked the question at the wrong instant.
+
+Residual, stated rather than papered over: if a trigger were ever delivered more than twenty seconds late, the
+tick could still win and log a false miss. The alarm would still ring. Closing that would need a grace window on
+the miss check, which the design rules out for good reasons, so the collision is removed instead of the symptom
+being masked.

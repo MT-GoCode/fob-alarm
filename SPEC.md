@@ -687,9 +687,17 @@ an hourly tick as a backstop only.
 
 ## 10. Hourly health check
 
-Runs **at the top of every hour** and at ring start. Two separate `setAlarmClock` wakeups: the tick at `:00`
-(recompute, prune, clock re-read, link restart if needed) and this health check at `:00:30`, offset so the two do
-not contend. Both are re-armed by every state transaction, so they must be scheduled to an absolute hour
+Runs **shortly after the top of every hour** and at ring start. Two separate `setAlarmClock` wakeups: the tick at
+`:00:20` (recompute, prune, clock re-read, link restart if needed) and this health check at `:00:40`, offset so
+the two do not contend.
+
+**Neither may land on `:00:00`.** They did for three weeks, and that put them on the same millisecond as any
+alarm set to a whole hour — 04:00 being the default. Both are `setAlarmClock` for the same instant, so delivery
+order is a coin toss; when the tick won, `recompute` saw the alarm due with no session open, latched the
+occurrence **MISSED**, cleared the override and fired immediately, and the real trigger arrived a second later to
+be absorbed. The alarm always rang on time, but the log recorded a miss that never happened — and `missed` is the
+one signal here that has to mean exactly what it says (§ the seven-night acceptance row). Alarm times are whole
+minutes, so any offset strictly inside the minute is collision-proof. Both are re-armed by every state transaction, so they must be scheduled to an absolute hour
 boundary rather than `now + 1h`, or they drift with whatever the user last touched and "hourly" becomes a lie on
 screen. Nothing is nightly, nothing chirps; failures are listed on Status as problems, on both phones. Checks: **`nextFire != null`**, group running, audio file playable, **plugged in**, thermal status
 < `SEVERE`, DND allows alarms, not hibernating, battery unrestricted, all permission gates green.
