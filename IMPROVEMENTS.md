@@ -878,3 +878,16 @@ Residual, stated rather than papered over: if a trigger were ever delivered more
 tick could still win and log a false miss. The alarm would still ring. Closing that would need a grace window on
 the miss check, which the design rules out for good reasons, so the collision is removed instead of the symptom
 being masked.
+
+**Addendum.** The user also had a **stock Clock app alarm set for the same minute**, which is what actually
+explains the symptom they noticed (the screen going dark with nobody touching the power button): two apps each
+raising a full-screen alarm UI at the same instant, and dismissing one leaves the other's window state arbitrary.
+It is not the cause of the false `missed` — the sequence numbers put `latch`/`missed`/`override_cleared` at
+4499-4501, emitted by the recompute at 4502 whose reason is `hourly_tick` — but it is a plausible aggravator: our
+`alarm_fired` was a second late, and a competing full-screen alarm grabbing the foreground at `:00:00.000` would
+delay our foreground-service start and widen the window for the tick to win the race.
+
+Detecting it was considered and **declined** (`AlarmManager.getNextAlarmClock()` reports the next alarm-clock
+alarm for the user from any app, no permission needed, so a "something rings before this" row was available). The
+decision was to keep the Setup list short and simply not set a second alarm. Recorded so the option is not
+rediscovered as if it were new.
