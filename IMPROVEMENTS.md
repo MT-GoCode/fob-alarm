@@ -916,7 +916,20 @@ Also confirmed while in here, since both were asked: a test ring is a genuinely 
 no engine session, no latch, no schedule, no override, a 60 s self-cap instead of `maxRingMinutes` — and the test
 rings that morning did play the user's own ringtone, evidenced by zero `ringtone_unavailable` across the log.
 
-**Left undone, deliberately, pending a decision:** the controller shows the ring screen only while the snapshot is
-less than ten minutes old, but `maxRingMinutes` is 40. A link that drops at ring start therefore takes the dismiss
-button off the controller half an hour before the alarm actually stops — exactly when someone would walk over and
-need it. `endsByMs` is already in the snapshot and is the correct bound.
+**Also in this commit, and it should have been called out separately.** The controller showed the ring screen only
+while its snapshot was under ten minutes old, but `maxRingMinutes` is 40: a link dropping at ring start took the
+dismiss button off the controller half an hour before the alarm actually stopped — exactly when someone would walk
+over and need it. The bound is now the ring's own `endsByMs`, which is already in the snapshot and is precisely
+"the instant the alarm phone will have stopped by"; `testUntilMs` is the same bound for a test. Past that a stale
+snapshot still cannot hold the screen, which was the original intent of the ten minutes.
+
+The same flat ten minutes gated the fast poll cadence in `AppState`, for the same reason and with the same error,
+so both moved together.
+
+An audit for others of this shape — a hardcoded window standing in for a deadline the data already carries — found
+no further instances. `connected < 30 s`, `peerRecent < 2 min`, the 15 s gate cache and the 10 min probe throttle
+are freshness and throttle judgements with no deadline to derive from, and the ring wake lock is four hours against
+a two-hour maximum ring, which errs the safe way.
+
+(Process note: this change was made, interrupted mid-review, and then swept into this commit unnoticed and
+reported to the user as *not* done. It was wanted, so it stays — but it shipped in 0.2.84 undeclared.)
