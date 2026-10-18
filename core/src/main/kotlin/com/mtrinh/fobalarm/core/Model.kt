@@ -32,13 +32,23 @@ data class Settings(
      */
     val resnoozeAfterSeconds: Int = 5,            // 0..snoozeSeconds
     /**
-     * Block the ring when the sentinel phone is away. **Defaults OFF**, and gated behind the
-     * password, because it is the only setting in this app that can stop an alarm ringing.
+     * Block the ring when the sentinel phone is away. **Defaults OFF**, password-gated.
      *
-     * Known residual, accepted by the owner: a sentinel in airplane mode or rebooting across the
+     * Known residual, accepted by the owner: a phone in airplane mode or rebooting across the
      * alarm is indistinguishable from one that left the house, and the ring is blocked.
      */
-    val blockRingIfAway: Boolean = false,
+    val blockRingIfSentinelAway: Boolean = false,
+    /**
+     * The same, for the controller. Separate because the controller may BE the phone that leaves --
+     * not everyone wall-mounts it. OR'd with [blockRingIfSentinelAway]: either condition, enabled
+     * and met, blocks.
+     *
+     * Riskier than the sentinel one and left off by default for a reason worth stating: a
+     * wall-mounted, mains-powered controller that goes absent has usually had its *link* fail, not
+     * gone anywhere — and that is precisely when the alarm must ring. Turn this on only if the
+     * controller is a phone you carry.
+     */
+    val blockRingIfControllerAway: Boolean = false,
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,

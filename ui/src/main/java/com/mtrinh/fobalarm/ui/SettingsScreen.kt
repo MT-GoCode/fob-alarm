@@ -95,8 +95,12 @@ fun SettingsScreen(
         if (isAlarmRole) {
             Section("Away")
             LockedRow(locked) { on ->
-                ToggleSetting("Don't ring if the sentinel is away", s.settings.blockRingIfAway,
-                    enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfAway = v) } }
+                ToggleSetting("Don't ring if the sentinel is away", s.settings.blockRingIfSentinelAway,
+                    enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfSentinelAway = v) } }
+            }
+            LockedRow(locked) { on ->
+                ToggleSetting("Don't ring if the controller is away", s.settings.blockRingIfControllerAway,
+                    enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfControllerAway = v) } }
             }
         }
 

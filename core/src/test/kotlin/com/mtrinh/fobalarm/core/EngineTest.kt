@@ -436,12 +436,16 @@ class EngineTest {
         assertNull(r.fireNow)
     }
 
-    @Test fun `the block setting defaults off and is reported in the diff`() {
-        assertFalse(Settings().blockRingIfAway, "must default OFF")
+    @Test fun `both block settings default off and are reported in the diff`() {
+        assertFalse(Settings().blockRingIfSentinelAway, "sentinel block must default OFF")
+        assertFalse(Settings().blockRingIfControllerAway, "controller block must default OFF")
         val (c, s0) = fresh()
-        val r = Engine.patchSettings(s0, c, s0.settings.copy(blockRingIfAway = true), Actor.ALARM)
-        assertTrue(r.events.first { it.type == "settings_change" }
-            .detail["diff"]!!.contains("blockRingIfAway:false->true"))
+        val r = Engine.patchSettings(s0, c,
+            s0.settings.copy(blockRingIfSentinelAway = true, blockRingIfControllerAway = true),
+            Actor.ALARM)
+        val diff = r.events.first { it.type == "settings_change" }.detail["diff"]!!
+        assertTrue(diff.contains("blockSentinel:false->true"), diff)
+        assertTrue(diff.contains("blockController:false->true"), diff)
     }
 
     @Test fun `nextFire is never null under normal settings`() {

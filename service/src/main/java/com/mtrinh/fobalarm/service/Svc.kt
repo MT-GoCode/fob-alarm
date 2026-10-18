@@ -141,17 +141,39 @@ object Svc : AlarmHost {
      * The `second` of the pair is why it is NOT blocking, for the decision log.
      */
     fun ringBlockReason(): Pair<String?, String?> {
-        if (!settings.blockRingIfAway) return null to "setting_off"
-        val p = sentinelPresence ?: return null to "sentinel_never_seen"
-        if (p.missingGates.isNotEmpty()) return null to "sentinel_gates:${p.missingGates.joinToString("|")}"
-        if (p.powerSave) return null to "sentinel_power_save"
-        if (!p.plugged && p.batteryPct in 0..19) return null to "sentinel_low_battery:${p.batteryPct}"
+        val armed = buildList {
+            if (settings.blockRingIfSentinelAway) add(Role.SENTINEL)
+            if (settings.blockRingIfControllerAway) add(Role.CONTROLLER)
+        }
+        if (armed.isEmpty()) return null to "setting_off"
+        // OR: either enabled role being genuinely away blocks. The whys of the roles that did NOT
+        // block are kept for the log, so a morning that rang still says why.
+        val whys = mutableListOf<String>()
+        for (role in armed) {
+            val (blocked, why) = awayReasonFor(role)
+            if (blocked != null) return blocked to null
+            whys += "${role.name.lowercase()}=$why"
+        }
+        return null to whys.joinToString(",")
+    }
+
+    /**
+     * Is [role] genuinely away? One predicate, every branch failing toward ringing: the phone must
+     * be positively known-absent AND have been trustworthy when last heard from. Anything
+     * unexplained rings.
+     */
+    private fun awayReasonFor(role: Role): Pair<String?, String> {
+        val name = role.name.lowercase()
+        val p = presenceOf(role) ?: return null to "never_seen"
+        if (p.missingGates.isNotEmpty()) return null to "gates:${p.missingGates.joinToString("|")}"
+        if (p.powerSave) return null to "power_save"
+        if (!p.plugged && p.batteryPct in 0..19) return null to "low_battery:${p.batteryPct}"
         val absentMs = android.os.SystemClock.elapsedRealtime() - p.lastSeenElapsed
-        if (absentMs < ABSENCE_FLOOR_MS) return null to "sentinel_present:${absentMs / 1000}s"
-        // This phone's OWN link being down must never read as the owner having left.
+        if (absentMs < ABSENCE_FLOOR_MS) return null to "present:${absentMs / 1000}s"
+        // This phone's OWN link being down must never read as the other phone having left.
         val upSince = Group.listenerUpSinceElapsed
         if (upSince == 0L || upSince > p.lastSeenElapsed) return null to "own_link_unstable"
-        return "sentinel away ${absentMs / 1000}s" to null
+        return "$name away ${absentMs / 1000}s" to "away"
     }
 
     /**
@@ -539,8 +561,9 @@ object Svc : AlarmHost {
             patch.snoozeSeconds != state.settings.snoozeSeconds,
             patch.snoozeHoldSeconds != state.settings.snoozeHoldSeconds,
             patch.resnoozeAfterSeconds != state.settings.resnoozeAfterSeconds,
-            // The only setting that can stop an alarm ringing. Locked, obviously.
-            patch.blockRingIfAway != state.settings.blockRingIfAway,
+            // The only two settings that can stop an alarm ringing. Locked, obviously.
+            patch.blockRingIfSentinelAway != state.settings.blockRingIfSentinelAway,
+            patch.blockRingIfControllerAway != state.settings.blockRingIfControllerAway,
             patch.defaultAlarmTime != state.settings.defaultAlarmTime,
             patch.vibrate != state.settings.vibrate,
             patch.maxRingMinutes != state.settings.maxRingMinutes,

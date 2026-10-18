@@ -1071,3 +1071,25 @@ peer=AAA  sentinel=CCC
 
 The last row matters: builds predating the sentinel send no `role`, and must still be read as
 CONTROLLER rather than guessed as SENTINEL.
+
+## Round 30 — the controller-away setting, which I had wrongly cut
+
+The owner's original ask had **two** settings OR'd: don't ring if the sentinel is away, and don't
+ring if the controller is away, *"since some might make phone the controller"*. The simplicity
+review argued the second was unjustified because the controller is wall-mounted and mains-powered,
+so its absence means a broken link rather than an absent owner — which is exactly when the alarm
+must ring. I accepted that, mentioned the cut in passing, and never got agreement. The owner's
+rationale was precisely the case the review had not considered: if the controller IS the phone you
+carry, controller-absence is a proximity signal.
+
+Built as asked. `blockRingIfAway` is now `blockRingIfSentinelAway`, joined by
+`blockRingIfControllerAway`; the predicate moved into `awayReasonFor(role)` and `ringBlockReason`
+ORs over whichever roles are armed, returning the first that is genuinely away. Both are
+password-gated and default off. The reasons the *non*-blocking roles gave are still logged, so a
+morning that rang records why.
+
+The risk the review identified is real and is written on the setting rather than designed away: a
+mains-powered wall controller that goes absent has usually lost its link, not moved, so turning this
+on when the controller never leaves the house converts a link failure into a silent morning. The
+doc comment says to enable it only if the controller is a phone you carry.
+
