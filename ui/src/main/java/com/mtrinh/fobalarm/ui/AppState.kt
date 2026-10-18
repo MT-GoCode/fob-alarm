@@ -35,6 +35,12 @@ class AppState(
     var lastOkMs by mutableLongStateOf(0L); private set
     var dismissUi by mutableStateOf<DismissUi>(DismissUi.Idle); private set
     var token by mutableStateOf<String?>(null); internal set
+    /**
+     * Which path the link is using: "p2p", "wifi", or null when local/never. Shown in the bar so a
+     * silent fallback is visible -- a controller working over Wi-Fi while Wi-Fi Direct is down
+     * looks identical to a healthy link otherwise, and that is worth knowing before bed.
+     */
+    var via by mutableStateOf<String?>(null); internal set
 
     /** Matches the server's two-minute window, so the screen never claims a dead unlock. */
     /**
@@ -100,6 +106,7 @@ class AppState(
     }
 
     suspend fun refresh() {
+        (client as? com.mtrinh.fobalarm.data.HttpStateClient)?.let { via = it.lastVia }
         client.snapshot()
             .onSuccess { s ->
                 if (s.ring?.ringId != lastRingId) {
@@ -261,6 +268,7 @@ class AppState(
                     if (e is ClientError.Transport && !isLocal) noteFailure()
                     if (e is ClientError.Forbidden) token = null   // stale token reads as locked
                     syncMessage = when (e) {
+                        is ClientError.RoleTaken -> "$label not saved. ${e.reason}."
                         is ClientError.Forbidden ->
                             if (isLocal) "$label not saved. Unlock first."
                             else "$label not saved. Locked \u2014 unlock on the alarm phone."

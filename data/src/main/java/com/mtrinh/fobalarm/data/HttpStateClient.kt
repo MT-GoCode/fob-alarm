@@ -21,14 +21,50 @@ class HttpStateClient(
      * Context exists -- role, power-save mode, the LAN address. Values are URL-encoded here.
      */
     private val extraParams: () -> Map<String, String> = { emptyMap() },
+    /**
+     * The alarm phone's ordinary-network address, learned from its own snapshot while the P2P link
+     * was up. Tried only when the P2P host is missing or unreachable.
+     */
+    private val fallbackHostProvider: () -> String? = { null },
 ) : StateClient {
 
     companion object { const val PORT = 8765 }
 
+    /** Which path the last successful request took: "p2p", "wifi", or null if none has. */
+    @Volatile var lastVia: String? = null; private set
+
+    /**
+     * P2P first, then the LAN address if P2P is missing or the connection fails.
+     *
+     * Wi-Fi Direct membership is the fragile part of this system -- a 10 s client-group idle
+     * timeout, a 45 s rejoin guard, the alarm phone rebuilding its own group. None of that touches
+     * home Wi-Fi, so the fallback turns most of those outages into nothing the owner notices.
+     */
     private suspend fun request(
         method: String, path: String, body: JSONObject? = null, timeoutMs: Int = 4000,
     ): String = withContext(Dispatchers.IO) {
-        val host = hostProvider() ?: throw ClientError.Transport("not joined to the alarm phone")
+        val p2p = hostProvider()
+        val lan = fallbackHostProvider()
+        if (p2p == null && lan == null) throw ClientError.Transport("not joined to the alarm phone")
+        var lastTransport: ClientError.Transport? = null
+        for ((via, host) in listOfNotNull(p2p?.let { "p2p" to it }, lan?.let { "wifi" to it })) {
+            try {
+                val out = attempt(via, host, method, path, body, timeoutMs)
+                lastVia = via
+                return@withContext out
+            } catch (e: ClientError.Transport) {
+                // Only a transport failure is worth retrying on the other path. A 403, 409 or a
+                // malformed body is the alarm phone's considered answer and must not be re-asked.
+                lastTransport = e
+            }
+        }
+        throw lastTransport ?: ClientError.Transport("unreachable")
+    }
+
+    private fun attempt(
+        via: String, host: String,
+        method: String, path: String, body: JSONObject?, timeoutMs: Int,
+    ): String {
         val url = URL("http://$host:$PORT$path")
         val conn = url.openConnection() as HttpURLConnection
         try {
@@ -44,12 +80,19 @@ class HttpStateClient(
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.readText().orEmpty()
-            when {
+            return when {
                 code in 200..299 -> text
                 code == 403 -> throw ClientError.Forbidden()
                 code == 409 -> {
-                    val o = JSONObject(text)
-                    val snap = Wire.snapshotFrom(o.getJSONObject("snapshot"))
+                    val o = runCatching { JSONObject(text) }.getOrNull()
+                        ?: throw ClientError.Server(code, text)
+                    // A 409 WITHOUT a snapshot is the role-already-claimed answer. Reading
+                    // `snapshot` unconditionally used to throw JSONException here, which became a
+                    // Transport error, so the rejected phone showed a dead link instead of saying
+                    // which role was taken.
+                    val snapObj = o.optJSONObject("snapshot")
+                        ?: throw ClientError.RoleTaken(o.optString("reason").ifBlank { "role taken" })
+                    val snap = Wire.snapshotFrom(snapObj)
                     if (o.optString("reason") == "stale_ring") throw ClientError.StaleRing(snap)
                     else throw ClientError.Conflict(snap)
                 }

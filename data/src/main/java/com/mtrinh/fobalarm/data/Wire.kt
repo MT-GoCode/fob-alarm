@@ -88,6 +88,7 @@ object Wire {
         .put("batteryPct", d.batteryPct).put("plugged", d.plugged)
         .put("appVersion", d.appVersion)
         .put("role", d.role?.name ?: JSONObject.NULL).put("deviceId", d.deviceId)
+        .put("lanIp", d.lanIp ?: JSONObject.NULL)
         .put("lastSeenMs", d.lastSeenMs)
 
     private fun deviceFrom(o: JSONObject) = DeviceView(
@@ -97,6 +98,7 @@ object Wire {
         role = o.optString("role").takeIf { it.isNotEmpty() && it != "null" }
             ?.let { runCatching { Role.valueOf(it) }.getOrNull() },
         deviceId = o.optString("deviceId", "?"),
+        lanIp = if (o.isNull("lanIp")) null else o.optString("lanIp").takeIf { it.isNotBlank() },
         lastSeenMs = o.optLong("lastSeenMs", 0),
     )
 

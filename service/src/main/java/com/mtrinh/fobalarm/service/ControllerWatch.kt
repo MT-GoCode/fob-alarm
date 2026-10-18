@@ -32,11 +32,17 @@ object ControllerWatch {
 
     @Volatile var lastSnapshot: Snapshot? = null; private set
     @Volatile var lastOkMs = 0L; private set
+    /** The alarm phone's LAN address, learned from its snapshot while any path worked. */
+    @Volatile var alarmLanIp: String? = null; private set
+    /** "p2p" or "wifi" -- which path the last successful poll took, for the link bar. */
+    val via: String? get() = client.lastVia
     @Volatile private var alertShownFor: String? = null
 
     private val client by lazy {
         HttpStateClient(
             hostProvider = { P2pJoinBridge.ownerAddress() },
+            // The alarm phone's own address, remembered from the last snapshot it sent.
+            fallbackHostProvider = { alarmLanIp },
             selfProvider = { Svc.selfDevice() },
             localBlockers = {
                 GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
@@ -60,6 +66,8 @@ object ControllerWatch {
         r.onSuccess { s ->
             lastSnapshot = s
             lastOkMs = System.currentTimeMillis()
+            // `peer` is the alarm phone from this phone's point of view (withSelf swaps them).
+            s.peer?.lanIp?.let { alarmLanIp = it }
             val test = s.ring == null && s.testUntilMs > s.serverTimeMs
             val ringId = s.ring?.ringId ?: if (test) "test-${s.testUntilMs}" else null
             if (ringId != null && ringId != alertShownFor) {

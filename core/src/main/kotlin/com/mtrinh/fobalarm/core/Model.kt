@@ -222,6 +222,11 @@ data class ApView(
 data class DeviceView(
     val batteryPct: Int, val plugged: Boolean, val appVersion: String,
     val role: Role?, val deviceId: String, val lastSeenMs: Long = 0,
+    /**
+     * This phone's address on the ordinary network, learned by the other phone while the P2P link
+     * is up and used as the fallback host once it is not. Null when it has no LAN address.
+     */
+    val lanIp: String? = null,
 )
 /**
  * The one-off change in force on the next alarm, for the screen.

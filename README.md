@@ -39,8 +39,10 @@ the workflow needs them.
 ```
 
 Port **8766**, read-only, on all interfaces; it never shows the passphrase. The control
-port (**8765**) is bound to the Wi-Fi Direct address only, so nothing on home Wi-Fi can
-dismiss an alarm.
+port (**8765**) is on all interfaces too, so the controller keeps working when Wi-Fi Direct drops —
+the link bar then says **via Wi-Fi fallback** instead of **via P2P**. Only one controller and one
+sentinel are accepted at a time, which is what stops you turning your own pocket phone into a
+controller at 04:00 and dismissing from bed. That is a surface-level block, not security.
 
 ---
 

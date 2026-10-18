@@ -17,13 +17,21 @@ import kotlin.concurrent.thread
 /**
  * Two servers, deliberately.
  *
- *  :8765 CONTROL  -- bound to the P2P interface only. Mutating. Dismiss and nap are
- *                    ungated by design, so exposing this on home WiFi would let every
- *                    device on the LAN kill the alarm.
+ *  :8765 CONTROL  -- all interfaces. Mutating.
  *  :8766 LOGS     -- all interfaces, GET-only, read-only. The logcat replacement.
  *
- * No application-layer signing on the control port: anyone who can reach it has already
- * joined a WPA2 group using that passphrase. WPA2 is the boundary. SPEC.md section 1.
+ * **The control port used to bind to the P2P address only**, so that nothing on home Wi-Fi could
+ * dismiss an alarm. That was given up deliberately, because binding it there also meant the
+ * controller was useless the moment Wi-Fi Direct membership flapped -- and it flaps for reasons
+ * that have nothing to do with where anyone is standing: a 10 s client-group idle timeout, a 45 s
+ * rejoin guard, this phone rebuilding its own group with up to 120 s of backoff. Home Wi-Fi is
+ * unaffected by all of it, so it is now a fallback path for dismiss, nap and settings.
+ *
+ * There is still no application-layer signing, and the owner's threat model is explicit: the
+ * defence is not against an attacker on the LAN, it is against the OWNER at 04:00 turning a pocket
+ * phone into a controller and dismissing from bed rather than walking to the box. `roleAvailableTo`
+ * is that block -- a UI-level refusal, trivially bypassable by anyone willing to craft an HTTP
+ * request, and not pretending otherwise. SPEC.md section 1.
  */
 object Server {
     const val CONTROL_PORT = 8765
@@ -63,16 +71,19 @@ object Server {
             // normal state before pairing, not an error worth logging every 15 seconds.
             // The controller never serves control: a listener on its own 192.168.49.1
             // would answer its own polls and it would watch itself instead of the alarm.
-            if (control && (!Group.running || Svc.settings.role != Role.ALARM)) {
+            // Only the ALARM phone serves control. A listener on a controller's own 192.168.49.1
+            // would answer its own polls and it would watch itself. The group no longer has to be
+            // up: the socket binds on all interfaces, so home Wi-Fi works before pairing and
+            // during any P2P outage.
+            if (control && Svc.settings.role != Role.ALARM) {
                 controlStatus = "waiting for group"
                 Thread.sleep(5_000)
                 continue
             }
             runCatching {
-                val server = if (control)
-                    ServerSocket(port, 50, runCatching { InetAddress.getByName("192.168.49.1") }.getOrNull())
-                        .also { controlSocket = it }
-                else ServerSocket(port)
+                // All interfaces for both. The control socket is kept in a field so a group
+                // teardown can still force a rebind, which is why it is not just `ServerSocket(port)`.
+                val server = ServerSocket(port).also { if (control) controlSocket = it }
                 if (control) controlStatus = "listening" else logStatus = "listening"
                 Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())
                 backoffMs = 1_000L; quietFailures = 0
@@ -207,15 +218,23 @@ object Server {
                         .put("bytes", body.toByteArray(Charsets.UTF_8).size).toString()
 
                 path.startsWith("/v1/snapshot") -> {
-                    // The controller piggybacks its own device on the poll it already
-                    // makes, so the alarm phone can render both devices. No new endpoint.
-                    param(path, "deviceId")?.let { id ->
-                        // A MISSING role means CONTROLLER: builds before the sentinel existed send
-                        // no role, and this endpoint hardcoded CONTROLLER. Never guess SENTINEL.
-                        val role = runCatching {
-                            com.mtrinh.fobalarm.core.Role.valueOf(param(path, "role") ?: "CONTROLLER")
-                        }.getOrDefault(com.mtrinh.fobalarm.core.Role.CONTROLLER)
-                        Svc.notePresence(role, Svc.Presence(
+                    // The peer piggybacks its own device on the poll it already makes, so the
+                    // alarm phone can render both devices. No new endpoint.
+                    val id = param(path, "deviceId")
+                    // A MISSING role means CONTROLLER: builds before the sentinel existed send no
+                    // role, and this endpoint hardcoded CONTROLLER. Never guess SENTINEL.
+                    val role = runCatching {
+                        com.mtrinh.fobalarm.core.Role.valueOf(param(path, "role") ?: "CONTROLLER")
+                    }.getOrDefault(com.mtrinh.fobalarm.core.Role.CONTROLLER)
+                    if (id != null && !Svc.roleAvailableTo(role, id)) {
+                        Svc.log("role_claim_rejected", "role" to role.name, "deviceId" to id)
+                        // 409 with a reason and NO snapshot: the rejected phone renders the words.
+                        409 to JSONObject()
+                            .put("reason", "another phone is already the " +
+                                "${role.name.lowercase()}; turn that one off for two minutes to take over")
+                            .toString()
+                    } else {
+                        if (id != null) Svc.notePresence(role, Svc.Presence(
                             deviceId = id,
                             lastSeenElapsed = android.os.SystemClock.elapsedRealtime(),
                             batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,
@@ -223,10 +242,9 @@ object Server {
                             powerSave = param(path, "powerSave") == "true",
                             missingGates = param(path, "blockers")
                                 ?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
-                            lanIp = param(path, "lanIp")?.takeIf { it.isNotBlank() },
                             appVersion = param(path, "appVersion") ?: "?"))
+                        200 to Wire.snapshotToJson(Svc.snapshot()).toString()
                     }
-                    200 to Wire.snapshotToJson(Svc.snapshot()).toString()
                 }
 
                 path.startsWith("/v1/dismiss") && method == "POST" ->

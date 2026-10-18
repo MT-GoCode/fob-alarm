@@ -1014,3 +1014,60 @@ as round 17's bug did. It is pure now; `ringBlockDecision` is the single place t
 **Not verifiable on an emulator, and stated rather than faked:** the blocking path itself. With no
 Wi-Fi Direct group, `Group.listenerUpSinceElapsed` is 0, so the own-link guard vetoes every block.
 Proving a real block needs two phones.
+
+## Round 29 — Wi-Fi as a real fallback, and one role at a time
+
+Two owner decisions that together simplified round 28 rather than extending it.
+
+**I had the threat model wrong.** I argued at length that a Wi-Fi control path would let anything on
+the LAN silence the alarm, and treated that as disqualifying. The owner's actual concern was never an
+attacker: *"in the morning i'm not gonna wake up and execute a cybersecurity attack just to turn off
+my alarm, i'll simply see that changing my personal phone's role to controller is not doable through
+the UI and i'll go walk over there."* The defence is against the owner at 04:00, and for that a
+surface-level refusal is exactly the right instrument.
+
+**So the control port now binds all interfaces.** `HttpStateClient` tries P2P first and the alarm
+phone's LAN address on a transport failure — and only on a *transport* failure, never on a 403, 409
+or malformed body, which are considered answers and must not be re-asked. The alarm phone advertises
+its own address as `DeviceView.lanIp`; the peer learns it from a snapshot while any path works and
+caches it. Binding to `192.168.49.1` had meant the controller was dead whenever Wi-Fi Direct
+flapped, which it does for reasons unrelated to anyone's location.
+
+**One controller and one sentinel at a time**, via `Svc.roleAvailableTo`. A holder refuses a
+different `deviceId` only while it is **actually present** (120 s) — so swapping a phone cannot lock
+a role out, which is the lockout the functionality review flagged as its most severe finding against
+the first design. The rejection is a `409` carrying a reason and **no snapshot**; `HttpStateClient`
+previously read `snapshot` from every 409 and threw `JSONException`, so a rejected phone showed a
+dead link instead of words. There is now a `ClientError.RoleTaken` and the message reads
+*"another phone is already the controller; turn that one off for two minutes to take over"*.
+
+Stated plainly in SPEC and in the code: this is not a security boundary. `deviceId` is self-asserted
+and `:8766` publishes it, so anyone willing to craft one HTTP request walks past it. Accepted.
+
+**The owner's idea deleted code rather than adding it.** Round 28 had the alarm phone *pull* the
+sentinel's read-only port as a second presence channel — a bespoke server-side mechanism
+(`SentinelLan`). With control on all interfaces the sentinel's **own poll** now succeeds over Wi-Fi,
+so presence arrives through the ordinary path. `SentinelLan` is deleted, along with
+`Presence.lanIp`, the sentinel's `lanIp` parameter, and a `forgetRole` helper written for a lockout
+that can no longer happen. One fallback mechanism, client-side, instead of two.
+
+**The link bar names the path**: `Controller: updated 2s ago via P2P` or `via Wi-Fi fallback`. A
+controller working only because home Wi-Fi is up looks identical to a healthy link otherwise, and
+that is worth seeing before bed.
+
+**Verified on the emulator.** The control port answers off the P2P interface (`http=200` where it was
+previously unreachable — the decisive test, since an emulator has no `192.168.49.1`), and the slot
+semantics hold in every case:
+
+```
+AAA claims CONTROLLER (free slot)          200
+AAA again (same holder refreshes)          200
+BBB claims CONTROLLER (holder present)     409  another phone is already the controller...
+CCC claims SENTINEL (different role)       200
+DDD claims SENTINEL (holder present)       409  another phone is already the sentinel...
+EEE with NO role (legacy -> CONTROLLER)    409  another phone is already the controller...
+peer=AAA  sentinel=CCC
+```
+
+The last row matters: builds predating the sentinel send no `role`, and must still be read as
+CONTROLLER rather than guessed as SENTINEL.

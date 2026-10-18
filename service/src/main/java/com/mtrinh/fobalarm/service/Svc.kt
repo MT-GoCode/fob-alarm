@@ -72,7 +72,6 @@ object Svc : AlarmHost {
         val plugged: Boolean,
         val powerSave: Boolean,
         val missingGates: List<String>,
-        val lanIp: String?,
         val appVersion: String,
     )
 
@@ -82,14 +81,36 @@ object Svc : AlarmHost {
     fun presenceOf(role: Role): Presence? =
         if (role == Role.SENTINEL) sentinelPresence else controllerPresence
 
+    /**
+     * Whether [deviceId] may act as [role] right now.
+     *
+     * **This is not a security boundary and is not trying to be.** `deviceId` is self-asserted and
+     * `:8766` publishes it, so anyone willing to craft an HTTP request can bypass it. What it
+     * stops is the owner, half asleep at 04:00, turning their pocket phone into a controller and
+     * dismissing the alarm from bed instead of walking to the box. The UI refuses, and that is the
+     * whole job.
+     *
+     * A holder only blocks a new claimant while it is **actually present**. Absent longer than the
+     * presence window and the slot is up for grabs -- otherwise reinstalling a phone (which mints a
+     * a new deviceId) would lock the role out forever and remote dismiss would simply stop working.
+     */
+    fun roleAvailableTo(role: Role, deviceId: String): Boolean {
+        val holder = presenceOf(role) ?: return true
+        if (holder.deviceId == deviceId) return true
+        val silentMs = android.os.SystemClock.elapsedRealtime() - holder.lastSeenElapsed
+        return silentMs >= PRESENT_WINDOW_MS
+    }
+
+    /** How recently a peer must have spoken to count as present. */
+    const val PRESENT_WINDOW_MS = 120_000L
+
     fun notePresence(role: Role, p: Presence) {
         val prev = presenceOf(role)
         // The gap is the measurement the absence floor has to be set from. Logged rather than
         // guessed, because "two minutes" was invented and nothing in this app recorded peer gaps.
         if (prev != null) {
             val gap = (p.lastSeenElapsed - prev.lastSeenElapsed) / 1000
-            if (gap >= 60) log("peer_gap", "role" to role.name, "seconds" to gap.toString(),
-                "via" to (if (p.lanIp != null) "lan_or_p2p" else "p2p"))
+            if (gap >= 60) log("peer_gap", "role" to role.name, "seconds" to gap.toString())
         }
         if (role == Role.SENTINEL) sentinelPresence = p else controllerPresence = p
     }
@@ -470,7 +491,8 @@ object Svc : AlarmHost {
             plugged = (batt?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,
             appVersion = appVersion,
             role = state.settings.role, deviceId = de.deviceId ?: "?",
-            lastSeenMs = System.currentTimeMillis()).also {
+            lastSeenMs = System.currentTimeMillis(),
+            lanIp = Power.lanIp()).also {
             selfCache = it; selfCacheAtMs = System.currentTimeMillis()
         }
     }

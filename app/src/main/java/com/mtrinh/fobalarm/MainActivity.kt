@@ -185,7 +185,6 @@ class MainActivity : ComponentActivity() {
                     put("role", role.name)
                     if (role == Role.SENTINEL) {
                         put("powerSave", Power.saveMode(this@MainActivity).toString())
-                        Power.lanIp()?.let { put("lanIp", it) }
                     }
                 }
             },

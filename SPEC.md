@@ -90,7 +90,21 @@ product. **WPA2 is the boundary; that is what it is for.**)*
 `:8765` would expose `POST /v1/dismiss`, `/v1/nap` (both deliberately ungated) and the entire history to every
 device on the home network — guests, IoT, a compromised TV. Therefore:
 
-- **The control server binds to the P2P interface only.** Not `0.0.0.0`.
+- **The control server binds to all interfaces.** It used to bind the P2P address only, so that
+  nothing on home Wi-Fi could dismiss an alarm. **Superseded 2026-10-18.** Binding it there also made
+  the controller useless the moment Wi-Fi Direct membership flapped — and it flaps for reasons that
+  have nothing to do with where anyone is standing: a 10 s client-group idle timeout, a 45 s rejoin
+  guard, the alarm phone rebuilding its own group with up to 120 s of backoff. Home Wi-Fi is immune
+  to all of it, so it is now a fallback path for dismiss, nap and settings, chosen per request in
+  `HttpStateClient` (P2P first, LAN on a transport failure).
+
+  **The owner's threat model, stated explicitly, because it is not "an attacker on the LAN".** It is
+  the owner at 04:00 turning their pocket phone into a controller and dismissing from bed instead of
+  walking to the box. `Svc.roleAvailableTo` is that block: one controller and one sentinel at a
+  time, and a holder refuses a different `deviceId` only while it is **actually present** (120 s), so
+  replacing a phone cannot lock the role out. It is a UI-level refusal — `deviceId` is self-asserted
+  and `:8766` publishes it, so anyone willing to craft an HTTP request walks straight past it. That
+  is accepted and not pretended otherwise.
 - **Logs get their own port, `:8766`, read-only, `GET` only**, bound on all interfaces so the Mac can reach it.
   Nothing on that port can change state.
 - Anything that *does* mutate state and arrives off-P2P requires a bearer token. There is no path by which a device

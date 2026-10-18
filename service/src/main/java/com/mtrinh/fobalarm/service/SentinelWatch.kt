@@ -22,11 +22,17 @@ object SentinelWatch {
 
     @Volatile var lastSnapshot: Snapshot? = null; private set
     @Volatile var lastOkMs = 0L; private set
+    /** The alarm phone's LAN address, learned from its snapshot while any path worked. */
+    @Volatile var alarmLanIp: String? = null; private set
+    /** "p2p" or "wifi" -- which path the last successful poll took, for the link bar. */
+    val via: String? get() = client.lastVia
     @Volatile var lastError: String? = null; private set
 
     private val client by lazy {
         HttpStateClient(
             hostProvider = { P2pJoinBridge.ownerAddress() },
+            // The alarm phone's own address, remembered from the last snapshot it sent.
+            fallbackHostProvider = { alarmLanIp },
             selfProvider = { Svc.selfDevice() },
             localBlockers = {
                 // The same gate set the controller reports. If any of these is missing, the alarm
@@ -39,7 +45,6 @@ object SentinelWatch {
                     // Battery saver throttles background work at ANY charge level once the owner
                     // turns it on by hand, which the low-battery check would not catch.
                     put("powerSave", Power.saveMode(Svc.app).toString())
-                    Power.lanIp()?.let { put("lanIp", it) }
                 }
             },
         )
@@ -61,6 +66,7 @@ object SentinelWatch {
             lastSnapshot = s
             lastOkMs = System.currentTimeMillis()
             lastError = null
+            s.peer?.lanIp?.let { alarmLanIp = it }
             // Logged on THIS phone too, so a gap can be seen from either end. The alarm phone's
             // peer_gap is the measurement that sets the absence floor; this is the corroboration.
             if (was > 0L) {

@@ -121,7 +121,6 @@ class LinkService : Service() {
                         } else backoffMs = 5_000L
                         Group.refresh(this@LinkService)
                         Health.probe(this@LinkService)
-                        Thread { SentinelLan.refresh() }.start()
                     }
                 }
                 Role.SENTINEL -> {

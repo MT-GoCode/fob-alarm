@@ -171,9 +171,16 @@ fun LinkBar(app: AppState, isAlarmRole: Boolean) {
     val at = app.linkAtMs
     val ok = app.connected
     val other = if (isAlarmRole) "Controller" else "Alarm phone"
+    // Name the transport when it is the fallback. "via Wi-Fi" means Wi-Fi Direct is down and the
+    // link is only working because home Wi-Fi is up -- true but fragile, and worth seeing.
+    val path = when (app.via) {
+        "wifi" -> " via Wi-Fi fallback"
+        "p2p" -> " via P2P"
+        else -> ""
+    }
     val text = when {
         at == 0L -> "$other: never heard from"
-        ok -> "$other: updated ${Fmt.age(at, now)}"
+        ok -> "$other: updated ${Fmt.age(at, now)}$path"
         else -> "$other: not answering for ${Fmt.duration(now - at)}. Showing what it last said."
     }
     Surface(color = if (ok) Good else Bad, modifier = Modifier.fillMaxWidth()) {

@@ -43,6 +43,12 @@ sealed class ClientError(message: String) : Exception(message) {
     class StaleRing(val snapshot: Snapshot) : ClientError("409 stale ringId")
     class Forbidden : ClientError("403 password required")
     class Conflict(val snapshot: Snapshot) : ClientError("409 stale stateVersion")
+    /**
+     * Another phone already holds this role on the alarm phone. Not a security boundary -- it is
+     * the surface-level block that stops a half-asleep owner turning their pocket phone into a
+     * controller and dismissing the alarm from bed instead of walking to the box.
+     */
+    class RoleTaken(val reason: String) : ClientError("409 $reason")
     class Server(val code: Int, val body: String) : ClientError("$code $body")
 }
 
