@@ -266,11 +266,9 @@ object Engine {
             }
         }
 
-        // 4. Drop an elapsed nap -- but not inside its delivery window. This is the same race
-        //    the scheduled grace fixes, and it was left open for naps: a recompute landing after
-        //    the nap's instant but BEFORE AlarmManager dispatched it dropped the nap and re-armed
-        //    for tomorrow, so the nap never fired at all. While it is kept, `napFire` below is
-        //    still a candidate at its own past instant, so it stays armed and is delivered at once.
+        // 4. Drop an elapsed nap, but not inside its delivery window: until that expires its
+        //    broadcast may still be in flight. A kept nap is still a `napFire` candidate at its
+        //    own past instant, so it stays armed and is redelivered at once.
         st.nap?.let { if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) st = st.copy(nap = null) }
 
         // 5. Pick nextFire: the earliest of the three independent candidates.
@@ -407,7 +405,11 @@ object Engine {
      */
     fun onTrigger(st: EngineState, ts: TimeSource, source: OccurrenceSource, newRingId: String): RecomputeResult {
         val now = ts.nowMs()
-        val open = st.session
+        // A session that has outrun its own cap is NOT open. The two early returns below run
+        // before step 0 reaps it, so an expired-but-unreaped session used to swallow an elapsed
+        // nap -- dropped or snooze-cancelled -- and then be reaped, leaving the nap gone with
+        // nothing ringing.
+        val open = st.session?.takeIf { it.endsByMs > now }
         val events = mutableListOf<PendingEvent>()
 
         // A NAP trigger consumes the ELAPSED nap it delivers, and only that one. A nap still in
@@ -440,7 +442,7 @@ object Engine {
                 lastOutcome = LastOutcome(Outcome.SUPERSEDED, now, open.occurrenceId.toString(), open.ringId, open.snoozeCount),
                 latches = st1.latches + Latch(open.occurrenceId, LatchReason.SUPERSEDED, now),
             )
-        } else if (open != null && open.endsByMs > now) {
+        } else if (open != null) {
             // Only one session at a time, ever. Absorb a duplicate.
             events += PendingEvent("trigger_absorbed", mapOf("ringId" to open.ringId))
             return recompute(st1, ts, "trigger_absorbed").let { it.copy(events = events + it.events) }

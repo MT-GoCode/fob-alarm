@@ -552,6 +552,27 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `an elapsed nap is not swallowed by a session that outran its cap`() {
+        // `nap_dropped` and `snooze_cancelled` are early returns that run BEFORE step 0 reaps an
+        // expired session. So an expired-but-unreaped session consumed the nap and was then
+        // reaped, and the nap was gone with nothing ringing. Fifth instance this round of a guard
+        // returning early from a shared path.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        val ringing = Engine.onTrigger(s0, c, OccurrenceSource.SCHEDULED, "r-alarm").state
+        val capAt = ringing.session!!.endsByMs
+        val napped = Engine.setNap(ringing, c, 10).state
+
+        // Well past both the nap's instant and the session's cap, with nothing having reaped it.
+        c.ms = capAt + 5 * 60_000
+        assertTrue(napped.nap!!.fireAtMs < c.ms, "the nap has elapsed")
+
+        val r = Engine.onTrigger(napped, c, OccurrenceSource.NAP, "r-nap")
+        assertEquals(OccurrenceSource.NAP, r.state.session?.trigger,
+            "the nap must ring: the session it would have been dropped for is dead")
+        assertTrue(r.events.any { it.type == "ring_start" })
+    }
+
     @Test fun `a snooze re-ring does not consume a nap set during the snooze`() {
         // The defect my own fire-storm fix introduced. A snooze re-ring arrives as onTrigger(NAP)
         // for a NAP session, which is NOT a nap delivery -- so consuming `st.nap` on any NAP

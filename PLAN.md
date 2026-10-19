@@ -359,11 +359,30 @@ Count for this round: **eleven defects**, four of them mine, three of those bein
 re-introduced the defect it was fixing by another route. Every one of the three was in a guard that
 returned early from a shared path, and every one read correct in isolation.
 
-### Deferred to a later round: the nap/alarm reboot asymmetry
+### Deferred to a later round: A KNOWN RING LOSS — a nap the phone reboots through
 
-A scheduled alarm the phone reboots through rings, via `pending` staying armed and then `fireNow`.
-A nap does not: if no recompute runs inside its 60 s window — a reboot or force-stop across the nap
-instant — the boot recompute drops it silently, with no `missed` event and no `fireNow`. This loss
-predates the delivery window and the window did not move it; it is an asymmetry rather than a
-regression, and closing it means deciding whether a nap missed by an outage should ring late at all,
-which is a product question and not a bug fix. Not mixed into this round.
+Stated as what it is. I first wrote this up as "a product question", and review rejected that
+framing, correctly: **the engine has already answered the question.** `fireNow`'s rule is "an alarm
+that should have gone off and did not, rings now", and the timezone comment says dropping a nap "is
+the one outcome that loses an alarm outright". A nap rebooted through is an alarm that should have
+gone off and did not.
+
+A scheduled alarm the phone reboots through rings, via `pending` staying armed and then `fireNow`. A
+nap does not: if no recompute runs inside its 60 s delivery window — a reboot or force-stop across
+the nap instant — the boot recompute drops it, and **silently**: no `missed` event, no `fireNow`,
+nothing in history. That silence is the no-fallbacks violation, independent of what the right
+behaviour turns out to be: the failure is indistinguishable from success.
+
+The forward-clock-jump case (`TIME_SET` racing AlarmManager's overdue delivery) belongs to the same
+item.
+
+Deferred for this build, not dismissed: it needs a reboot or force-stop across a *daytime* nap, and
+the 04:00 morning path is unaffected. The minimum fix is to log the drop; the real fix is to decide
+whether a nap missed by an outage rings late, and the engine's own rule says it should.
+
+### Also still open: nothing else can silence the 04:00 path
+
+The reviewer's closing summary, recorded verbatim because it is the clearest statement of where this
+round leaves the product: *"The 04:00 scheduled path is clean across every pass. What remains is a
+sub-60 s expired-session ordering edge and an older reboot-through-nap loss."* The ordering edge was
+then fixed in 32j; the nap loss is the item above.

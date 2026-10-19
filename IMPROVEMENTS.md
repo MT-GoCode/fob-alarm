@@ -1523,3 +1523,40 @@ directly; and a refused test leaves nothing harmful behind — `testSilent` is r
 paths, `testSnoozedUntilMs` is never set by `testRing`, the `commit(requestId)` record correctly
 makes a retry idempotent, and `ControllerWatch` prefers `s.ring` over the test key so the controller
 never raises a test alert for a refused test.
+
+## Round 32j — an expired session could swallow an elapsed nap, and the deferral was mis-framed
+
+The review that said "ship" also named one more ordering gap, and half of it was mine.
+
+`nap_dropped` and `snooze_cancelled_by_trigger` are early returns in `onTrigger` that run **before**
+step 0 reaps a session which has outrun its own cap. So an elapsed nap arriving while an
+expired-but-unreaped session was open got dropped or consumed, the session was then reaped as
+CAPPED, and the nap was gone **with nothing ringing**. The window is up to 5 s after a cap (the
+heartbeat) or up to 60 s if the service died (the watchdog).
+
+The SNOOZED sub-case existed only because of 32h: before it, the snooze branch kept the nap and the
+nap re-armed. Fifth instance this round of the same shape — a guard returning early from a shared
+path — so the fix is at the binding rather than in the branches:
+
+```kotlin
+val open = st.session?.takeIf { it.endsByMs > now }
+```
+
+A session past its cap is not open. The absorb arm's own `open.endsByMs > now` re-check is now
+redundant and gone.
+
+### The deferral was mis-framed, and that mattered
+
+I had written the reboot-through-nap loss up as "a product question, not a bug fix". Review rejected
+that, and was right: **the engine has already answered the question.** `fireNow`'s rule is "an alarm
+that should have gone off and did not, rings now", and the timezone comment calls dropping a nap
+"the one outcome that loses an alarm outright". A nap rebooted through is an alarm that should have
+gone off and did not.
+
+More importantly, the framing hid the part that is not a matter of opinion: the drop is **silent** —
+no `missed`, no `fireNow`, nothing in history — so the failure is indistinguishable from success,
+which is the no-fallbacks violation whatever the right behaviour turns out to be. PLAN.md now calls
+it a known ring loss, deferred, with the forward-clock-jump case folded into the same item.
+
+That is worth recording as its own lesson: **a deferral is a claim, and it can be wrong in the same
+way a comment can.** "Product question" was doing work that the evidence did not support.
