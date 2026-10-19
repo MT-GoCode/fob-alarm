@@ -15,7 +15,6 @@ object Wire {
         put("stateVersion", s.stateVersion)
         put("serverTimeMs", s.serverTimeMs)
         put("bootedAtMs", s.bootedAtMs)
-        put("mode", s.mode.name)
         put("gates", JSONObject().apply {
             put("evaluatedAtMs", s.gates.evaluatedAtMs)
             // Every gate in the one table, so a new check cannot reach the controller as a
@@ -200,7 +199,6 @@ object Wire {
             stateVersion = o.optLong("stateVersion"),
             serverTimeMs = o.optLong("serverTimeMs"),
             bootedAtMs = o.optLong("bootedAtMs"),
-            mode = runCatching { Mode.valueOf(o.optString("mode")) }.getOrDefault(Mode.WAITING),
             gates = gates,
             armGate = agO?.let {
                 ArmGate(it.optLong("lastRunAtMs"), it.optString("result"),

@@ -193,8 +193,6 @@ data class Event(
 // Every timestamp renders as an age; an unknown renders as a problem, never as "OK".
 // ---------------------------------------------------------------------------
 
-enum class Mode { RINGING, INIT, WAITING }
-
 data class Gates(
     val evaluatedAtMs: Long,
     val scheduleExists: Boolean,
@@ -263,7 +261,6 @@ data class Snapshot(
     val stateVersion: Long,
     val serverTimeMs: Long,
     val bootedAtMs: Long,
-    val mode: Mode,
     val gates: Gates,
     val armGate: ArmGate?,
     val nextFire: NextFire?,
@@ -295,16 +292,7 @@ data class Snapshot(
     val problems: List<String> = emptyList(),
     /** Sentences worth attention that do not stop the ring (link, power). */
     val warnings: List<String> = emptyList(),
-) {
-    companion object {
-        /** mode is DERIVED, never stored. An open session outranks everything. */
-        fun deriveMode(hasOpenSession: Boolean, gatesPass: Boolean): Mode = when {
-            hasOpenSession -> Mode.RINGING
-            !gatesPass -> Mode.INIT
-            else -> Mode.WAITING
-        }
-    }
-}
+)
 
 /** Everything needed to rebuild a phone. SPEC.md section 14. */
 data class Backup(

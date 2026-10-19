@@ -70,7 +70,7 @@ fun RootScreen(
     // A SENTINEL is a presence beacon with no authority -- it cannot dismiss, so a ring must not
     // take over its screen and offer it a button that would be a controller's.
     val ringing = s != null && role != Role.SENTINEL &&
-            (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) &&
+            (s.ring != null || s.testUntilMs > s.serverTimeMs) &&
             (isAlarmRole || app.nowMs < liveUntil)
     if (!isAlarmRole && !app.connected && !ringing && trying != null) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {

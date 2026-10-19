@@ -387,7 +387,6 @@ object Svc : AlarmHost {
             stateVersion = state.stateVersion,
             serverTimeMs = System.currentTimeMillis(),
             bootedAtMs = bootedAtMs,
-            mode = Snapshot.deriveMode(s != null, gates.allPass),
             gates = gates,
             armGate = armGate,
             nextFire = lastNextFire,

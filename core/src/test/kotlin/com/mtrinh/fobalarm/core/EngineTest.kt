@@ -851,7 +851,7 @@ class AuthTest {
 
 class NagTest {
     private fun snap(nextAtMs: Long, ringing: Boolean = false, skip: Boolean = false) = Snapshot(
-        stateVersion = 1, serverTimeMs = 0, bootedAtMs = 0, mode = Mode.WAITING,
+        stateVersion = 1, serverTimeMs = 0, bootedAtMs = 0,
         gates = Gates(0, true, true, true, true, true, true, true, true, true,
             true, true, true, true, true, true, true, true),
         armGate = null,
