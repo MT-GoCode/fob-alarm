@@ -57,39 +57,6 @@ fun TimeSetting(
     }
 }
 
-/** A whole number with a unit, bounded with the limit stated rather than silently clamped. */
-@Composable
-fun NumberSetting(label: String, value: Int, min: Int, max: Int, unit: String, enabled: Boolean = true, onSet: (Int) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    ValueRow(label, "$value$unit", enabled) { open = true }
-    if (open) {
-        var text by remember { mutableStateOf(value.toString()) }
-        var err by remember { mutableStateOf<String?>(null) }
-        AlertDialog(
-            onDismissRequest = { open = false },
-            title = { Text(label) },
-            text = {
-                Column {
-                    NumberBox(text, unit) { text = it; err = null }
-                    Spacer(Modifier.height(S.sm))
-                    Text("Between $min$unit and $max$unit", fontSize = T.caption, color = Muted)
-                    err?.let { Text(it, color = Bad, fontSize = T.caption) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val n = text.toIntOrNull()
-                    when {
-                        n == null || n < min -> err = "Too small. Minimum is $min$unit."
-                        n > max -> err = "Too large. Maximum is $max$unit."
-                        else -> { onSet(n); open = false }
-                    }
-                }) { Text("Set") }
-            },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
-        )
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Continuous bounded values: a slider that snaps to meaningful steps and

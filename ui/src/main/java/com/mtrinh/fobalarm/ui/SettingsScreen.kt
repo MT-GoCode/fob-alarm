@@ -87,7 +87,7 @@ fun SettingsScreen(
         LockedRow(locked) { on ->
             SliderSetting("Extend snooze after", s.settings.resnoozeAfterSeconds,
                 min = 0, max = s.settings.snoozeSeconds, step = 1, suffix = "s",
-                help = "Equal to the snooze length turns extending off.", enabled = on) { v ->
+                enabled = on) { v ->
                 app.patch("Extend snooze after") { it.copy(resnoozeAfterSeconds = v) }
             }
         }
@@ -103,16 +103,16 @@ fun SettingsScreen(
                     enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfControllerAway = v) } }
             }
             LockedRow(locked) { on ->
+                // Bounded at the floor the engine enforces, rather than offering 0 and explaining
+                // in a caption that 0 means two minutes.
                 DurationSetting("Away after", s.settings.awayAfterSeconds,
-                    minSeconds = 0, maxSeconds = 24 * 3600, enabled = on) { secs ->
+                    minSeconds = 120, maxSeconds = 24 * 3600, enabled = on) { secs ->
                     app.patch("Away after") { it.copy(awayAfterSeconds = secs) }
                 }
             }
-            Text("Anything under 2 minutes behaves as 2 minutes: the sentinel reports every 30 seconds.",
-                fontSize = T.caption, color = Muted)
         }
 
-        Section("Test", if (isAlarmRole) "Rings this phone now." else "Rings the alarm phone now, for up to a minute.")
+        Section("Test")
         Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
             Button(onClick = { app.testRing(false) }, modifier = Modifier.weight(1f)) { Text("Test ring") }
             OutlinedButton(onClick = { app.testRing(true) }, modifier = Modifier.weight(1f)) { Text("Silent test") }

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -34,13 +35,17 @@ import com.mtrinh.fobalarm.core.*
 import com.mtrinh.fobalarm.core.entries
 
 /**
- * ONE set of screens for both roles. Role selects a client, not a screen. The only
+ * ONE set of screens for all three roles. Role selects a client, not a screen; the only
  * role-specific pieces arrive as slots from the app module.
+ *
+ * The role is passed as itself. It used to be `isAlarmRole: Boolean` plus a nullable `trying`
+ * slot standing in for "is the controller" -- two values encoding three states, which left the
+ * sentinel as neither and crashed it on launch.
  */
 @Composable
 fun RootScreen(
     app: AppState,
-    isAlarmRole: Boolean,
+    role: Role,
     pairing: @Composable () -> Unit,                  // both roles, role-specific content
     deviceSettings: (@Composable () -> Unit)? = null, // alarm phone: ringtone, password
     roleSwitcher: @Composable () -> Unit,
@@ -48,15 +53,10 @@ fun RootScreen(
     /** CONTROLLER: the whole "trying to connect" screen. Name, passphrase, permission, log. */
     trying: (@Composable () -> Unit)? = null,
 ) {
+    val isAlarmRole = role == Role.ALARM
     val s = app.snapshot
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var pushed by rememberSaveable { mutableStateOf(false) }
-
-    // The alarm phone is its own truth; it is "starting" for a moment and then connected.
-    if (isAlarmRole && s == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        return
-    }
 
     // The controller has exactly two states: connected, or trying. Trying is one screen
     // with everything you can do about it, and whatever the alarm phone last said, dimmed.
@@ -68,7 +68,10 @@ fun RootScreen(
     // snapshot and is the instant the alarm phone will stop by on its own; testUntilMs is
     // the same bound for a test. Past that, a stale snapshot can no longer hold the screen.
     val liveUntil = maxOf(s?.ring?.endsByMs ?: 0L, s?.testUntilMs ?: 0L)
-    val ringing = s != null && (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) &&
+    // A SENTINEL is a presence beacon with no authority -- it cannot dismiss, so a ring must not
+    // take over its screen and offer it a button that would be a controller's.
+    val ringing = s != null && role != Role.SENTINEL &&
+            (s.mode == Mode.RINGING || s.testUntilMs > s.serverTimeMs) &&
             (isAlarmRole || app.nowMs < liveUntil)
     if (!isAlarmRole && !app.connected && !ringing && trying != null) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -84,9 +87,28 @@ fun RootScreen(
         }
         return
     }
-    s!!
+
+    // Nothing to render yet, for ANY role: the alarm phone is briefly "starting", and a
+    // controller or sentinel has not heard from the alarm phone yet. This used to be guarded
+    // only for the alarm role, with `trying` standing in for "is the controller" -- so the
+    // sentinel, which has no `trying`, reached the `s!!` below and crashed on every launch.
+    if (s == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
 
     if (ringing) {
+        // The screen must not sleep on an in-app ring view. Scoped to this branch, so it is
+        // released the instant the ring ends, and `ringing` here already counts a test ring.
+        // RingActivity sets the same flag for the full-screen ring; this covers the case where
+        // the app itself is in front, which the Activity-level attempt never did -- it read
+        // `app.snapshot` behind an `isInitialized` check that was false on first composition, so
+        // nothing ever subscribed and the scope never recomposed.
+        val view = LocalView.current
+        DisposableEffect(Unit) {
+            view.keepScreenOn = true
+            onDispose { view.keepScreenOn = false }
+        }
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             LinkBar(app, isAlarmRole)
             RingingScreen(app, s, isAlarmRole)
@@ -108,12 +130,17 @@ fun RootScreen(
             setupRows(myGates, isAlarmRole).any { it.first.blocking && !it.second }
     if (setupBlocked && !pushed) { tab = 1; pushed = true }
 
+    // The sentinel gets no Settings tab: it has no authority over the alarm phone's policy, and
+    // the editor would write through to it. Status and Setup are all a presence beacon needs.
+    val tabs = if (role == Role.SENTINEL) listOf("Status", "Setup")
+               else listOf("Status", "Setup", "Settings", "History")
+
     Scaffold(
         topBar = { LinkBar(app, isAlarmRole) },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                listOf("Status", "Setup", "Settings", "History").forEachIndexed { i, label ->
+                tabs.forEachIndexed { i, label ->
                     NavigationBarItem(
                         selected = tab == i, onClick = { tab = i },
                         icon = {

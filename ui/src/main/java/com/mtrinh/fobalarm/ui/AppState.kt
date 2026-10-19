@@ -105,21 +105,31 @@ class AppState(
         }
     }
 
+    /**
+     * The ONE way a snapshot is installed.
+     *
+     * A new ringId briefly locks the dismiss button and clears the previous verdict, so a
+     * reflexive second tap cannot answer a question it never saw. This used to live only in
+     * [refresh], while eight other places assigned `snapshot` directly -- including the 409
+     * StaleRing path, which is exactly where the ring HAS just changed, so the second tap
+     * dismissed the new one.
+     */
+    private fun accept(s: Snapshot) {
+        if (s.ring?.ringId != lastRingId) {
+            if (lastRingId != null && s.ring != null) {
+                buttonLockedUntilMs = System.currentTimeMillis() + 1500
+            }
+            lastRingId = s.ring?.ringId
+            dismissUi = DismissUi.Idle
+        }
+        snapshot = s
+        lastOkMs = System.currentTimeMillis()
+    }
+
     suspend fun refresh() {
         via = client.via
         client.snapshot()
-            .onSuccess { s ->
-                if (s.ring?.ringId != lastRingId) {
-                    if (lastRingId != null && s.ring != null) {
-                        buttonLockedUntilMs = System.currentTimeMillis() + 1500
-                    }
-                    lastRingId = s.ring?.ringId
-                    // A new ring is a new question; last night's verdict must not answer it.
-                    dismissUi = DismissUi.Idle
-                }
-                snapshot = s
-                lastOkMs = System.currentTimeMillis()
-            }
+            .onSuccess { accept(it) }
             .onFailure { if (!isLocal) noteFailure() }
     }
 
@@ -128,7 +138,7 @@ class AppState(
      * sending, so pressing it on the controller can never snooze anything.
      */
     fun snooze() {
-        scope.launch { client.snooze().onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() } }
+        scope.launch { client.snooze().onSuccess { accept(it) } }
     }
 
     fun dismiss() {
@@ -141,7 +151,7 @@ class AppState(
                 dismissUi = DismissUi.Waiting
                 val r = client.dismiss(ringId, requestId)   // idempotent by content
                 r.onSuccess {
-                    snapshot = it; lastOkMs = System.currentTimeMillis()
+                    accept(it)
                     ringEndMessage = "Alarm dismissed"
                     dismissUi = DismissUi.Dismissed
                     delay(2000); dismissUi = DismissUi.Idle
@@ -151,7 +161,7 @@ class AppState(
                 when (e) {
                     // 409 is NEVER retried: the alarm phone is healthy, the ring just changed.
                     is ClientError.StaleRing -> {
-                        snapshot = e.snapshot; lastOkMs = System.currentTimeMillis()
+                        accept(e.snapshot)
                         if (e.snapshot.ring == null) {
                             // Already stopped, by the other button or the other phone.
                             ringEndMessage = "Alarm dismissed"
@@ -190,7 +200,7 @@ class AppState(
             testOk = true
             testMessage = "Ringing"
             client.testRing(silent, UUID.randomUUID().toString())
-                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); delay(1500); refresh() }
+                .onSuccess { accept(it); delay(1500); refresh() }
                 .onFailure {
                     if (it is ClientError.Transport && !isLocal) noteFailure()
                     testOk = false
@@ -202,7 +212,6 @@ class AppState(
     }
 
     /** Called when returning to the app, so a just-granted permission flips immediately. */
-    fun refreshNow() { scope.launch { refresh() } }
 
     fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
     fun napUntil(hhmm: String) = act("Nap") { client.napUntil(hhmm, UUID.randomUUID().toString()) }
@@ -258,7 +267,7 @@ class AppState(
             block()
                 .onSuccess {
                     timeout.cancel()
-                    snapshot = it; lastOkMs = System.currentTimeMillis()
+                    accept(it)
                     syncMessage = "$label saved"
                     launch { delay(1000); refresh() }     // follow-on state (a test starting, a nap arming)
                     delay(1800); syncMessage = null
@@ -275,7 +284,7 @@ class AppState(
                         is ClientError.Conflict -> "$label not saved. It was changed on the other phone."
                         else -> "$label not saved. Can't reach the alarm phone."
                     }
-                    if (e is ClientError.Conflict) snapshot = e.snapshot
+                    if (e is ClientError.Conflict) accept(e.snapshot)
                     delay(5000); syncMessage = null
                 }
         }
@@ -290,7 +299,7 @@ class AppState(
     fun checkClock() {
         scope.launch {
             client.checkClock()
-                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis() }
+                .onSuccess { accept(it) }
                 .onFailure { if (!isLocal) noteFailure() }
         }
     }
@@ -298,7 +307,7 @@ class AppState(
     fun stopTest() {
         scope.launch {
             client.stopTest()
-                .onSuccess { snapshot = it; lastOkMs = System.currentTimeMillis(); ringEndMessage = "Test stopped" }
+                .onSuccess { accept(it); ringEndMessage = "Test stopped" }
                 .onFailure { if (!isLocal) noteFailure(); ringEndMessage = "Could not stop the test" }
         }
     }

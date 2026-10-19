@@ -43,10 +43,7 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
                 if (s.nextFire != null) Fmt.until(s.nextFire!!.atMs, nowMs) else "nothing scheduled",
                 fontSize = T.body, color = Muted)
         }
-        IconButton(onClick = onReload) { Icon(Icons.Default.Refresh, contentDescription = "Refresh") }
     }
-    Text(if (iAmAlarm) "This is the alarm phone" else "This is the controller",
-        fontSize = T.label, color = Muted)
 
     // --- anything wrong, as sentences ----------------------------------------
     if (problems.isNotEmpty() || peerMissing.isNotEmpty()) {
@@ -85,17 +82,6 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
     Section("Link")
     if (iAmAlarm) {
         Line("Group", if (s.ap.running) "up" else "down", ok = s.ap.running)
-        Line("Controller", when {
-            connected -> "connected"
-            peerAge != null -> "not connected, last heard $peerAge"
-            else -> "never connected"
-        }, ok = connected)
-    } else {
-        Line("Alarm phone", when {
-            connected -> "connected"
-            peerAge != null -> "not reachable, last heard $peerAge"
-            else -> "not reachable"
-        }, ok = connected)
     }
 
     // One row. Only on the alarm phone, which is the only phone that knows.
@@ -159,9 +145,6 @@ fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?
         TextButton(onClick = onCheckClock) { Text("Check now") }
     }
     Line("Alarm phone up since", Fmt.absolute(s.bootedAtMs), ok = null)
-    val mismatch = s.peer != null && s.peer!!.appVersion != s.self.appVersion
-    Line("Versions", if (s.peer == null) s.self.appVersion else "${s.self.appVersion} here, ${s.peer!!.appVersion} there",
-        ok = if (mismatch) false else null)
 
     // --- what happened last time -------------------------------------------
     s.lastOutcome?.let {

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
-import android.view.WindowManager
 import android.provider.Settings as ASettings
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -56,14 +55,8 @@ class MainActivity : ComponentActivity() {
         // The controller renders the ALARM phone's snapshot, so its own permission state
         // is supplied separately: GateEval.onEvaluated (set in onCreate) writes
         // app.localGates the moment the worker finishes, however long the probes take.
-        // Re-evaluating the gates is not enough: the screen renders the SNAPSHOT, which
-        // only re-polls every 20s while idle. Pull a fresh one so a permission you just
-        // granted turns green now instead of when you happen to navigate.
-        if (::app.isInitialized) {
-            lifecycleScope.launch {
-                repeat(4) { kotlinx.coroutines.delay(300); app.refreshNow() }
-            }
-        }
+        // No extra pull: the idle poll is 3 s and onResume already reloads. The burst this
+        // replaced was justified by a comment claiming a 20 s idle poll.
     }
 
     override fun onDestroy() {
@@ -89,13 +82,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FobTheme {
-                // KEEP_SCREEN_ON only while a ring is live -- never at idle.
-                val ringing = runCatching { (::app.isInitialized) && app.snapshot?.ring != null }
-                    .getOrDefault(false)
-                LaunchedEffect(ringing) {
-                    if (ringing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
                 var role by remember { mutableStateOf(Svc.settings.role) }
                 if (hibernationHelp) {
                     AlertDialog(
@@ -153,14 +139,17 @@ class MainActivity : ComponentActivity() {
                                         this@MainActivity, Svc.settings, Svc.lastNextFire != null)
                                 }
                             }
+                            // Non-null in this branch of the `when`; named because `role` is a
+                            // delegated property and cannot smart-cast.
+                            val chosen = role!!
                             RootScreen(
                                 app = app,
-                                isAlarmRole = role == Role.ALARM,
-                                pairing = { Pairing(role!!) },
-                                deviceSettings = if (role == Role.ALARM) ({ DeviceSettings() }) else null,
+                                role = chosen,
+                                pairing = { Pairing(chosen) },
+                                deviceSettings = if (chosen == Role.ALARM) ({ DeviceSettings() }) else null,
                                 roleSwitcher = { RoleSwitcher() },
                                 onFixGate = { fix(it) },
-                                trying = if (role == Role.CONTROLLER) ({ Trying() }) else null,
+                                trying = if (chosen == Role.CONTROLLER) ({ Trying() }) else null,
                             )
                         }
                     }
