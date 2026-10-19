@@ -16,6 +16,11 @@ import org.json.JSONObject
 // silence. SPEC.md section 3.
 // ---------------------------------------------------------------------------
 
+private val LEGACY_SETTINGS_KEYS = listOf(
+    "defaultAlarmTime", "alarmVolumePercent", "maxRingMinutes", "snoozeSeconds", "snoozeHoldSeconds",
+    "resnoozeAfterSeconds", "ringtoneUri", "ringtoneName", "role", "ssid", "passphrase",
+    "passwordHash", "passwordSalt", "vibrate")
+
 class DeMirror(ctx: Context) {
     private val p: SharedPreferences = ctx.createDeviceProtectedStorageContext()
         .getSharedPreferences("fobalarm_de", Context.MODE_PRIVATE)
@@ -23,23 +28,29 @@ class DeMirror(ctx: Context) {
     /**
      * The whole of [Settings] as last mirrored, or null before this phone has ever written one.
      *
-     * Null is the migration case only: a build that mirrored a subset field by field left no such
-     * key, so the first load after an upgrade falls back to Room and the next `apply` writes this.
+     * Null means this version has never written one: a build that mirrored a subset field by
+     * field left no such key, so the first load after an upgrade falls back to [legacySettings]
+     * for the role and the alarm time, and lets Room supply the rest.
+     */
+    /**
+     * The whole of [Settings] as last mirrored by THIS version, or null if none has been written.
+     *
+     * Authoritative when present: it is written synchronously on every change, where Room is
+     * written asynchronously and only after first unlock.
      */
     val settings: Settings?
         get() = p.getString("settings", null)
             ?.let { runCatching { com.mtrinh.fobalarm.data.Wire.settingsAtRestFrom(JSONObject(it)) }.getOrNull() }
-            ?: legacySettings()
 
     /**
-     * Builds the settings from the per-field keys a pre-0.3 build mirrored.
+     * The per-field keys a pre-0.3 build mirrored, for the one launch after an upgrade.
      *
-     * Without this an upgrade has NO settings before the phone's first unlock -- no role, so no
-     * alarm is armed -- which is the exact failure the mirror exists to prevent. The next `apply`
-     * writes the blob, after which this is never reached again. Deletable once both phones have
-     * upgraded.
+     * A SEED, never authoritative: it carries only the subset the old mirror stored, so the away
+     * settings and `napMinutes` come back as defaults. Room has the real values, so the caller
+     * must let Room win -- treating this as authoritative silently turns the owner's away-blocking
+     * off. Deletable once both phones have upgraded.
      */
-    private fun legacySettings(): Settings? {
+    fun legacySettings(): Settings? {
         if (!p.contains("defaultAlarmTime")) return null
         return Settings(
             defaultAlarmTime = p.getString("defaultAlarmTime", "04:00")!!,
@@ -94,17 +105,28 @@ class DeMirror(ctx: Context) {
 
 
 
-    fun mirror(s: Settings, next: NextFire?, session: RingSession?,
+    /**
+     * [s] is null until settings have a trustworthy source -- the blob existed at startup, or Room
+     * has loaded. Writing a provisional copy makes it indistinguishable from a real one on the
+     * next start, which is how an upgrade came to discard Room and reset to defaults. The schedule
+     * and session are always mirrored: they are this process's own truth either way.
+     */
+    fun mirror(s: Settings?, next: NextFire?, session: RingSession?,
                latches: List<Latch>, override: Override?, nap: Nap?) {
         // The WHOLE of Settings, in the same encoding Room uses, under one key. A chosen subset
         // leaves whatever nobody remembered to add reading as a default before first unlock, and
         // makes this mirror and Room two partial copies of one fact that can disagree.
-        p.edit()
-            .putString("settings", com.mtrinh.fobalarm.data.Wire.settingsAtRestToJson(s).toString())
-            .putString("schedule", Persist.scheduleToJson(latches, override, nap))
-            .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
-            .putString("session", session?.let { sessionToJson(it) })
-            .apply()
+        p.edit().apply {
+            if (s != null) {
+                putString("settings", com.mtrinh.fobalarm.data.Wire.settingsAtRestToJson(s).toString())
+                // The legacy keys are spent once a blob exists. Left behind, an unparseable blob
+                // would fall back to them and resurrect the settings as they were on upgrade day.
+                for (k in LEGACY_SETTINGS_KEYS) remove(k)
+            }
+            putString("schedule", Persist.scheduleToJson(latches, override, nap))
+            putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
+            putString("session", session?.let { sessionToJson(it) })
+        }.apply()
     }
 
     fun session(): RingSession? = sessionJson?.let { sessionFromJson(it) }
@@ -241,10 +263,14 @@ object Persist {
             nap = if (o.isNull("nap")) null else Nap(o.getLong("nap")))
     }
 
+    /** Whether Room holds a settings row at all, as opposed to holding defaults. */
+    fun hasSettings(dao: Dao_): Boolean = dao.get("settings") != null
+
     fun load(dao: Dao_): EngineState {
+        // Null, not defaults: an absent row means Room has nothing to say about settings, and
+        // replacing memory with defaults in that case loses the role and arms nothing.
         val settings = dao.get("settings")
             ?.let { com.mtrinh.fobalarm.data.Wire.settingsAtRestFrom(JSONObject(it)) }
-            ?: Settings()
         val latches = dao.get("latches")?.let { latchesFrom(JSONArray(it)) } ?: emptyList()
         val override = dao.get("override")?.takeIf { it.isNotEmpty() }?.let { overrideFrom(JSONObject(it)) }
         val nap = dao.get("nap")?.takeIf { it.isNotEmpty() }?.let { Nap(it.toLong()) }
@@ -256,7 +282,7 @@ object Persist {
                 o.optInt("snoozeCount"))
         }
         return EngineState(
-            settings = settings, latches = latches, override = override, nap = nap,
+            settings = settings ?: Settings(), latches = latches, override = override, nap = nap,
             lastOutcome = lastOutcome,
             stateVersion = dao.get("stateVersion")?.toLongOrNull() ?: 0,
             lastTimeZone = dao.get("lastTimeZone")?.takeIf { it.isNotEmpty() },

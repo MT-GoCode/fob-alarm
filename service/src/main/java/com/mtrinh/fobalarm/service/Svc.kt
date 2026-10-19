@@ -21,13 +21,6 @@ import java.util.concurrent.Executors
  */
 object Svc : AlarmHost {
 
-    /**
-     * Deliberate: the gate exists to slow down a half-asleep user, not to keep a secret
-     * from an attacker, and a password the owner does not know would defeat its purpose.
-     * Exposure is limited to the Wi-Fi Direct group, whose WPA2 passphrase the user sets.
-     * Settings shows a warning while this is still in use.
-     */
-
     lateinit var app: Context; private set
     lateinit var de: DeMirror; private set
     private lateinit var db: Db
@@ -134,8 +127,12 @@ object Svc : AlarmHost {
             is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
         }
 
-    /** Whether the DE mirror already held settings when this process started. */
-    @Volatile private var settingsSeededFromDe = false
+    /**
+     * Whether the settings in memory come from a source worth mirroring: the DE blob existed at
+     * startup, or Room has since loaded. Until then they may be defaults or a partial legacy seed,
+     * and writing them to the mirror would make them indistinguishable from real ones next start.
+     */
+    @Volatile private var settingsTrustworthy = false
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -159,13 +156,11 @@ object Svc : AlarmHost {
         // reading it here would be disk IO on whatever thread woke the process -- including a
         // broadcast receiver. The mirror now holds the WHOLE of Settings, so the alarm is armed
         // with the owner's real settings, not a subset, before Room is even opened.
-        val mirrored = de.settings
-        // Whether the mirror had settings to give. `apply` writes the blob on the very first
-        // recompute, so by the time Room opens the blob always exists -- and without this flag
-        // tryLoadRoom would read that freshly written copy as authoritative and discard Room's
-        // real settings. Exactly parallel to `scheduleSeededFromDe`.
-        settingsSeededFromDe = mirrored != null
-        state = state.copy(settings = mirrored ?: state.settings, lastAliveMs = de.lastAliveMs)
+        // Which store wins is decided in :core, where every combination is a test. This reads
+        // the two sources and nothing more.
+        val chosen = SettingsSource.atStartup(de.settings, de.legacySettings(), state.settings)
+        settingsTrustworthy = chosen.trustworthy
+        state = state.copy(settings = chosen.settings, lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         de.schedule()?.let {
             state = state.copy(latches = it.latches, override = it.override, nap = it.nap)
@@ -218,6 +213,7 @@ object Svc : AlarmHost {
         runCatching {
             val d = Db.open(app)
             val loaded = Persist.load(d.dao())          // the read is the real test
+            val loadedSettings = if (Persist.hasSettings(d.dao())) loaded.settings else null
             db = d
             // Everything logged before Room was readable (boot, crash traces) is only in
             // memory. Flip the flag and take the backlog under the same lock log() uses,
@@ -232,15 +228,8 @@ object Svc : AlarmHost {
                 // EngineState whose role is null -- assigning it wholesale would throw
                 // away the DE-seeded role and silently un-arm the alarm forever.
                 state = state.copy(
-                    // The DE mirror wins ONLY if it had settings before this process wrote any.
-                    // It is written synchronously on every apply while Room is written
-                    // asynchronously, so it is the fresher copy -- letting Room win reverts a
-                    // change made before first unlock, and if the reverted alarm time is later
-                    // the owner sleeps through it. But `apply` has already mirrored our in-memory
-                    // settings by now, so without the flag this would prefer that copy and
-                    // discard Room's, which on an upgrade or a wiped mirror means defaults: no
-                    // role, and therefore no alarm armed at all.
-                    settings = if (settingsSeededFromDe) state.settings else loaded.settings,
+                    settings = SettingsSource.onDatabaseLoad(
+                        state.settings, settingsTrustworthy, loadedSettings),
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
                     // duplicated id, so memory must come FIRST: a latch can be replaced (a
@@ -253,6 +242,9 @@ object Svc : AlarmHost {
                     stateVersion = maxOf(loaded.stateVersion, state.stateVersion),
                     lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs),
                 )
+                // Room has spoken: from here on what we hold is worth mirroring, whichever
+                // side won above.
+                settingsTrustworthy = true
             }
             log("db_loaded", "reason" to reason)
             recompute("db_loaded")
@@ -300,7 +292,10 @@ object Svc : AlarmHost {
         state = r.state
         lastNextFire = r.nextFire
         logEvents(r.events)
-        de.mirror(state.settings, r.nextFire, state.session, state.latches, state.override, state.nap)
+        // Settings only once they come from a real source: a provisional copy is
+        // indistinguishable from a real one next start, which is how an upgrade discarded Room.
+        de.mirror(state.settings.takeIf { settingsTrustworthy },
+            r.nextFire, state.session, state.latches, state.override, state.nap)
         de.lastAliveMs = state.lastAliveMs
         if (dbReady) io.execute { runCatching { Persist.save(db.dao(), state) } }
         // ALARM role only. The controller must never compute or arm a schedule:
@@ -365,7 +360,8 @@ object Svc : AlarmHost {
             snoozeCount = 0, snoozeUntilMs = null,
             endsByMs = now + state.settings.maxRingMinutes * 60_000L)
         state = state.copy(session = forced)
-        de.mirror(state.settings, lastNextFire, forced, state.latches, state.override, state.nap)
+        de.mirror(state.settings.takeIf { settingsTrustworthy },
+            lastNextFire, forced, state.latches, state.override, state.nap)
         log("forced_session", "ringId" to forced.ringId)
         buildSnapshot()
     }
@@ -640,11 +636,11 @@ object Svc : AlarmHost {
     }
 
     /**
-     * Changing or removing the password requires the CURRENT password (or the recovery
-     * code). Otherwise the gate protects every setting except itself, and "Remove
-     * password" is a two-tap bypass of the whole mechanism.
+     * Changing or removing the password requires the CURRENT one. There is no recovery code.
+     *
+     * Without this the gate protects every setting except itself, and "Remove password" is a
+     * two-tap bypass of the whole mechanism.
      */
-    /** Changing or removing the password requires the current one. No recovery code. */
     fun setPassword(password: String?, current: String?): Snapshot {
         if (!Auth.gateOpen(state.settings) && !Auth.accepts(state.settings, current ?: "")) {
             log("password_change_rejected")
@@ -666,6 +662,9 @@ object Svc : AlarmHost {
     fun setRole(role: Role): Snapshot {
         synchronized(lock) { state = state.copy(settings = state.settings.copy(role = role)) }
         log("role_changed", "to" to role.name)
+        // A controller's ring alert outlives the role that raised it, and its DISMISS button acts
+        // without asking what this phone is now. Take the notification down with the role.
+        runCatching { ControllerWatch.clear(app) }
         LinkService.start(app)
         return recompute("role_changed")
     }
@@ -688,7 +687,7 @@ object Svc : AlarmHost {
             // left armed for the next genuine fire. Under the lock, so the guard and the mutation
             // cannot interleave with a trigger or with a second test.
             if (state.session != null || testActive || RingService.serviceAlive) {
-                throw IllegalStateException("already ringing")
+                throw BusyException("already ringing")
             }
             de.testSilent = silent
             log("test_ring", "silent" to silent.toString(),
@@ -726,6 +725,7 @@ object Svc : AlarmHost {
 typealias StaleRingException = com.mtrinh.fobalarm.data.ClientError.StaleRing
 typealias ConflictException = com.mtrinh.fobalarm.data.ClientError.Conflict
 typealias ForbiddenException = com.mtrinh.fobalarm.data.ClientError.Forbidden
+typealias BusyException = com.mtrinh.fobalarm.data.ClientError.Busy
 
 /** All alarms are setAlarmClock: exempt from standby quotas and Doze. */
 object Scheduler {

@@ -138,7 +138,7 @@ object ControllerWatch {
         Svc.log("remote_ring_alert", "ringId" to ringId)
     }
 
-    private fun clear(ctx: Context) {
+    fun clear(ctx: Context) {
         runCatching { ctx.getSystemService(NotificationManager::class.java).cancel(NOTIF_ID) }
     }
 }

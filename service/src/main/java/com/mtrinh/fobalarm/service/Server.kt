@@ -226,6 +226,7 @@ object Server {
                         Svc.log("role_claim_rejected", "role" to role.name, "deviceId" to id)
                         // 409 with a reason and NO snapshot: the rejected phone renders the words.
                         409 to JSONObject()
+                            .put("refusal", "role_taken")
                             .put("reason", "another phone is already the " +
                                 "${role.name.lowercase()}; turn that one off for two minutes to take over")
                             .toString()
@@ -296,10 +297,10 @@ object Server {
             403 to """{"error":"password required"}"""
         // A caller's mistake is the caller's: a missing or unparseable field, or a value this
         // phone does not recognise, is 400. Only a fault of ours is 500.
-        } catch (e: IllegalStateException) {
-            // A refusal, not a fault: the alarm phone is busy ringing. 409, like every other
-            // "your request was understood and the state says no".
-            409 to JSONObject().put("reason", e.message ?: "not now").toString()
+        } catch (e: BusyException) {
+            // A refusal the state justifies, not a fault of ours, and MARKED as one. Catching
+            // IllegalStateException instead would also swallow our own bugs as 409s.
+            409 to JSONObject().put("refusal", "busy").put("reason", e.reason).toString()
         } catch (e: org.json.JSONException) {
             400 to JSONObject().put("error", "bad field: ${e.message}").toString()
         } catch (e: IllegalArgumentException) {

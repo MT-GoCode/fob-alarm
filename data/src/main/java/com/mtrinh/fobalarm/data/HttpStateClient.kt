@@ -90,8 +90,13 @@ class HttpStateClient(
                     // read as one: treating the absent field as a parse failure makes it a
                     // Transport error, and the rejected phone then shows a dead link instead of
                     // saying which role was taken.
-                    val snapObj = o.optJSONObject("snapshot")
-                        ?: throw ClientError.RoleTaken(o.optString("reason").ifBlank { "role taken" })
+                    // Routed on a MARK the alarm phone sets, not on the shape of the body: a
+                    // 409 without a snapshot used to mean "role taken" by elimination, so every
+                    // other refusal arrived wearing that name.
+                    val snapObj = o.optJSONObject("snapshot") ?: when (o.optString("refusal")) {
+                        "busy" -> throw ClientError.Busy(o.optString("reason").ifBlank { "not now" })
+                        else -> throw ClientError.RoleTaken(o.optString("reason").ifBlank { "role taken" })
+                    }
                     val snap = Wire.snapshotFrom(snapObj)
                     if (o.optString("reason") == "stale_ring") throw ClientError.StaleRing(snap)
                     else throw ClientError.Conflict(snap)

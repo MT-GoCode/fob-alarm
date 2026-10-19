@@ -81,6 +81,14 @@ class LinkService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ControllerWatch.ACTION_REMOTE_DISMISS) {
+            // Only a CONTROLLER may dismiss remotely. A notification raised before a role switch
+            // outlives it -- nothing cancels it -- so without this a SENTINEL could stop a live
+            // ring from a leftover button, which is the one thing the role must never do.
+            if (Svc.settings.role != Role.CONTROLLER) {
+                Svc.log("remote_dismiss_refused", "role" to (Svc.settings.role?.name ?: "none"))
+                ControllerWatch.clear(this)
+                return START_NOT_STICKY
+            }
             // From the notification. Here, not in the receiver: a flaky link can need
             // more than a broadcast's 10 s. Hold the CPU for it if nothing else does.
             if (wakeLock == null) getSystemService(android.os.PowerManager::class.java)

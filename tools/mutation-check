@@ -32,6 +32,7 @@ ENGINE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Engine.kt"
 GATE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Gate.kt"
 WIRE = "data/src/main/java/com/mtrinh/fobalarm/data/Wire.kt"
 GATEINFO = "core/src/main/kotlin/com/mtrinh/fobalarm/core/GateInfo.kt"
+SETTINGSSOURCE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/SettingsSource.kt"
 
 # (id, file, exact text to replace, replacement, substring of the test that must fail)
 MUTANTS = [
@@ -102,6 +103,14 @@ MUTANTS = [
         .put("passwordSalt", s.passwordSalt ?: JSONObject.NULL)""",
      "    fun settingsAtRestToJson(s: Settings): JSONObject = settingsToJson(s)",
      "credentials survive"),
+    ("legacy-seed-claims-authority", SETTINGSSOURCE,
+     "legacy != null -> SettingsChoice(legacy, trustworthy = false)",
+     "legacy != null -> SettingsChoice(legacy, trustworthy = true)",
+     "upgrade keeps the role before unlock AND the away settings after"),
+    ("absent-room-row-replaces-memory", SETTINGSSOURCE,
+     "if (trustworthy) inMemory else room ?: inMemory",
+     "if (trustworthy) inMemory else room ?: Settings()",
+     "database with no settings row never replaces memory"),
     ("unknown-gate-key-passes", GATEINFO,
      'else -> error("unknown gate key: $key -- GateInfo.ALL and Gates have diverged")',
      "else -> true",

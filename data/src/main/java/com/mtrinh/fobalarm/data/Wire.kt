@@ -147,15 +147,17 @@ object Wire {
             stateVersion = o.optLong("stateVersion"), detail = map)
     }
 
-    /** Status fields the controller must read from the snapshot, not from a patch echo. */
     /**
      * Settings for an AT-REST copy: Room, the device-protected mirror, a backup.
      *
-     * [settingsToJson] deliberately omits the password hash and salt, because that encoding goes
-     * over the link to the controller and a password hash must not cross it. Every at-rest copy
-     * needs them, so the pair exists once here instead of being bolted on at each call site --
-     * which is how the mirror came to be written with the wire encoding and silently drop the
-     * password on every process restart.
+     * [settingsToJson] omits the password hash and salt because it encodes the SNAPSHOT, which is
+     * polled every few seconds and rendered on both screens; a credential has no business there.
+     * An explicit export does carry them, or restoring a backup would not restore the lock. The
+     * distinction is snapshot versus at-rest, NOT local versus remote.
+     *
+     * The pair exists once, here, rather than being bolted onto [settingsToJson] per call site:
+     * three sites did that, each slightly differently, and the one that used the snapshot
+     * encoding for an at-rest copy dropped the password on every process restart.
      */
     fun settingsAtRestToJson(s: Settings): JSONObject = settingsToJson(s)
         .put("passwordHash", s.passwordHash ?: JSONObject.NULL)
@@ -257,15 +259,14 @@ object Wire {
     fun backupToJson(b: Backup) = JSONObject()
         .put("schemaVersion", b.schemaVersion)
         .put("exportedAtMs", b.exportedAtMs)
-        .put("settings", settingsToJson(b.settings))
-        .put("auth", JSONObject()
-            .put("passwordHash", b.settings.passwordHash ?: JSONObject.NULL)
-            .put("passwordSalt", b.settings.passwordSalt ?: JSONObject.NULL))
+        .put("settings", settingsAtRestToJson(b.settings))
         .put("events", JSONArray().apply { b.events.forEach { put(eventToJson(it)) } })
 
     fun backupFrom(o: JSONObject) = Backup(
         schemaVersion = o.optInt("schemaVersion"),
-        settings = settingsFrom(o.getJSONObject("settings"), Settings()).let { base ->
+        settings = settingsAtRestFrom(o.getJSONObject("settings")).let { base ->
+            // Backups written before the at-rest encoding kept the credentials in a nested
+            // "auth" object. Read, never written.
             val a = o.optJSONObject("auth") ?: return@let base
             fun str(k: String) = a.optString(k).takeIf { it.isNotEmpty() && it != "null" }
             base.copy(passwordHash = str("passwordHash"), passwordSalt = str("passwordSalt"))

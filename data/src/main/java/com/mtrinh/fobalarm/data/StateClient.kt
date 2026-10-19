@@ -56,6 +56,13 @@ sealed class ClientError(message: String) : Exception(message) {
      * controller and dismissing the alarm from bed instead of walking to the box.
      */
     class RoleTaken(val reason: String) : ClientError("409 $reason")
+    /**
+     * The alarm phone understood and the state says no -- it is already ringing. Its own type, so
+     * the server catches exactly this: catching `IllegalStateException` also swallows our own
+     * faults as a 409, and a snapshot-less 409 is read by [HttpStateClient] as [RoleTaken], which
+     * would tell the owner a role was taken when the truth is "not now".
+     */
+    class Busy(val reason: String) : ClientError("409 $reason")
     class Server(val code: Int, val body: String) : ClientError("$code $body")
 }
 
