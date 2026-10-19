@@ -1314,3 +1314,24 @@ failure from the controller; now a stuck pending occurrence makes the controller
 which is true.
 
 Mutation check: **21 mutants, 21 killed by the test that names each one.** Suite is 100 tests.
+
+### Third pass: clean
+
+> "I found nothing in Round 32c that can stop a ring, delay one, or cause a wrong block. The fix is
+> sound."
+
+Two residuals it surfaced are left deliberately, recorded in PLAN.md: `forceSession` building its
+occurrence from the trigger rather than from `occurrenceBeingFired`, and the async `de.mirror` /
+Room write ordering. Both pre-existing, both needing a process death inside a window of
+milliseconds, and both can only make the alarm **ring**, never go silent. Touching the fire path
+again for either would cost more than it buys.
+
+### Two stale documents, found by checking rather than assuming
+
+- **SPEC.md's own headline said "no grace window"**, which this round falsified. It now says what is
+  actually true: the one wait is the 60 s delivery window, in which a due alarm is pending and still
+  armed, and nothing is ever forgiven for being late.
+- **SPEC.md still asserted `gyroscopePresent` as "a blocking INIT gate and a 22:00 gate row"**, with
+  a paragraph of reasoning about gyro-less Moto G Plays. That gate does not exist anywhere in the
+  code — the gyroscope snooze was deleted outright when the ring screen became a held bar and a
+  slid-down dismiss. Marked obsolete: a gyro-less replacement phone is simply fine now.

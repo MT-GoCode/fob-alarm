@@ -4,7 +4,9 @@ Two phones, one APK, `role` flag.
 
 > **Status, 2026-09-27.** Built, on both phones. Sections below were written before the app existed; where a
 > later decision differs, `IMPROVEMENTS.md` records it and wins. The decisions that changed this document most:
-> no fallbacks anywhere (a missed alarm rings, whenever noticed; no grace window, no chirp), no nightly arm gate
+> no fallbacks anywhere (a missed alarm rings, whenever noticed; no chirp — the one wait is the 60 s
+> **delivery window** of § the hourly check, in which a due alarm is *pending and still armed* rather than
+> declared missed; nothing is ever forgiven for being late), no nightly arm gate
 > (an hourly health check instead, listed on Status), no recovery code, no settings password until one is set,
 > no armed/disarmed state, no dev channel or flavours, the controller joins the group as a Wi-Fi Direct client
 > (not `WifiNetworkSpecifier`), and both phones hold home Wi-Fi and the group at once, so nothing ever drops the
@@ -1106,8 +1108,9 @@ hash, `settingsSchemaVersion`, and the full history. `POST /v1/import` restores 
 The 2023 and 2024 Moto G Plays shipped **without one**, and `TYPE_ROTATION_VECTOR` exists on gyro-less devices, so
 its presence proves nothing. Install this APK on a 2029 Moto G Play and the snooze estimator runs on an accel+mag
 fusion where every guard in §7 — the deadband, the zero-rate update — is defined in terms of a `|ω|` that does not
-exist. **`gyroscopePresent` (probing `TYPE_GYROSCOPE` explicitly) is a blocking INIT gate and a 22:00 gate row**,
-so an unsuitable replacement phone fails loudly at provisioning instead of silently at 04:00.
+exist. ~~**`gyroscopePresent` is a blocking INIT gate and a 22:00 gate row**~~ — **obsolete.** The gyroscope snooze
+was deleted outright when the ring screen became a held bar and a slid-down dismiss, so there is no `|ω|` to
+depend on and no such gate anywhere in the code. A gyro-less replacement phone is now simply fine.
 
 ### Toolchain rot — pinning records what you need, not whether it still exists
 

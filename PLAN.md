@@ -262,3 +262,28 @@ a test and a mutant.
 It confirmed by walking them: arming a past instant cannot loop, no reader of `nextFire` misbehaves
 on a past instant, and MISSED is the only latch `occurrenceBeingFired` tolerates so replacing it is
 safe.
+
+### Third pass: clean, with two residuals left on purpose
+
+> "I found nothing in Round 32c that can stop a ring, delay one, or cause a wrong block. The fix is
+> sound."
+
+It checked that `TOMORROW_OVERRIDE` is the right pending source (nothing anywhere distinguishes it
+from SCHEDULED except `== NAP` tests, and `occurrenceBeingFired`'s override branch binds the moved
+occurrence); that the relaxed outer condition writes no latch inside the window so step 3 cannot
+clear the override; that `pending` and `overrideFire` are mutually exclusive by their own
+conditions; that nothing else loads Room's latches (`allowBackup="false"`, no import path); and that
+the liveness clamp can only re-expose occurrences inside the same minute.
+
+Two residuals, both **pre-existing**, both requiring a process death inside a window of
+milliseconds, and both failing toward **ringing** rather than silence. Recorded rather than fixed,
+because fixing either means touching the fire path again for a case that cannot silence an alarm:
+
+1. `forceSession` builds its occurrence from the trigger instead of from `occurrenceBeingFired`, so
+   `(today, TOMORROW_OVERRIDE)` never equals a bound `(day, SCHEDULED)`. If `onTrigger` throws and
+   `forceSession` takes over, the moved block can re-arm the past instant for up to 60 s while the
+   alarm is already ringing. It needs an engine exception and it stops on its own.
+2. `de.mirror` (SharedPreferences `apply()`) and the Room save (`io.execute`) are both async. If
+   Room's write lands and the mirror's does not before the process dies, memory-first brings back
+   MISSED over SKIPPED — the mirror image of the case fixed in 32c. Ordering cannot fix it;
+   memory-first is still correct for the gap the comment describes, between boot and first unlock.
