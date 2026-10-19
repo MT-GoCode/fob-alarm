@@ -24,9 +24,8 @@ class DeMirror(ctx: Context) {
         get() = p.getLong("nextFireAtMs", 0)
         set(v) = p.edit().putLong("nextFireAtMs", v).apply()
 
-    var nextFireSource: String
-        get() = p.getString("nextFireSource", "SCHEDULED")!!
-        set(v) = p.edit().putString("nextFireSource", v).apply()
+    /** Written by [mirror] only, and read only by `Scheduler.sourceOf`'s one migration case. */
+    val nextFireSource: String get() = p.getString("nextFireSource", "SCHEDULED")!!
 
     var defaultAlarmTime: String
         get() = p.getString("defaultAlarmTime", "04:00")!!
@@ -127,7 +126,6 @@ class DeMirror(ctx: Context) {
         get() = p.getLong("pendingTestUntilMs", 0)
         set(v) = p.edit().putLong("pendingTestUntilMs", v).apply()
 
-    val pendingTest: Boolean get() = System.currentTimeMillis() < pendingTestUntilMs
 
     fun mirror(s: Settings, next: NextFire?, session: RingSession?,
                latches: List<Latch>, override: Override?, nap: Nap?) {

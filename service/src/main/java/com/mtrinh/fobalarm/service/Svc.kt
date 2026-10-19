@@ -123,7 +123,7 @@ object Svc : AlarmHost {
      */
     fun openSession(trigger: OccurrenceSource): Boolean =
         when (val action = RingGate.fireAction(session != null, trigger, ::ringBlockDecision)) {
-            FireAction.Absorb, FireAction.Ring -> { RingService.start(app, source = trigger); true }
+            FireAction.Absorb, FireAction.Ring -> { RingService.ring(app, trigger); true }
             is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
         }
 
@@ -691,7 +691,7 @@ object Svc : AlarmHost {
         // progress and both phones' screens flip to the ring at once. The link service
         // keeps this process at foreground importance, so the start is allowed either way.
         testUntilMs = System.currentTimeMillis() + 60_000
-        urgent.execute { RingService.start(app) }
+        urgent.execute { RingService.startTest(app) }
         return snapshot()
     }
 
@@ -775,6 +775,10 @@ object Scheduler {
 
     private fun set(ctx: Context, action: String, rc: Int, atMs: Long,
                     source: OccurrenceSource? = null) {
+        // A FIRE with no source is unrepresentable: the receiver would have nothing to route on
+        // and would fall back to the mirror this exists to stop trusting. Blows up here, where the
+        // caller is, rather than fabricating a mark at 04:00.
+        require(action != ACTION_FIRE || source != null) { "ACTION_FIRE armed with no source" }
         val am = ctx.getSystemService(AlarmManager::class.java)
         val p = pi(ctx, action, rc, source)
         val ok = runCatching { am.setAlarmClock(AlarmManager.AlarmClockInfo(atMs, p), p) }

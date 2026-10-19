@@ -27,6 +27,14 @@ class RingService : Service() {
         const val ACTION_SNOOZE = "snooze"
         /** Resume an open session after the process died: never a new trigger. */
         const val ACTION_RESUME = "resume"
+        /**
+         * A TEST ring. Marked, not sniffed: this used to be inferred from
+         * `session == null && de.pendingTest`, so a nap that began ringing between
+         * `Svc.testRing` and this service starting made the test fall through to the real
+         * trigger path -- which superseded the live nap session and then tore it down,
+         * silencing a ring that was already sounding.
+         */
+        const val ACTION_TEST = "test"
 
         @Volatile var serviceAlive = false
 
@@ -65,21 +73,44 @@ class RingService : Service() {
         }
         @Volatile var audible: String = "-"
 
-        fun start(ctx: Context, resume: Boolean = false, source: OccurrenceSource? = null) {
-            val intent = Intent(ctx, RingService::class.java)
-            if (resume) intent.action = ACTION_RESUME
-            // Carried, not re-read: the DE mirror is rewritten by every `apply`.
-            source?.let { intent.putExtra(Scheduler.EXTRA_SOURCE, it.name) }
-            runCatching { ctx.startForegroundService(intent) }
-                .onFailure {
-                    // Blew the ~10s FGS allowlist window (cold start after an OTA, busy
-                    // disk). Retry on a DEDICATED request code: reusing 1001 would share
-                    // the PendingIntent with the real scheduled fire and, under
-                    // FLAG_UPDATE_CURRENT, overwrite the next alarm with a 5s retry.
-                    Svc.log("fgs_start_failed", "error" to it.toString())
-                    if (resume) Scheduler.armWatchdog(ctx)
-                    else Scheduler.armFireRetry(ctx, source ?: OccurrenceSource.SCHEDULED)
-                }
+        /**
+         * A genuine trigger for [source], which travels on the intent rather than being re-read
+         * from the DE mirror that every `apply` rewrites.
+         *
+         * Three entry points, one per kind of start, because the kind decides everything the
+         * service then does -- and a `resume: Boolean` plus a nullable source made two of the
+         * four combinations meaningless and one of them fabricate a mark.
+         */
+        fun ring(ctx: Context, source: OccurrenceSource) =
+            launch(ctx, Intent(ctx, RingService::class.java)
+                .putExtra(Scheduler.EXTRA_SOURCE, source.name)) {
+                // Blew the ~10s FGS allowlist window (cold start after an OTA, busy disk). Retry
+                // on a DEDICATED request code: reusing 1001 would share the PendingIntent with
+                // the real scheduled fire and, under FLAG_UPDATE_CURRENT, overwrite the next
+                // alarm with a 5s retry.
+                Scheduler.armFireRetry(ctx, source)
+            }
+
+        /** Resume an already-open session. Never a trigger, so it never needs a source. */
+        fun resume(ctx: Context) =
+            launch(ctx, Intent(ctx, RingService::class.java).setAction(ACTION_RESUME)) {
+                Scheduler.armWatchdog(ctx)
+            }
+
+        /** A test ring. Carries no source because it is not a fire and must never arm one. */
+        fun startTest(ctx: Context) =
+            launch(ctx, Intent(ctx, RingService::class.java).setAction(ACTION_TEST)) {
+                // Deliberately nothing: a test that could not start is a test that did not
+                // happen. Retrying it as a FIRE broadcast is how a test became a real alarm.
+                Svc.log("test_start_abandoned")
+            }
+
+        private fun launch(ctx: Context, intent: Intent, onFailure: () -> Unit) {
+            runCatching { ctx.startForegroundService(intent) }.onFailure {
+                Svc.log("fgs_start_failed", "action" to (intent.action ?: "fire"),
+                    "error" to it.toString())
+                onFailure()
+            }
         }
 
         fun stop(ctx: Context) {
@@ -138,7 +169,13 @@ class RingService : Service() {
 
         // A TEST ring has no engine session by design: it must not latch, schedule or
         // consume an occurrence. It caps itself and needs no dismiss to end.
-        if (intent != null && Svc.session == null && Svc.de.pendingTest) {
+        if (intent?.action == ACTION_TEST) {
+            // A real ring outranks a test, always. Without this the test fell through to the
+            // trigger path and killed the session that was already sounding.
+            if (Svc.session != null) {
+                Svc.log("test_refused_during_ring", "ringId" to Svc.session!!.ringId)
+                teardown(); return START_NOT_STICKY
+            }
             Svc.de.pendingTestUntilMs = 0L
             // Only if it is not already live. Svc.testRing sets this before starting the
             // service so the caller's snapshot shows the test at once; writing it again

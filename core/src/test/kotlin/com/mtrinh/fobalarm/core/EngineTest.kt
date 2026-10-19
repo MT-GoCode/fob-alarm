@@ -552,6 +552,29 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `a nap due this instant is not dropped and stays armed`() {
+        // The same race the scheduled grace fixes, left open for naps until a review walked it: a
+        // recompute landing after the nap's instant but BEFORE AlarmManager dispatched it dropped
+        // the nap and re-armed for tomorrow, and the nap never fired at all.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        val napped = Engine.setNap(s0, c, 20).state
+        val napAt = at("2026-09-26T06:20:00-07:00[America/Los_Angeles]")
+        assertEquals(napAt, napped.nap!!.fireAtMs)
+
+        c.set("2026-09-26T06:20:10-07:00[America/Los_Angeles]")
+        val inside = Engine.recompute(napped, c, "hourly_tick")
+        assertNotNull(inside.state.nap, "a nap inside its delivery window must survive")
+        assertEquals(napAt, inside.nextFire!!.atMs, "and stay armed at its own past instant")
+        assertEquals(OccurrenceSource.NAP, inside.nextFire!!.source)
+
+        // Past the window the nap really did not arrive, so it goes and the alarm takes over.
+        c.set("2026-09-26T06:21:10-07:00[America/Los_Angeles]")
+        val after = Engine.recompute(napped, c, "hourly_tick")
+        assertNull(after.state.nap)
+        assertEquals(OccurrenceSource.SCHEDULED, after.nextFire!!.source)
+    }
+
     @Test fun `a nap rings after a process death even though the elapsed nap was dropped`() {
         // Why the trigger source has to travel ON the alarm instead of being re-read from the DE
         // mirror. The process dies before the nap fires. The broadcast arrives, `Boot.ensure`
@@ -566,8 +589,10 @@ class EngineTest {
         val napped = Engine.setNap(done, c, 20).state
         assertNotNull(napped.nap)
 
-        // The process was dead at 06:20; it comes back at 06:20:30 and recomputes first.
-        c.set("2026-09-26T06:20:30-07:00[America/Los_Angeles]")
+        // The process was dead from 06:19; it comes back at 06:21:30 -- past the nap's delivery
+        // window, so the grace cannot help and the nap really is gone from state. The carried
+        // mark is the only thing left that can ring it.
+        c.set("2026-09-26T06:21:30-07:00[America/Los_Angeles]")
         val dropped = Engine.recompute(napped, c, "init:de").state
         assertNull(dropped.nap, "an elapsed nap is dropped, so state no longer knows about it")
 

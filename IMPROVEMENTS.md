@@ -1373,3 +1373,60 @@ with no session. `onTrigger` builds a NAP occurrence directly instead of consult
 holds the nap.
 
 Suite 101 tests, 22 mutants, all killed by the test that names them.
+
+## Round 32f — a test ring could silence a ringing nap, and the nap race was still open
+
+Review of 32e found no new ring-loss path in the commit itself, but walking every fire path turned
+up two older ones and three things worth hardening.
+
+### A test ring could silence a ring that was already sounding
+
+The test branch was **sniffed, not marked**: `intent != null && Svc.session == null &&
+Svc.de.pendingTest`. So if a nap began ringing in the milliseconds between `Svc.testRing` setting
+its window and the service actually starting, `session != null` made the test miss its own branch
+and fall through to the **real trigger path**. `onTrigger(SCHEDULED)` against an open NAP session
+supersedes it — session cleared, occurrence latched SUPERSEDED — then `occurrenceBeingFired` returns
+null, the result is `trigger_stale`, and `RingService` tears down. **A nap that was audibly ringing
+goes silent.**
+
+`ACTION_TEST` now marks it at the point of origin and the service routes on the action. A test
+arriving while a session is open is refused outright (`test_refused_during_ring`): a real ring
+outranks a test, always. `de.pendingTest` existed only to support the sniffing and is deleted.
+
+### The delivery-window race was fixed for alarms and left open for naps
+
+Step 4 dropped a nap at `fireAtMs <= now` with no grace — the *same* race that produced the false
+`missed` on 13 and 17 Oct, which I had just fixed for scheduled occurrences and not for naps. A
+recompute landing after the nap's instant but before AlarmManager dispatched it dropped the nap and
+re-armed for tomorrow, and **the nap never fired**. It now uses `FIRE_DELIVERY_GRACE_MS`, and
+because `napFire` is already a `nextFire` candidate, a kept nap stays armed at its own past instant
+and is delivered at once — no second mechanism needed.
+
+### Three hardenings from the same review
+
+- **`RingService.start(ctx, resume, source)` became three named entry points** — `ring(source)`,
+  `resume()`, `startTest()`. The boolean-plus-nullable shape made two of its four combinations
+  meaningless and one of them *fabricate a mark*: a test ring whose foreground start failed hit
+  `source ?: SCHEDULED` and armed a real FIRE broadcast five seconds later. `startTest` now
+  abandons a failed start, because a test that could not start is a test that did not happen.
+- **`ACTION_FIRE` armed with no source is now unrepresentable**: `require(action != ACTION_FIRE ||
+  source != null)`. `source` defaulting to null meant any future sourceless `pi(FIRE, 1001)` would
+  silently strip the source from a pending alarm. It blows up at the caller instead of fabricating
+  a mark at 04:00.
+- **Two dead accessors deleted**: `DeMirror.nextFireSource`'s setter had no caller (`mirror()`
+  writes the key directly) and is now a `val`; `pendingTest` existed only for the sniffing.
+
+### Claims of mine this review falsified
+
+- "The mirror fallback can happen once per install" was wrong, or at least imprecise. Any
+  `Boot.ensure` re-arms 1001 with `FLAG_UPDATE_CURRENT` and updates the pending alarm's extras, so
+  the fallback needs the old sourceless alarm to be the *first thing that wakes the new process* —
+  and in exactly that case the mirror is **actively wrong, not merely old**. Corrected in PLAN.md.
+- PLAN.md still described `de.nextFireSource` as "the mark, set at origin" — the opposite of what
+  32e established — with pseudocode showing the old `RingService.start(app)`. Rewritten.
+
+Confirmed by the same review, so recorded as verified rather than assumed: `Intent.filterEquals`
+ignores extras; `requestCode` is part of PendingIntent identity so 1001 and 1005 can never collide;
+`FLAG_IMMUTABLE` does not block `FLAG_UPDATE_CURRENT`, because immutability constrains the sender's
+`fillIn`, not the creator; and a delivered Intent is a parcelled copy, so the recompute inside the
+same `onReceive` cannot relabel it.

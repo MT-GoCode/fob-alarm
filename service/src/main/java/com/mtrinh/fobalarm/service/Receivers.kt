@@ -48,7 +48,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     val open = Svc.session
                     if (open != null && open.endsByMs > System.currentTimeMillis()) {
                         Svc.log("watchdog_resurrect")
-                        RingService.start(ctx, resume = true); handedOff = true
+                        RingService.resume(ctx); handedOff = true
                     } else if (open != null) {
                         Svc.recompute("watchdog_after_cap")     // reaps it as CAPPED
                     }
@@ -90,7 +90,7 @@ class BootReceiver : BroadcastReceiver() {
         val open = Svc.session
         if (open != null && open.endsByMs > System.currentTimeMillis()) {
             Svc.log("resume_session_after_boot", "ringId" to open.ringId)
-            RingService.start(ctx, resume = true)
+            RingService.resume(ctx)
         }
         // Pending alarms survive a package replace, but the exact-alarm re-check can wipe
         // them, and a reboot clears everything. Rebuild unconditionally.

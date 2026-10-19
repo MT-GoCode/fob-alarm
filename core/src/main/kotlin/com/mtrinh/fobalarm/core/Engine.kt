@@ -266,8 +266,12 @@ object Engine {
             }
         }
 
-        // 4. Drop an elapsed nap.
-        st.nap?.let { if (it.fireAtMs <= now) st = st.copy(nap = null) }
+        // 4. Drop an elapsed nap -- but not inside its delivery window. This is the same race
+        //    the scheduled grace fixes, and it was left open for naps: a recompute landing after
+        //    the nap's instant but BEFORE AlarmManager dispatched it dropped the nap and re-armed
+        //    for tomorrow, so the nap never fired at all. While it is kept, `napFire` below is
+        //    still a candidate at its own past instant, so it stays armed and is delivered at once.
+        st.nap?.let { if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) st = st.copy(nap = null) }
 
         // 5. Pick nextFire: the earliest of the three independent candidates.
         //

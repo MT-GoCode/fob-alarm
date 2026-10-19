@@ -81,20 +81,25 @@ So with a block armed and the owner genuinely away, an alarm that was missed dur
 anyway. The direction is safe — it rings rather than stays silent — but the feature does not do what
 the setting says, and on a raced morning (defect 1) that is *every* morning.
 
-**Fix: one entry point, and the trigger is marked rather than re-derived.**
+**Fix: one entry point, and the trigger is routed rather than re-derived.**
 
 ```kotlin
-fun openSession(trigger: OccurrenceSource) {
-    if (session != null) { RingService.start(app); return }        // already ringing; absorbed
-    if (trigger != OccurrenceSource.NAP) ringBlockDecision()?.let { return suppressRing(it) }
-    RingService.start(app)
-}
+fun openSession(trigger: OccurrenceSource): Boolean =
+    when (val action = RingGate.fireAction(session != null, trigger, ::ringBlockDecision)) {
+        FireAction.Absorb, FireAction.Ring -> { RingService.ring(app, trigger); true }
+        is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
+    }
 ```
 
-`Receivers` passes the source the scheduler wrote when it armed (`de.nextFireSource` — the mark, set
-at origin), `apply` passes `r.fireNow`. Nothing else may start a new session. The routing decision
-itself goes to `:core` as a pure function so the ordering — session before nap before gate, the
-exact ordering round 31 got wrong — is covered by tests.
+`Receivers` passes `Scheduler.sourceOf(intent)` and `apply` passes `r.fireNow`. Nothing else may
+start a new session, and the return value tells the receiver whether the wake lock was handed off.
+The routing decision itself goes to `:core` as a pure function so the ordering — session before nap
+before gate, the exact ordering round 31 got wrong — is covered by tests.
+
+**Where the source comes from was wrong in the first draft of this plan.** It said `de.nextFireSource`
+was "the mark, set at origin". It is not: it is the DE mirror, rewritten by every `apply`. Round 32e
+below replaces it with a source carried on the armed alarm itself; this paragraph is kept only
+because the wrong claim was load-bearing in the first version of the fix.
 
 **The fix, and why a constant is unavoidable here.** Telling "due 50 ms ago, broadcast in flight"
 from "due 50 ms ago, broadcast lost" is not possible without waiting — `lastAliveMs` is a lower
@@ -260,10 +265,14 @@ with no source still matches an alarm armed with one. A broadcast already dispat
 extras it was sent with, which is exactly why this works: the recompute inside the same `onReceive`
 rewrites the mirror but cannot touch the Intent already in hand.
 
-`sourceOf` falls back to the mirror in one case only — an alarm that was already pending when the
-package was replaced, so it was armed by a build that carried no source. That can happen once per
-install and is logged as `fire_source_from_mirror`, because a standing silent fallback here would
-hide the very relabelling this exists to stop.
+`sourceOf` falls back to the mirror only for an alarm armed by a build that carried no source.
+I first wrote that this was "once per install"; review falsified that, and the precise statement is
+narrower and sharper: `MY_PACKAGE_REPLACED` (indeed any `Boot.ensure`) re-arms 1001 with
+`FLAG_UPDATE_CURRENT` and so updates the pending alarm's extras, which means the fallback needs the
+old sourceless alarm to be *the first thing that wakes the new process*. In exactly that case the
+init recompute has already rewritten the mirror, so the mirror is **actively wrong rather than merely
+old** — a pending nap is relabelled. It happens once and it is logged as `fire_source_from_mirror`,
+which is why a silent fallback here would have been unacceptable.
 
 **Proof it mattered**, as a pure engine test: with the nap elapsed and dropped from state,
 `onTrigger(NAP)` opens a session and rings, while `onTrigger(SCHEDULED)` — the relabelling — returns
@@ -308,3 +317,30 @@ because fixing either means touching the fire path again for a case that cannot 
    Room's write lands and the mirror's does not before the process dies, memory-first brings back
    MISSED over SKIPPED — the mirror image of the case fixed in 32c. Ordering cannot fix it;
    memory-first is still correct for the gap the comment describes, between boot and first unlock.
+
+## 6. Round 32f — what the 32e review turned up
+
+No new ring-loss path in 32e itself. Two older ones, both fixed:
+
+1. **A test ring could silence a ringing nap.** The test branch was sniffed (`session == null &&
+   de.pendingTest`), so a nap that began ringing in the milliseconds before the service started made
+   the test fall through to the real trigger path, supersede the live NAP session, hit
+   `trigger_stale`, and tear down. `ACTION_TEST` now marks it at origin; a test arriving while a
+   session is open is refused. `de.pendingTest` is deleted.
+2. **The delivery-window race was still open for naps.** Step 4 dropped a nap at `fireAtMs <= now`,
+   so a recompute between the nap's instant and its dispatch dropped it and re-armed for tomorrow.
+   Same race, same grace; `napFire` already keeps it armed.
+
+Plus: `RingService.start(ctx, resume, source)` split into `ring`/`resume`/`startTest` (the boolean
+made two combinations meaningless and one fabricate a mark — a failed test start armed a real FIRE
+retry); `require(action != ACTION_FIRE || source != null)`; two dead accessors deleted.
+
+### Still open, deliberately
+
+- `forceSession` builds its occurrence from the trigger rather than from `occurrenceBeingFired`.
+  Needs an engine exception to reach, self-limiting, fails toward ringing.
+- `de.mirror` and the Room save are both async, so a process death between them can reload MISSED
+  over SKIPPED. Ordering cannot fix it; it can only make the alarm ring.
+- In `onTrigger`'s supersede branch, an `occId == null` result drops the nap session, so a stale real
+  trigger can kill a live nap. Reachable only through the test-ring sequence now fixed above; worth
+  revisiting if it is ever reachable another way.
