@@ -205,3 +205,47 @@ rather than quietly cut.
 `./gradlew test` green with the new tests, each mutation-proved; 0.2.90 built, signed, downloaded
 over HTTP with a matching hash; served from mac-work-2; adversarially reviewed against
 `~/minh-agent-doctrines/code-principles.md`.
+
+## 5. What the adversarial review found, and what it leaves open
+
+Reviewed against `code-principles.md` by a subagent given the diff and told to falsify this plan.
+It found one **critical defect I had introduced**, which is now fixed and has a state-threaded test:
+
+> A recompute inside the grace window skipped the occurrence without latching it, then advanced
+> `lastAliveMs` past it. On every later recompute `if (at < aliveSince) continue` ran *before* the
+> grace check, so the occurrence read as "already handled" forever: no latch, no `fireNow`, no ring,
+> nothing in history. A reboot at 04:00:30 lost the alarm for the whole day.
+
+Fixed two ways, because one alone is not enough: liveness is now held strictly below a pending
+occurrence so a later recompute can still reach it, **and** a pending occurrence stays `nextFire` at
+its own past instant, so it is re-armed and delivered at once rather than waiting for a recompute
+that might be an hour away. That second half also answers the review's follow-up: for the default
+on-the-hour alarm the `:00:20` tick falls *inside* the window, so "recovery within the hour" would
+have been wrong.
+
+The review also confirmed what I had argued about re-arming during the window: it cannot recall a
+broadcast already sent, because `FLAG_UPDATE_CURRENT` keeps the same PendingIntent and nothing
+cancels it. The hole was not there — it was that the engine assumed a broadcast was in flight
+without knowing one had ever been armed, which is false after a reboot.
+
+And it caught my `own_link_unstable` test claiming to kill a `>`/`>=` mutant it could not: both
+operators rang for the inputs I used. There is now a boundary test and a mutant for it.
+
+### Deferred, with the reason — the trigger source is not marked at origin
+
+`Receivers` and `RingService` both read `Svc.de.nextFireSource`, which is **the DE mirror, rewritten
+by every `apply`** — not a mark written when that alarm was armed. So a recompute between arming and
+delivery can relabel the trigger. Concretely, a nap firing after a process death:
+
+1. `Boot.ensure` → `recompute("init:de")`; step 4 drops the elapsed nap, so the mirror now says
+   SCHEDULED.
+2. `openSession(SCHEDULED)` consults the gate, so a nap can be blocked — which the nap exemption
+   exists to prevent.
+3. If the gate passes, `occurrenceBeingFired` returns null because today's alarm already rang, so
+   the result is `trigger_stale` and **the nap never rings**.
+
+Pre-existing, and not made worse here: the old code read the same mirror. The fix is to put the
+source in the `PendingIntent` extras so it travels with the alarm that was armed — a real change to
+`Scheduler` and both receivers, on the fire path, and not something to rush into the same build as
+three other fixes to that path. It is the first item of the next round. The comment in `Receivers`
+now says plainly that this is a mirror and not a mark, instead of claiming otherwise.

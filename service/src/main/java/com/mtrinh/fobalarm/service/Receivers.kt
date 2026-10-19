@@ -40,11 +40,12 @@ class AlarmReceiver : BroadcastReceiver() {
             when (intent.action) {
                 Scheduler.ACTION_FIRE -> {
                     Svc.log("alarm_fired")
-                    // The source the scheduler wrote when it armed this alarm -- the mark, read
-                    // once here and routed into openSession, which owns the gate. A mark that is
-                    // missing or unreadable cannot happen (it is written on every arm) so it is
-                    // logged rather than swallowed; SCHEDULED is the honest reading because it is
-                    // the gated one, and the gate itself fails toward ringing on every branch.
+                    // Routed into openSession, which owns the gate. NOT a mark at origin: this
+                    // is the DE mirror, rewritten by every `apply`, so a recompute between arming
+                    // and delivery can relabel the trigger -- a nap firing after a process death
+                    // reads as SCHEDULED. Putting the source in the PendingIntent extras is the
+                    // real fix and is the next item in PLAN.md. SCHEDULED is the safe reading
+                    // meanwhile: it is the gated one, and the gate fails toward ringing.
                     val mark = Svc.de.nextFireSource
                     val trigger = mark?.let { runCatching { OccurrenceSource.valueOf(it) }.getOrNull() }
                     if (trigger == null) Svc.log("fire_source_unreadable", "mark" to (mark ?: "null"))

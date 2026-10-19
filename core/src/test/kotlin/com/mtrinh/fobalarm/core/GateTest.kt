@@ -113,6 +113,15 @@ class GateTest {
             "sentinel=own_link_unstable")
     }
 
+    @Test fun `a link up exactly at the peer's last sighting still blocks`() {
+        // The boundary the `>` is about. Equal means the group was already up when we last heard
+        // the peer, so its silence since is the peer's, not ours. A review found my earlier test
+        // could not tell `>` from `>=` -- both rang -- while claiming to cover this.
+        val p = peer(silentMs = 20 * 60_000)
+        assertBlocked(verdict(settings(), p, linkUp = p.lastSeenElapsed))
+        assertRings(verdict(settings(), p, linkUp = p.lastSeenElapsed + 1), "sentinel=own_link_unstable")
+    }
+
     // --- the floor ---------------------------------------------------------
 
     @Test fun `the away floor is never shorter than the presence window`() {

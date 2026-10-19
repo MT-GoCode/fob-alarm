@@ -1233,3 +1233,51 @@ The p2p→wifi path choice stays in `HttpStateClient`. The ordering half is too 
 the test restating the code; the half worth testing — only `ClientError.Transport` retries the other
 path — needs either `org.json` as a test dependency or a test-only seam in front of `attempt`.
 Neither earns its place against three defects that can silence an alarm.
+
+### The review caught a critical defect in this round's own fix
+
+An adversarial review of the diff found that the grace window, as first written, could **silence the
+alarm for an entire day** — a worse defect than the three it was fixing.
+
+A recompute inside the window skipped the occurrence without latching it, then advanced
+`lastAliveMs` past it. On every later recompute `if (at < aliveSince) continue` runs *before* the
+grace check, so the occurrence read as already handled forever: no latch, no `fireNow`, no ring, and
+nothing in history. A reboot at 04:00:30 — the phone off at 04:00, booting half a minute later, no
+lost broadcast anywhere — lost the morning outright. Before the change that boot recompute latched
+MISSED and rang at once.
+
+Fixed in two halves, because either alone is insufficient:
+
+1. **Liveness is held strictly below a pending occurrence** (`minOf(now, at - 1)`), so a later
+   recompute can still reach it.
+2. **A pending occurrence stays `nextFire`, at its own past instant**, so it is re-armed and
+   delivered immediately. This is what rings an alarm the phone rebooted through, for which
+   AlarmManager holds nothing and no broadcast will ever arrive.
+
+The second half also falsified my own doc comment. I had written that a lost broadcast "rings at the
+next recompute, and the hourly tick bounds that at an hour". For the default on-the-hour alarm the
+`:00:20` tick falls *inside* the 60 s window, so recovery would have been the hour *after* — the
+comment now says what actually makes the wait cheap.
+
+Two further corrections from the same review:
+
+- **`armHourlyTick`'s doc and SPEC § hourly both claimed the `:00:20` offset fixed this race.** They
+  cited 13 Oct 05:00 and 17 Oct 08:00 as the evidence — two incidents that happened *after* that
+  offset shipped in Round 19, which falsifies the claim they were supporting. (They also called them
+  moved alarms; both were SCHEDULED.) The offset only stops the tick being one racing caller. Both
+  texts now say so.
+- **`suppressTrigger` appended a second latch** on the `fireNow` path, where the occurrence is
+  already latched MISSED. One occurrence, two latches — an illegal state, and
+  `occurrenceBeingFired` tolerates MISSED so it kept handing the occurrence back for another gate
+  run. It now replaces the latch, which also makes its own doc true.
+- **One of my tests claimed coverage it did not have.** The `own_link_unstable` test could not tell
+  `>` from `>=`: both operators rang for the inputs it used. There is now a boundary case where the
+  link came up exactly at the peer's last sighting, and a mutant for it.
+
+Mutation check: **20 mutants, 20 killed by the test that names each one.** Suite is 99 tests.
+
+Still deferred and now written down: the trigger source read on the fire path is the DE mirror,
+rewritten by every `apply`, not a mark written when the alarm was armed. A nap firing after a process
+death can therefore be relabelled SCHEDULED, gated, and then lost to `trigger_stale`. Pre-existing,
+unchanged by this round, and the first item of the next one — it belongs in its own build rather than
+on top of three other changes to the same path.

@@ -59,9 +59,12 @@ object Engine {
      * "due 50 ms ago, broadcast coming" from "due 50 ms ago, broadcast lost" without waiting. The
      * wait is irreducible; only its length is a choice. ACTION_FIRE is `setAlarmClock`, Doze-exempt
      * and documented exact, and measured delivery on the owner's phone was 1 s (`latch` 08:00:00,
-     * `alarm_fired` 08:00:01, 17 Oct) -- this is 60x that. Widening it is close to free: an alarm
-     * whose broadcast is genuinely lost rings at the next recompute, and the hourly tick bounds
-     * that at an hour either way, so a minute of grace adds a minute to an hour.
+     * `alarm_fired` 08:00:01, 17 Oct) -- this is 60x that.
+     *
+     * Waiting costs nothing only because a pending occurrence stays armed: it remains `nextFire`,
+     * so it is re-armed at its own past instant and delivered immediately. Without that it would
+     * wait for the next recompute, and for the default on-the-hour alarm the `:00:20` tick falls
+     * INSIDE this window, which would put recovery an hour out rather than a minute.
      */
     const val FIRE_DELIVERY_GRACE_MS = 60_000L
 
@@ -179,6 +182,10 @@ object Engine {
 
         // 2. Latch the past. THE ONLY place a latch is written.
         var fireNow: OccurrenceSource? = null
+        // An occurrence past its instant but inside the delivery window. It is neither latched nor
+        // forgotten: it stays the next thing to fire, so it is re-armed and delivered, and liveness
+        // is held below it so a later recompute can still reach it.
+        var pending: NextFire? = null
 
         // Walk backwards over recent scheduled dates so a multi-day outage latches each day.
         for (back in 14 downTo 0) {
@@ -215,7 +222,10 @@ object Engine {
             // recompute landing in that sub-second used to latch MISSED and ring through `fireNow`
             // -- observed 13 Oct 05:00:00 and 17 Oct 08:00:00. Only the MISSED conclusion waits;
             // SUPERSEDED and SKIPPED are settled by a ring or an override, not by delivery.
-            if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) continue
+            if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) {
+                pending = NextFire(at, OccurrenceSource.SCHEDULED, "pending_delivery")
+                continue
+            }
 
             // One rule: an alarm that should have gone off and did not, rings now.
             if (reasonFor == LatchReason.MISSED) fireNow = OccurrenceSource.SCHEDULED
@@ -280,7 +290,10 @@ object Engine {
         }
 
         val napFire = st.nap?.let { NextFire(it.fireAtMs, OccurrenceSource.NAP, "nap") }
-        val nextFire = listOfNotNull(overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
+        // `pending` is in the past, so it wins: arming it re-delivers the broadcast at once. That
+        // is what rings an alarm the phone rebooted through, which AlarmManager has forgotten and
+        // for which no broadcast is in flight at all.
+        val nextFire = listOfNotNull(pending, overrideFire, scheduledFire, napFire).minByOrNull { it.atMs }
 
         // Ten years is 3650 latches, re-serialized on every save and linearly scanned
         // inside recompute's loops -- on the main thread, on the fire path.
@@ -291,8 +304,13 @@ object Engine {
         // Monotonic: a bad RTC must never drag the liveness threshold backwards (which
         // would invent a fortnight of misses) nor leap it forwards (which would hide
         // real misses until the clock caught up).
+        // Never advance liveness past a PENDING occurrence. The `at < aliveSince` guard above
+        // reads anything older than this threshold as already handled, so moving it past one
+        // loses that alarm for the whole day -- no latch, no fireNow, no ring, and nothing in
+        // history to say so. A reboot at 04:00:30 did exactly that.
+        val liveness = pending?.let { minOf(now, it.atMs - 1) } ?: now
         st = st.copy(stateVersion = st.stateVersion + 1,
-            lastAliveMs = maxOf(st.lastAliveMs, now))
+            lastAliveMs = maxOf(st.lastAliveMs, liveness))
         events += PendingEvent("recompute", mapOf("reason" to reason,
             "nextFireAtMs" to (nextFire?.atMs?.toString() ?: "null")))
 
@@ -530,7 +548,11 @@ object Engine {
         val now = ts.nowMs()
         val occId = occurrenceBeingFired(st, ts)
             ?: return recompute(st, ts, "ring_blocked_nothing_due")
-        var next = st.copy(latches = st.latches + Latch(occId, LatchReason.SKIPPED, now))
+        // ONE latch per occurrence. On the `fireNow` path it is already latched MISSED, and a
+        // block supersedes that, so this replaces rather than appends -- which also makes
+        // `occurrenceBeingFired` stop handing the occurrence back, as its contract promises.
+        var next = st.copy(latches = st.latches.filterNot { it.id == occId } +
+            Latch(occId, LatchReason.SKIPPED, now))
         // An override bound to this occurrence is spent with it, exactly as a real ring spends it.
         if (next.override?.boundOccurrenceId == occId) next = next.copy(override = null)
         return recompute(next, ts, "ring_blocked").let {

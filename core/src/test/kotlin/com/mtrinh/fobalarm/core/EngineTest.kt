@@ -499,6 +499,58 @@ class EngineTest {
         assertTrue(r.events.any { it.type == "missed" })
     }
 
+    @Test fun `a pending occurrence is still there when the next recompute comes`() {
+        // The defect an adversarial review found in the first cut of this change, and the reason
+        // every other test here threads state now: a recompute inside the window skipped the
+        // occurrence without latching it, then advanced `lastAliveMs` past it, so the
+        // `at < aliveSince` guard read it as already handled FOREVER. No latch, no fireNow, no
+        // ring, nothing in history -- the alarm was simply gone for the day.
+        val (c, s0) = liveTo("2026-09-26T04:00:20-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val inside = Engine.recompute(s0, c, "hourly_tick")
+        assertNull(inside.fireNow, "inside the window it is pending")
+        assertTrue(inside.state.lastAliveMs < at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"),
+            "liveness must stay below a pending occurrence, was ${inside.state.lastAliveMs}")
+
+        // THREADED from the previous result, which is what makes this test able to fail.
+        c.set("2026-09-26T05:00:20-07:00[America/Los_Angeles]")
+        val after = Engine.recompute(inside.state, c, "hourly_tick")
+        assertTrue(after.state.latches.any {
+            it.id.localDate == "2026-09-26" && it.reason == LatchReason.MISSED
+        }, "it must still be reachable: ${after.state.latches}")
+        assertEquals(OccurrenceSource.SCHEDULED, after.fireNow, "and it must ring")
+    }
+
+    @Test fun `a pending occurrence stays armed so a reboot through it rings at once`() {
+        // A reboot clears AlarmManager, so nothing is in flight and no broadcast will ever
+        // arrive. The occurrence must remain nextFire -- at its own PAST instant -- so arming it
+        // delivers immediately. If it fell through to tomorrow, the phone would be silent today.
+        val (c, s0) = liveTo("2026-09-26T04:00:30-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:50:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(s0, c, "boot:BOOT_COMPLETED")
+        assertEquals(at("2026-09-26T04:00:00-07:00[America/Los_Angeles]"), r.nextFire!!.atMs,
+            "still armed for its own instant, not tomorrow")
+        assertTrue(r.nextFire!!.atMs < c.ms, "and that instant is in the past, so it fires at once")
+        assertTrue(r.events.none { it.type == "missed" }, "30s late is not missed")
+    }
+
+    @Test fun `a blocked ring after a miss leaves exactly one latch`() {
+        // The fireNow path latches MISSED first, so appending SKIPPED gave one occurrence two
+        // latches -- an illegal state, and `occurrenceBeingFired` kept handing it back because it
+        // tolerates MISSED, so the gate ran again and history read missed + ring_blocked + ring.
+        val (c, s0) = liveTo("2026-09-26T04:02:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val missed = Engine.recompute(s0, c, "t")
+        assertEquals(OccurrenceSource.SCHEDULED, missed.fireNow)
+
+        val blocked = Engine.suppressTrigger(missed.state, c, "sentinel away 1200s")
+        val mine = blocked.state.latches.filter { it.id.localDate == "2026-09-26" }
+        assertEquals(1, mine.size, "one occurrence, one latch: $mine")
+        assertEquals(LatchReason.SKIPPED, mine.single().reason, "the block supersedes the miss")
+        assertNull(Engine.occurrenceBeingFired(blocked.state, c),
+            "and it must not be handed back for another ring")
+    }
+
     @Test fun `the grace never swallows a real outage`() {
         // Phone off for three days. Every day it slept through must still latch.
         val (c, s0) = liveTo("2026-09-26T09:00:00-07:00[America/Los_Angeles]",

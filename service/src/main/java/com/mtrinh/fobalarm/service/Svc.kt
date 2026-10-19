@@ -51,9 +51,10 @@ object Svc : AlarmHost {
      */
     val unlockToken: String? get() = unlockTokenValue
     /**
-     * What a peer last told us about itself, per ROLE. Two slots, last writer wins -- which is how
-     * "one controller and one sentinel" is enforced: a second phone claiming a role simply takes
-     * the slot, with no rejection machinery and so no way to be locked out by a reinstall.
+     * What a peer last told us about itself, per ROLE. One slot per role is how "one controller and
+     * one sentinel" is enforced: a claim is refused with 409 while the holder is still present, and
+     * the slot frees once it has been silent for `RingGate.PRESENT_WINDOW_MS`, so a reinstall --
+     * which mints a new deviceId -- can always take its own role back.
      *
      * In memory ONLY, deliberately. Mirroring it would turn every reboot and every process death
      * into a suppression: a cold start at 04:00 would read "last seen 03:00, healthy, an hour
@@ -783,8 +784,15 @@ object Scheduler {
      * occurrence had been MISSED, latched it, cleared the override and fired immediately;
      * the real trigger then arrived a second later and was absorbed. The alarm always
      * rang on time, but the history recorded a miss that never happened -- which is the
-     * one signal in this product that has to mean exactly what it says. Observed twice on
-     * the real phone, at 13 Oct 05:00 and 17 Oct 08:00, both on moved alarms.
+     * one signal in this product that has to mean exactly what it says.
+     *
+     * **This offset is not what fixed that, and it never was.** It only stops the tick
+     * being one of the callers that can race; any recompute landing between the due
+     * instant and the session opening loses the same race. It still did, twice, on 13 Oct
+     * 05:00:00 and 17 Oct 08:00:00 -- both SCHEDULED, both after this offset shipped.
+     * `Engine.FIRE_DELIVERY_GRACE_MS` is the actual fix: a due occurrence is PENDING until
+     * its delivery window expires. The offset stays because not colliding on purpose is
+     * still right.
      *
      * Alarm times are whole minutes (`HH:mm`), so any offset strictly inside the minute
      * cannot collide with one. Twenty seconds is ~20x the observed trigger delivery

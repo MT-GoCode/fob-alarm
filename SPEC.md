@@ -711,7 +711,13 @@ order is a coin toss; when the tick won, `recompute` saw the alarm due with no s
 occurrence **MISSED**, cleared the override and fired immediately, and the real trigger arrived a second later to
 be absorbed. The alarm always rang on time, but the log recorded a miss that never happened — and `missed` is the
 one signal here that has to mean exactly what it says (§ the seven-night acceptance row). Alarm times are whole
-minutes, so any offset strictly inside the minute is collision-proof. Both are re-armed by every state transaction, so they must be scheduled to an absolute hour
+minutes, so any offset strictly inside the minute is collision-proof.
+
+**The offset did not fix the race and was never sufficient.** It removes the tick as one racing caller; any
+recompute between the due instant and the session opening loses the same race, and two did — 13 Oct 05:00:00 and
+17 Oct 08:00:00, both after the offset shipped in Round 19. The fix is `Engine.FIRE_DELIVERY_GRACE_MS`: for 60 s
+past its instant an occurrence is **pending delivery**, not missed, and stays `nextFire` so it is re-armed and
+delivered rather than forgotten. Both are re-armed by every state transaction, so they must be scheduled to an absolute hour
 boundary rather than `now + 1h`, or they drift with whatever the user last touched and "hourly" becomes a lie on
 screen. Nothing is nightly, nothing chirps; failures are listed on Status as problems, on both phones. Checks: **`nextFire != null`**, group running, audio file playable, **plugged in**, thermal status
 < `SEVERE`, DND allows alarms, not hibernating, battery unrestricted, all permission gates green.
