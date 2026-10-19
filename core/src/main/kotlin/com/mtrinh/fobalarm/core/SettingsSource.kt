@@ -39,6 +39,9 @@ object SettingsSource {
      * [room] is null when the database holds no settings at all, which is NOT the same as holding
      * defaults: replacing memory with defaults loses the role, and with no role nothing is armed.
      */
-    fun onDatabaseLoad(inMemory: Settings, trustworthy: Boolean, room: Settings?): Settings =
-        if (trustworthy) inMemory else room ?: inMemory
+    fun onDatabaseLoad(inMemory: Settings, trustworthy: Boolean, room: Settings?): SettingsChoice =
+        // Always trustworthy afterwards, whichever side won: the database has now spoken, so the
+        // result is worth writing back. Returned rather than set by the caller, so that a mutant
+        // deleting it is caught by a test instead of by nobody.
+        SettingsChoice(if (trustworthy) inMemory else room ?: inMemory, trustworthy = true)
 }

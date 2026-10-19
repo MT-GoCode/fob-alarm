@@ -139,6 +139,9 @@ object ControllerWatch {
     }
 
     fun clear(ctx: Context) {
+        // The ring this alert spoke for is no longer this phone's business. Forgetting it also
+        // lets the SAME ring raise an alert again if this phone becomes the controller once more.
+        alertShownFor = null
         runCatching { ctx.getSystemService(NotificationManager::class.java).cancel(NOTIF_ID) }
     }
 }

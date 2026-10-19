@@ -154,10 +154,8 @@ object Svc : AlarmHost {
 
         // Seed from the DE mirror FIRST. Room is credential-encrypted, may be locked, and
         // reading it here would be disk IO on whatever thread woke the process -- including a
-        // broadcast receiver. The mirror now holds the WHOLE of Settings, so the alarm is armed
-        // with the owner's real settings, not a subset, before Room is even opened.
-        // Which store wins is decided in :core, where every combination is a test. This reads
-        // the two sources and nothing more.
+        // broadcast receiver. This reads the two sources and nothing more: which one wins is
+        // decided in :core, where every combination is a test.
         val chosen = SettingsSource.atStartup(de.settings, de.legacySettings(), state.settings)
         settingsTrustworthy = chosen.trustworthy
         state = state.copy(settings = chosen.settings, lastAliveMs = de.lastAliveMs)
@@ -224,12 +222,12 @@ object Svc : AlarmHost {
             // the only moment a pre-0.2.80 ringtone can be lifted into DE storage.
             runCatching { Audio.migrateRingtone(app) }
             synchronized(lock) {
-                // MERGE, never replace. An empty or wiped kv table returns a default
-                // EngineState whose role is null -- assigning it wholesale would throw
-                // away the DE-seeded role and silently un-arm the alarm forever.
+                val merged = SettingsSource.onDatabaseLoad(
+                    state.settings, settingsTrustworthy, loadedSettings)
+                // MERGE, never replace: an empty or wiped kv table returns a default EngineState
+                // whose role is null, and assigning it wholesale un-arms the alarm forever.
                 state = state.copy(
-                    settings = SettingsSource.onDatabaseLoad(
-                        state.settings, settingsTrustworthy, loadedSettings),
+                    settings = merged.settings,
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
                     // duplicated id, so memory must come FIRST: a latch can be replaced (a
@@ -242,9 +240,7 @@ object Svc : AlarmHost {
                     stateVersion = maxOf(loaded.stateVersion, state.stateVersion),
                     lastAliveMs = maxOf(loaded.lastAliveMs, state.lastAliveMs),
                 )
-                // Room has spoken: from here on what we hold is worth mirroring, whichever
-                // side won above.
-                settingsTrustworthy = true
+                settingsTrustworthy = merged.trustworthy
             }
             log("db_loaded", "reason" to reason)
             recompute("db_loaded")

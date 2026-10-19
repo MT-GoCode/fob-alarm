@@ -31,7 +31,7 @@ class SettingsSourceTest {
         SettingsSource.atStartup(blob, legacy, defaults)
 
     private fun afterRoom(c: SettingsChoice, room: Settings?) =
-        SettingsSource.onDatabaseLoad(c.settings, c.trustworthy, room)
+        SettingsSource.onDatabaseLoad(c.settings, c.trustworthy, room).settings
 
     @Test fun `fresh install keeps defaults and claims nothing`() {
         val c = startup()
@@ -39,6 +39,18 @@ class SettingsSourceTest {
         assertFalse(c.trustworthy, "defaults must not be written back over a database")
         // Room is empty too, so defaults stand and the owner picks a role.
         assertNull(afterRoom(c, null).role)
+    }
+
+    @Test fun `after the database has spoken, the result is worth writing back`() {
+        // Without this the mirror is never written on a fresh install, so a reboot before the next
+        // unlock finds no role and arms nothing. The flip lives in onDatabaseLoad rather than at
+        // the call site precisely so that deleting it fails here.
+        for (c in listOf(startup(), startup(legacy = legacy), startup(blob = blob))) {
+            assertTrue(SettingsSource.onDatabaseLoad(c.settings, c.trustworthy, room).trustworthy,
+                "whichever side won, the database has spoken")
+            assertTrue(SettingsSource.onDatabaseLoad(c.settings, c.trustworthy, null).trustworthy,
+                "including when the database had nothing to say")
+        }
     }
 
     @Test fun `in steady state the mirror is fresher than the database and wins`() {

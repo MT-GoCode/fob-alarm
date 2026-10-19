@@ -87,7 +87,12 @@ class LinkService : Service() {
             if (Svc.settings.role != Role.CONTROLLER) {
                 Svc.log("remote_dismiss_refused", "role" to (Svc.settings.role?.name ?: "none"))
                 ControllerWatch.clear(this)
-                return START_NOT_STICKY
+                // START_STICKY, not NOT_STICKY: Android applies the LAST onStartCommand return to
+                // the whole service, so refusing one intent must not strip sticky restart from the
+                // long-running link service. Losing it stops the sentinel's presence beacon, and
+                // with away-blocking armed the alarm phone then reads the sentinel as away and
+                // blocks the ring.
+                return START_STICKY
             }
             // From the notification. Here, not in the receiver: a flaky link can need
             // more than a broadcast's 10 s. Hold the CPU for it if nothing else does.

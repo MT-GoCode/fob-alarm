@@ -26,13 +26,6 @@ class DeMirror(ctx: Context) {
         .getSharedPreferences("fobalarm_de", Context.MODE_PRIVATE)
 
     /**
-     * The whole of [Settings] as last mirrored, or null before this phone has ever written one.
-     *
-     * Null means this version has never written one: a build that mirrored a subset field by
-     * field left no such key, so the first load after an upgrade falls back to [legacySettings]
-     * for the role and the alarm time, and lets Room supply the rest.
-     */
-    /**
      * The whole of [Settings] as last mirrored by THIS version, or null if none has been written.
      *
      * Authoritative when present: it is written synchronously on every change, where Room is

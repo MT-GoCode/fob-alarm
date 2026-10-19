@@ -393,3 +393,57 @@ The reviewer's closing summary, recorded verbatim because it is the clearest sta
 round leaves the product: *"The 04:00 scheduled path is clean across every pass. What remains is a
 sub-60 s expired-session ordering edge and an older reboot-through-nap loss."* The ordering edge was
 then fixed in 32j; the nap loss is the item above.
+
+## 8. 0.3 — what is deliberately NOT done, and why
+
+Shipped as `0.3.108`. Four adversarial reviews against `code-principles.md`, about 30 defects, net
+production code down. These items were raised by the reviews and consciously left, so that the next
+round starts from a list rather than a rediscovery.
+
+### Type-level work with wide ripple
+
+The `:core` review asked for four changes that make illegal states unrepresentable. Each is correct
+by the principles and each ripples through `Engine`, `Wire`, `Svc` and the UI at once:
+
+- **`Override(kind, fireAtMs: Long?)` → sealed `Time(bound, fireAtMs)` / `Skip(bound)`.** TIME
+  without an instant is constructible, so `kind == TIME && fireAtMs != null` is re-checked at four
+  sites in `Engine` alone.
+- **`RingPhase` → sealed, with `Snoozed(untilMs)`.** `snoozeUntilMs` is meaningful only when the
+  phase is SNOOZED, which is why `canExtendSnooze` needs a `?: return false`.
+- **`passwordHash` + `passwordSalt` → one `Credential`.** They must be both set or both null, and
+  `Auth.verifies` guards the half-set case that the type permits.
+- **Delete `Snapshot.mode`.** It repeats `ring != null` and `gates.allPass`; its only reader is one
+  comparison, and `Wire` decodes an unknown mode as WAITING, so a version mismatch would hide the
+  ring screen rather than fail.
+
+Why not now: this round's own record is that touching the fire path costs defects — six of round
+32's fourteen were mine, and three of 0.3's were too, each introduced while fixing something else.
+These four change the shape of the state the fire path reads, simultaneously, with no behaviour
+change to show for it. They belong in a round where that is the only thing happening, with the
+suite green before and after and nothing else in the diff.
+
+`Snapshot.mode` is the cheapest of the four and the best first move.
+
+### Smaller minimality items from the same review
+
+`Engine`'s `repeat(8)` override probe needs at most two steps; `fireNow: OccurrenceSource?` is only
+ever SCHEDULED and could be a Boolean; `Outcome.MISSED` and `Outcome.SKIPPED` are never constructed;
+`NapView.armed` always equals `atMs != null`; `Nag.Reason.NONE` exists only to return `""` twice;
+`GateInfo.forRole(alarmRole: Boolean)` should take a `Role`; `Wire` detects JSON null by comparing
+against the string `"null"` in six places and with `isNull` in six others.
+
+### Not fixable locally
+
+- **The sentinel block end to end.** An emulator has no Wi-Fi Direct group, so
+  `listenerUpSinceElapsed == 0` vetoes every block and a test there proves nothing. It needs the
+  third phone joined.
+- **`:service` has no unit tests** and is 3,200 lines. The pure decisions have been moved out as
+  they were found — `RingGate`, `FireAction`, now `SettingsSource` — which is the pattern that
+  works: each move takes the part that can be got wrong somewhere it can be tested. What remains is
+  Android plumbing that would need Robolectric to reach.
+
+### A product decision, not a defect
+
+Whether a nap missed by an outage should ring late. The engine's rule for alarms says yes; a nap is
+minutes-scale, so one resurrected hours later by a boot may be worse than none. The loss is now
+recorded either way (`nap_expired_undelivered`), so the silent-failure half is closed regardless.

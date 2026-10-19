@@ -94,8 +94,13 @@ class HttpStateClient(
                     // 409 without a snapshot used to mean "role taken" by elimination, so every
                     // other refusal arrived wearing that name.
                     val snapObj = o.optJSONObject("snapshot") ?: when (o.optString("refusal")) {
+                        // EXACT, both arms. `else -> RoleTaken` was the elimination pattern wearing
+                        // a mark: an unmarked refusal would still have been reported as a role
+                        // conflict, which is a wrong answer rather than an unknown one.
                         "busy" -> throw ClientError.Busy(o.optString("reason").ifBlank { "not now" })
-                        else -> throw ClientError.RoleTaken(o.optString("reason").ifBlank { "role taken" })
+                        "role_taken" -> throw ClientError.RoleTaken(
+                            o.optString("reason").ifBlank { "role taken" })
+                        else -> throw ClientError.Server(code, text)
                     }
                     val snap = Wire.snapshotFrom(snapObj)
                     if (o.optString("reason") == "stale_ring") throw ClientError.StaleRing(snap)
