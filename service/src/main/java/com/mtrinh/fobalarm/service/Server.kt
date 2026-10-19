@@ -1,5 +1,6 @@
 package com.mtrinh.fobalarm.service
 
+import com.mtrinh.fobalarm.core.PeerReport
 import com.mtrinh.fobalarm.core.Role
 
 import android.content.Context
@@ -234,7 +235,7 @@ object Server {
                                 "${role.name.lowercase()}; turn that one off for two minutes to take over")
                             .toString()
                     } else {
-                        if (id != null) Svc.notePresence(role, Svc.Presence(
+                        if (id != null) Svc.notePresence(role, PeerReport(
                             deviceId = id,
                             lastSeenElapsed = android.os.SystemClock.elapsedRealtime(),
                             batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,

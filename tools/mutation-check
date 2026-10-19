@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Prove the gate's tests can actually fail.
+
+For each mutant below: apply the edit, run `:core:test`, and require that the NAMED test goes red.
+A mutant that leaves the suite green means nothing in the suite observes that behaviour, and the
+test that claims to cover it is decoration. A mutant that reddens a different test than the one
+named means the coverage is not where it is documented to be.
+
+Every source file is restored afterwards, including on Ctrl-C or an exception.
+
+    tools/mutation-check            # all mutants
+    tools/mutation-check battery    # only mutants whose id contains "battery"
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENGINE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Engine.kt"
+GATE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Gate.kt"
+
+# (id, file, exact text to replace, replacement, substring of the test that must fail)
+MUTANTS = [
+    ("grace-removed", ENGINE,
+     "if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) continue",
+     "if (reasonFor == LatchReason.MISSED && at > now) continue",
+     "due this very instant"),
+    ("grace-swallows-outage", ENGINE,
+     "if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) continue",
+     "if (reasonFor == LatchReason.MISSED) continue",
+     "grace never swallows a real outage"),
+    ("override-pending-window", ENGINE,
+     "ov.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS &&", "ov.fireAtMs <= now &&",
+     "moved alarm is pending at its new instant"),
+    ("moved-alarm-superseded", ENGINE,
+     """if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
+                ov.fireAtMs != null) continue""", "",
+     "survives the phone being off"),
+    ("battery-range", GATE,
+     "if (!p.plugged && p.batteryPct < 20) return RoleVerdict.Here(\"low_battery:${p.batteryPct}\")",
+     "if (!p.plugged && p.batteryPct in 0..19) return RoleVerdict.Here(\"low_battery:${p.batteryPct}\")",
+     "unreported battery"),
+    ("trust-missing-power-report", GATE,
+     "if (!p.reportedPowerSave) return RoleVerdict.Here(\"no_power_report\")", "",
+     "never reported power save"),
+    ("drop-power-save-veto", GATE,
+     "if (p.powerSave) return RoleVerdict.Here(\"power_save\")", "",
+     "in power save rings"),
+    ("drop-gates-veto", GATE,
+     "if (p.missingGates.isNotEmpty()) return RoleVerdict.Here(\"gates:${p.missingGates.joinToString(\"|\")}\")",
+     "", "failing gates rings"),
+    ("floor-honours-setting", GATE,
+     "fun awayFloorMs(s: Settings): Long = maxOf(s.awayAfterSeconds * 1000L, PRESENT_WINDOW_MS)",
+     "fun awayFloorMs(s: Settings): Long = s.awayAfterSeconds * 1000L",
+     "away floor is never shorter"),
+    ("drop-own-link-guard", GATE,
+     """if (linkUpSinceElapsed == 0L || linkUpSinceElapsed > p.lastSeenElapsed)
+            return RoleVerdict.Here("own_link_unstable")""", "",
+     "own link being down"),
+    ("never-seen-blocks", GATE,
+     "if (p == null) return RoleVerdict.Here(\"never_seen\")",
+     "if (p == null) return RoleVerdict.Away(\"never_seen\")",
+     "peer never seen rings"),
+    ("drop-controller-arming", GATE,
+     "if (s.blockRingIfControllerAway) add(Role.CONTROLLER)", "",
+     "each setting blocks only on its own role"),
+    ("nap-consults-gate", GATE,
+     "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
+     "nap never consults the gate"),
+    ("session-consults-gate", GATE,
+     "sessionOpen -> FireAction.Absorb", "",
+     "open session absorbs"),
+    ("role-slot-never-frees", GATE,
+     "else -> nowElapsed - holder.lastSeenElapsed >= PRESENT_WINDOW_MS", "else -> false",
+     "second phone is refused while the holder is present"),
+]
+
+
+def run_suite():
+    """Returns the set of failing test names, empty only when the suite genuinely passed.
+
+    The exit code is the authority, not the parsed names: `-q` hides the per-test FAILED lines,
+    and an earlier version of this script read that silence as success and reported every mutant
+    as survived.
+    """
+    env = dict(os.environ)
+    env.setdefault("JAVA_HOME", "/Applications/Android Studio.app/Contents/jbr/Contents/Home")
+    p = subprocess.run(["./gradlew", ":core:test", "--console=plain"],
+                       cwd=ROOT, env=env, capture_output=True, text=True)
+    out = p.stdout + p.stderr
+    if p.returncode == 0:
+        return set()
+    if "Compilation error" in out or "Syntax error" in out:
+        return {"<DID NOT COMPILE>"}
+    named = set(re.findall(r"^\w+ > (.+?) FAILED", out, re.M))
+    return named or {"<RED, NO TEST NAMES PARSED>"}
+
+
+def main():
+    only = sys.argv[1] if len(sys.argv) > 1 else ""
+    mutants = [m for m in MUTANTS if only in m[0]]
+    if not mutants:
+        sys.exit(f"no mutant id contains {only!r}")
+
+    backup = tempfile.mkdtemp(prefix="mutation-check-")
+    files = {m[1] for m in mutants}
+    for f in files:
+        os.makedirs(os.path.join(backup, os.path.dirname(f)), exist_ok=True)
+        shutil.copy(os.path.join(ROOT, f), os.path.join(backup, f))
+
+    def restore():
+        for f in files:
+            shutil.copy(os.path.join(backup, f), os.path.join(ROOT, f))
+
+    results = []
+    try:
+        baseline = run_suite()
+        if baseline:
+            restore()
+            sys.exit(f"the suite is not green to begin with: {sorted(baseline)}")
+        print(f"baseline green, {len(mutants)} mutants\n")
+
+        for mid, path, old, new, expect in mutants:
+            full = os.path.join(ROOT, path)
+            src = open(full).read()
+            if old not in src:
+                results.append((mid, "STALE", "mutant text not found in source"))
+                print(f"  {mid:28} STALE  -- mutant no longer applies, fix this script")
+                continue
+            open(full, "w").write(src.replace(old, new, 1))
+            failed = run_suite()
+            restore()
+
+            killed_by = [t for t in failed if expect in t]
+            if not failed:
+                verdict, note = "SURVIVED", "suite stayed green -- nothing observes this"
+            elif killed_by:
+                verdict, note = "killed", f"by {len(failed)} test(s), incl. the named one"
+            else:
+                verdict, note = "MISPLACED", f"red, but not {expect!r}: {sorted(failed)[:2]}"
+            results.append((mid, verdict, note))
+            print(f"  {mid:28} {verdict:9} {note}")
+    finally:
+        restore()
+        shutil.rmtree(backup, ignore_errors=True)
+
+    bad = [r for r in results if r[1] != "killed"]
+    print(f"\n{len(results) - len(bad)}/{len(results)} mutants killed by the test that names them")
+    if bad:
+        print("NOT PROVEN:")
+        for mid, verdict, note in bad:
+            print(f"  {mid}: {verdict} -- {note}")
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()

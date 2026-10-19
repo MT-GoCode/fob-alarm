@@ -452,6 +452,100 @@ class EngineTest {
         val (c, s0) = fresh()
         assertNotNull(Engine.recompute(s0, c, "t").nextFire)
     }
+
+    // --- the delivery window ----------------------------------------------
+    //
+    // Reproducing two real mornings on the owner's phone, 13 Oct 05:00:00 and 17 Oct 08:00:00:
+    // a recompute landed in the sub-second between the due instant and ACTION_FIRE arriving,
+    // latched the occurrence MISSED and rang it through `fireNow`. The alarm went off, so nobody
+    // noticed, but history recorded a miss for an alarm that rang on time -- and `fireNow` is the
+    // path that had no ring gate on it.
+
+    @Test fun `an occurrence due this very instant is pending, not missed`() {
+        val (c, s0) = liveTo("2026-09-26T04:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(s0, c, "t")
+        assertTrue(r.state.latches.none { it.id.localDate == "2026-09-26" },
+            "the broadcast is in flight; nothing may latch yet: ${r.state.latches}")
+        assertNull(r.fireNow, "fireNow here is the race: it rings outside the gate")
+        assertTrue(r.events.none { it.type == "missed" }, "it has not been missed")
+    }
+
+    @Test fun `an occurrence one second past due is still pending`() {
+        // The measured gap between the latch and `alarm_fired` was exactly this.
+        val (c, s0) = liveTo("2026-09-26T04:00:01-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(s0, c, "t")
+        assertTrue(r.state.latches.none { it.id.localDate == "2026-09-26" })
+        assertNull(r.fireNow)
+    }
+
+    @Test fun `at the end of the delivery window it is still pending`() {
+        val (c, s0) = liveTo("2026-09-26T04:00:59-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        assertNull(Engine.recompute(s0, c, "t").fireNow)
+    }
+
+    @Test fun `past the delivery window the alarm really was missed and rings now`() {
+        // The other half of the contract. Without this the fix would just delete the feature that
+        // rings an alarm the phone slept through.
+        val (c, s0) = liveTo("2026-09-26T04:01:01-07:00[America/Los_Angeles]",
+                             "2026-09-26T03:59:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(s0, c, "t")
+        assertTrue(r.state.latches.any {
+            it.id.localDate == "2026-09-26" && it.reason == LatchReason.MISSED
+        }, "a broadcast that never arrived is a miss: ${r.state.latches}")
+        assertEquals(OccurrenceSource.SCHEDULED, r.fireNow)
+        assertTrue(r.events.any { it.type == "missed" })
+    }
+
+    @Test fun `the grace never swallows a real outage`() {
+        // Phone off for three days. Every day it slept through must still latch.
+        val (c, s0) = liveTo("2026-09-26T09:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-23T03:00:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(s0, c, "boot")
+        for (d in listOf("2026-09-23", "2026-09-24", "2026-09-25", "2026-09-26")) {
+            assertTrue(r.state.latches.any { it.id.localDate == d && it.reason == LatchReason.MISSED },
+                "$d must be latched MISSED: ${r.state.latches}")
+        }
+        assertEquals(OccurrenceSource.SCHEDULED, r.fireNow)
+    }
+
+    @Test fun `a moved alarm survives the phone being off across its ORIGINAL instant`() {
+        // Found by the test above, and pre-existing: move 04:00 to 07:00 at 23:00, phone dies at
+        // 23:30, boots at 07:01. The backward walk reached the 04:00 occurrence, latched it
+        // SUPERSEDED, step 3 cleared the override, and the moved-alarm block then found a latch
+        // and did nothing -- the alarm the owner explicitly asked for was lost in silence.
+        val (c, s0) = liveTo("2026-09-25T23:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-25T22:59:00-07:00[America/Los_Angeles]")
+        val moved = Engine.setOverrideTime(s0, c, "07:00").state
+
+        c.set("2026-09-26T07:01:01-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(moved, c, "boot")
+        assertEquals(OccurrenceSource.SCHEDULED, r.fireNow, "the moved alarm must ring, not vanish")
+        assertTrue(r.events.any { it.type == "missed" }, "and be recorded as missed")
+        assertTrue(r.state.latches.none { it.reason == LatchReason.SUPERSEDED },
+            "nothing superseded it: ${r.state.latches}")
+    }
+
+    @Test fun `a moved alarm is pending at its new instant and missed past the window`() {
+        // The same race on the override path, which infers a miss from `fireAtMs <= now`.
+        val (c, s0) = liveTo("2026-09-25T23:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-25T22:59:00-07:00[America/Los_Angeles]")
+        val moved = Engine.setOverrideTime(s0, c, "07:00").state
+        assertNotNull(moved.override?.fireAtMs)
+
+        c.set("2026-09-26T07:00:00-07:00[America/Los_Angeles]")
+        val pending = Engine.recompute(moved, c, "t")
+        assertNull(pending.fireNow, "the moved alarm's broadcast is in flight")
+        assertTrue(pending.events.none { it.type == "missed" })
+        assertNotNull(pending.state.override, "and the override must survive the window")
+
+        c.set("2026-09-26T07:01:01-07:00[America/Los_Angeles]")
+        val late = Engine.recompute(moved, c, "t")
+        assertEquals(OccurrenceSource.SCHEDULED, late.fireNow, "nothing came; ring it")
+        assertTrue(late.events.any { it.type == "missed" })
+    }
 }
 
 class RegressionTest {

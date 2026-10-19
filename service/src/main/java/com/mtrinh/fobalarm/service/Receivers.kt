@@ -40,26 +40,15 @@ class AlarmReceiver : BroadcastReceiver() {
             when (intent.action) {
                 Scheduler.ACTION_FIRE -> {
                     Svc.log("alarm_fired")
-                    // The ONE gate. Only here, because of the seven paths that reach
-                    // RingService.start this is the only one that opens a NEW session -- the
-                    // watchdog and boot paths resume an OPEN one, and suppressing those would
-                    // silence an alarm that is already ringing. A session already open means this
-                    // trigger will be absorbed, so the decision has passed.
-                    // Naps are exempt: a nap is a fresh, explicit "ring me in 20 minutes" from
-                    // someone standing right there. Decided BEFORE consulting the gate, so a nap
-                    // never logs a `ring_blocked` it then ignores -- history must not claim a block
-                    // that did not happen.
-                    val isNap = Svc.de.nextFireSource == OccurrenceSource.NAP.name
-                    val blocked = when {
-                        Svc.session != null -> null          // absorbed; the decision has passed
-                        isNap -> null
-                        else -> Svc.ringBlockDecision()
-                    }
-                    if (blocked != null) {
-                        runCatching { Svc.suppressRing(blocked) }
-                    } else {
-                        RingService.start(ctx); handedOff = true
-                    }
+                    // The source the scheduler wrote when it armed this alarm -- the mark, read
+                    // once here and routed into openSession, which owns the gate. A mark that is
+                    // missing or unreadable cannot happen (it is written on every arm) so it is
+                    // logged rather than swallowed; SCHEDULED is the honest reading because it is
+                    // the gated one, and the gate itself fails toward ringing on every branch.
+                    val mark = Svc.de.nextFireSource
+                    val trigger = mark?.let { runCatching { OccurrenceSource.valueOf(it) }.getOrNull() }
+                    if (trigger == null) Svc.log("fire_source_unreadable", "mark" to (mark ?: "null"))
+                    handedOff = Svc.openSession(trigger ?: OccurrenceSource.SCHEDULED)
                 }
                 Scheduler.ACTION_WATCHDOG -> {
                     val open = Svc.session

@@ -51,6 +51,20 @@ object Engine {
 
     private val DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
+    /**
+     * How long after its instant an occurrence is still PENDING delivery rather than missed.
+     *
+     * At the due instant the fire broadcast is in flight: the session is not open yet, and
+     * `lastAliveMs` is a lower bound on liveness, not a measure of it, so nothing here can tell
+     * "due 50 ms ago, broadcast coming" from "due 50 ms ago, broadcast lost" without waiting. The
+     * wait is irreducible; only its length is a choice. ACTION_FIRE is `setAlarmClock`, Doze-exempt
+     * and documented exact, and measured delivery on the owner's phone was 1 s (`latch` 08:00:00,
+     * `alarm_fired` 08:00:01, 17 Oct) -- this is 60x that. Widening it is close to free: an alarm
+     * whose broadcast is genuinely lost rings at the next recompute, and the hourly tick bounds
+     * that at an hour either way, so a minute of grace adds a minute to an hour.
+     */
+    const val FIRE_DELIVERY_GRACE_MS = 60_000L
+
     // -----------------------------------------------------------------------
     // Occurrence maths
     // -----------------------------------------------------------------------
@@ -177,11 +191,14 @@ object Engine {
             if (at < aliveSince) continue                       // already handled, or predates us
 
             val ov = st.override
-            // An override that MOVED this occurrence later has not resolved it -- the
-            // replacement instant is still ahead of us. Latching here would clear the
-            // override in step 3 and delete the alarm the user just asked for.
+            // A MOVED occurrence belongs to the block below, which is its single owner -- whether
+            // its replacement instant is still ahead of us or has passed unfired. Latching it here
+            // marks it SUPERSEDED, step 3 then clears the override, and the block below finds a
+            // latch and does nothing: the moved alarm is lost outright. That happens whenever the
+            // phone is off across the ORIGINAL instant, e.g. move 04:00 to 07:00 at 23:00, phone
+            // dies at 23:30, boots at 07:01 -- and nothing rings.
             if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
-                ov.fireAtMs != null && ov.fireAtMs > now) continue
+                ov.fireAtMs != null) continue
 
             val suppressed = ov != null && ov.boundOccurrenceId == id   // DERIVED, never stored
             // Due while a real alarm is already ringing: the trigger is absorbed into that
@@ -192,6 +209,13 @@ object Engine {
                 suppressed || absorbed -> LatchReason.SUPERSEDED
                 else -> LatchReason.MISSED
             }
+
+            // PENDING, not missed. At the due instant the broadcast is still in flight: the
+            // session is not open yet and `lastAliveMs` cannot tell alive-and-idle from dead, so a
+            // recompute landing in that sub-second used to latch MISSED and ring through `fireNow`
+            // -- observed 13 Oct 05:00:00 and 17 Oct 08:00:00. Only the MISSED conclusion waits;
+            // SUPERSEDED and SKIPPED are settled by a ring or an override, not by delivery.
+            if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) continue
 
             // One rule: an alarm that should have gone off and did not, rings now.
             if (reasonFor == LatchReason.MISSED) fireNow = OccurrenceSource.SCHEDULED
@@ -205,7 +229,8 @@ object Engine {
         // missed too. The loop above cannot see it: it walks the ORIGINAL instants, and
         // one older than lastAliveMs is skipped as already handled.
         st.override?.let { ov ->
-            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null && ov.fireAtMs <= now &&
+            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null &&
+                ov.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS &&
                 st.session?.occurrenceId != ov.boundOccurrenceId &&
                 st.latches.none { it.id == ov.boundOccurrenceId }) {
                 fireNow = OccurrenceSource.SCHEDULED

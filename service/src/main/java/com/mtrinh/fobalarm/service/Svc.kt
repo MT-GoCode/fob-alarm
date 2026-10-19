@@ -50,7 +50,6 @@ object Svc : AlarmHost {
      * is not a timer: an app restart is locked.
      */
     val unlockToken: String? get() = unlockTokenValue
-    /** Last device report from the controller. Null until it has ever been heard from. */
     /**
      * What a peer last told us about itself, per ROLE. Two slots, last writer wins -- which is how
      * "one controller and one sentinel" is enforced: a second phone claiming a role simply takes
@@ -60,53 +59,17 @@ object Svc : AlarmHost {
      * into a suppression: a cold start at 04:00 would read "last seen 03:00, healthy, an hour
      * absent" and block, though the phone was dead for that hour. Un-mirrored, a restart reads
      * "never seen", which rings.
-     *
-     * [lastSeenElapsed] is `SystemClock.elapsedRealtime`, not wall clock. A forward clock
-     * correction is exactly what produces the `fireNow` path, and a wall-clock age would make a
-     * sentinel that polled three seconds ago look absent for the length of the jump.
      */
-    data class Presence(
-        val deviceId: String,
-        val lastSeenElapsed: Long,
-        val batteryPct: Int,
-        val plugged: Boolean,
-        val powerSave: Boolean,
-        /** False when the peer sent no `powerSave` at all -- an older build, so unknown. */
-        val reportedPowerSave: Boolean,
-        val missingGates: List<String>,
-        val appVersion: String,
-    )
+    @Volatile var controllerPresence: PeerReport? = null
+    @Volatile var sentinelPresence: PeerReport? = null
 
-    @Volatile var controllerPresence: Presence? = null
-    @Volatile var sentinelPresence: Presence? = null
-
-    fun presenceOf(role: Role): Presence? =
+    fun presenceOf(role: Role): PeerReport? =
         if (role == Role.SENTINEL) sentinelPresence else controllerPresence
 
-    /**
-     * Whether [deviceId] may act as [role] right now.
-     *
-     * **This is not a security boundary and is not trying to be.** `deviceId` is self-asserted and
-     * `:8766` publishes it, so anyone willing to craft an HTTP request can bypass it. What it
-     * stops is the owner, half asleep at 04:00, turning their pocket phone into a controller and
-     * dismissing the alarm from bed instead of walking to the box. The UI refuses, and that is the
-     * whole job.
-     *
-     * A holder only blocks a new claimant while it is **actually present**. Absent longer than the
-     * presence window and the slot is up for grabs -- otherwise reinstalling a phone (which mints a
-     * a new deviceId) would lock the role out forever and remote dismiss would simply stop working.
-     */
-    fun roleAvailableTo(role: Role, deviceId: String): Boolean {
-        val holder = presenceOf(role) ?: return true
-        if (holder.deviceId == deviceId) return true
-        val silentMs = android.os.SystemClock.elapsedRealtime() - holder.lastSeenElapsed
-        return silentMs >= PRESENT_WINDOW_MS
-    }
+    fun roleAvailableTo(role: Role, deviceId: String): Boolean =
+        RingGate.roleAvailable(presenceOf(role), deviceId, SystemClock.elapsedRealtime())
 
-    /** How recently a peer must have spoken to count as present. */
-    const val PRESENT_WINDOW_MS = 120_000L
-
-    fun notePresence(role: Role, p: Presence) {
+    fun notePresence(role: Role, p: PeerReport) {
         val prev = presenceOf(role)
         // The gap is the measurement the absence floor has to be set from. Logged rather than
         // guessed, because "two minutes" was invented and nothing in this app recorded peer gaps.
@@ -121,88 +84,48 @@ object Svc : AlarmHost {
     val peerDevice: DeviceView? get() = controllerPresence?.let { toDeviceView(it, Role.CONTROLLER) }
     val peerBlockers: List<String> get() = controllerPresence?.missingGates ?: emptyList()
 
-    fun toDeviceView(p: Presence, role: Role) = DeviceView(
+    fun toDeviceView(p: PeerReport, role: Role) = DeviceView(
         batteryPct = p.batteryPct, plugged = p.plugged, appVersion = p.appVersion,
         role = role, deviceId = p.deviceId,
         // The screen wants a wall-clock instant; convert back at read time.
         lastSeenMs = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - p.lastSeenElapsed))
 
-    /**
-     * Null means RING. Non-null is the reason the ring is blocked.
-     *
-     * Everything here fails toward ringing. The sentinel must be positively known-absent AND have
-     * been trustworthy when last heard from; anything unexplained rings.
-     */
-    /**
-     * Why a ring is blocked, or null to ring. **Pure** -- it is read by every snapshot, so it must
-     * not log. `ringBlockDecision` is the one place that records an answer.
-     *
-     * Every branch fails toward ringing: the sentinel must be positively known-absent AND have been
-     * trustworthy when last heard from. Anything unexplained rings.
-     *
-     * The `second` of the pair is why it is NOT blocking, for the decision log.
-     */
-    fun ringBlockReason(): Pair<String?, String?> {
-        val armed = buildList {
-            if (settings.blockRingIfSentinelAway) add(Role.SENTINEL)
-            if (settings.blockRingIfControllerAway) add(Role.CONTROLLER)
-        }
-        if (armed.isEmpty()) return null to "setting_off"
-        // OR: either enabled role being genuinely away blocks. The whys of the roles that did NOT
-        // block are kept for the log, so a morning that rang still says why.
-        val whys = mutableListOf<String>()
-        for (role in armed) {
-            val (blocked, why) = awayReasonFor(role)
-            if (blocked != null) return blocked to null
-            whys += "${role.name.lowercase()}=$why"
-        }
-        return null to whys.joinToString(",")
-    }
+    /** The live inputs the pure gate needs. Read once per decision, never cached. */
+    private fun ringVerdict(): RingVerdict = RingGate.verdict(
+        settings, SystemClock.elapsedRealtime(), Group.listenerUpSinceElapsed, ::presenceOf)
 
     /**
-     * Is [role] genuinely away? One predicate, every branch failing toward ringing: the phone must
-     * be positively known-absent AND have been trustworthy when last heard from. Anything
-     * unexplained rings.
+     * Why a ring is blocked, or null to ring. **Pure** -- it is read by every snapshot, so it must
+     * not log. [ringBlockDecision] is the one place that records an answer.
      */
-    private fun awayReasonFor(role: Role): Pair<String?, String> {
-        val name = role.name.lowercase()
-        val p = presenceOf(role) ?: return null to "never_seen"
-        if (p.missingGates.isNotEmpty()) return null to "gates:${p.missingGates.joinToString("|")}"
-        if (p.powerSave) return null to "power_save"
-        // Absent means the peer predates the field. Unknown trustworthiness is not trustworthy,
-        // and "never blocks" is the safe way to be wrong.
-        if (!p.reportedPowerSave) return null to "no_power_report"
-        // `< 20`, not `in 0..19`: an unreported battery is -1, and that must veto too.
-        if (!p.plugged && p.batteryPct < 20) return null to "low_battery:${p.batteryPct}"
-        val absentMs = android.os.SystemClock.elapsedRealtime() - p.lastSeenElapsed
-        if (absentMs < effectiveAwayFloorMs) return null to "present:${absentMs / 1000}s"
-        // This phone's OWN link being down must never read as the other phone having left.
-        val upSince = Group.listenerUpSinceElapsed
-        if (upSince == 0L || upSince > p.lastSeenElapsed) return null to "own_link_unstable"
-        return "$name away ${absentMs / 1000}s" to "away"
-    }
+    fun ringBlockReason(): String? = (ringVerdict() as? RingVerdict.Blocked)?.reason
 
     /**
      * The gate, called once per fire. Logs the answer either way, so every morning's decision is
      * in history whether it blocked or not -- the whole feature is invisible otherwise.
      */
-    fun ringBlockDecision(): String? {
-        val (blocked, why) = ringBlockReason()
-        if (blocked != null) log("ring_blocked", "reason" to blocked)
-        else if (why != "setting_off") log("ring_block_skipped", "why" to (why ?: "?"))
-        return blocked
+    fun ringBlockDecision(): String? = when (val v = ringVerdict()) {
+        is RingVerdict.Blocked -> { log("ring_blocked", "reason" to v.reason); v.reason }
+        is RingVerdict.Allowed -> { log("ring_block_skipped", "why" to v.why); null }
+        RingVerdict.NotArmed -> null
     }
 
     /**
-     * The owner's `awayAfterSeconds`, floored at [PRESENT_WINDOW_MS].
+     * The ONLY place a new ring session opens. Both the armed broadcast and the `fireNow` path
+     * come through here, so the gate cannot be bypassed by adding a caller -- which is exactly
+     * how `fireNow` came to ring without consulting it at all.
      *
-     * The floor is not a preference and is not negotiable from the UI: the sentinel reports every
-     * 30 s, so anything shorter than this app's own definition of "present" would read a phone in
-     * the owner's pocket as having left and silence the alarm. Setting 0 therefore means "as soon
-     * as absence is detectable at all", which is two minutes, not zero.
+     * [trigger] is the mark written when the alarm was armed, routed through, never re-derived.
+     *
+     * Returns whether the ring service was started, which is the caller's signal that the wake
+     * lock has been handed off and must not be released.
      */
-    val effectiveAwayFloorMs: Long
-        get() = maxOf(settings.awayAfterSeconds * 1000L, PRESENT_WINDOW_MS)
+    fun openSession(trigger: OccurrenceSource): Boolean =
+        when (val action = RingGate.fireAction(session != null, trigger, ::ringBlockDecision)) {
+            FireAction.Absorb, FireAction.Ring -> { RingService.start(app); true }
+            is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
+        }
+
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -383,7 +306,9 @@ object Svc : AlarmHost {
         if (alsoFire && r.fireNow != null && state.session == null &&
             state.settings.role == Role.ALARM) {
             log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
-            urgent.execute { RingService.start(app) }
+            // Through openSession, not straight to RingService: this path used to ring without
+            // consulting the gate at all, so an away block simply did not apply to a missed alarm.
+            urgent.execute { openSession(r.fireNow!!) }
         }
         snapshot()
     }
@@ -491,9 +416,9 @@ object Svc : AlarmHost {
             lastEvents = recentEvents(10),
             // Stale peer reports must not linger after the peer goes away.
             sentinel = sentinelPresence?.let { toDeviceView(it, Role.SENTINEL) },
-            ringBlock = if (state.settings.role == Role.ALARM) ringBlockReason().first else null,
+            ringBlock = if (state.settings.role == Role.ALARM) ringBlockReason() else null,
             peerBlockers = if (peerDevice?.lastSeenMs?.let {
-                    System.currentTimeMillis() - it < 120_000 } == true) peerBlockers else emptyList(),
+                    System.currentTimeMillis() - it < RingGate.PRESENT_WINDOW_MS } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
             testSnoozedUntilMs = testSnoozedUntilMs,

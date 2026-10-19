@@ -1125,3 +1125,111 @@ unless this phone's P2P group has been up since before the peer's last sighting,
 restart while the owner is away produces a false ring** rather than a block. The alarm phone logged
 zero `p2p_lost` over eleven days, which suggests the group is stable, but `ap_start` frequency has
 not been counted. False ring is the correct direction to fail; the frequency is simply unknown.
+
+
+## Round 32 — the due-instant race, a lost moved alarm, and the gate becomes testable
+
+Three defects, two of them found by reading the alarm phone's own history rather than the code.
+
+**The measurement round 31 left open.** 2000 events over 7.31 days: `ap_start` **once** (0.14/day),
+and zero `ap_error`, `ap_stale_group` or `p2p_lost`. The P2P group restarts about weekly, so the
+`own_link_unstable` guard costs at most one false ring a week, and only if the owner is away in that
+window. `peer_gap` has logged nothing, but it has only existed since 0.2.89 went on the phones on
+18 Oct, so the away floor stays at its 10-minute default rather than being tuned from one quiet day.
+
+### 1. An occurrence due this instant was latched MISSED while its broadcast was in flight
+
+History, 17 Oct (and identically 13 Oct 05:00:00):
+
+```
+08:00:00  latch {2026-10-17/SCHEDULED, MISSED}   08:00:00  missed
+08:00:00  fire_now_after_clock_jump              08:00:01  alarm_fired   <- the real broadcast
+```
+
+`recompute`'s guards were `at > now`, `session?.occurrenceId == id`, `at < aliveSince`. At the due
+instant all three pass: `at <= now`, the session is not open yet because `ACTION_FIRE` is a beat
+behind, and `aliveSince` is the *previous* recompute. Any recompute landing in that sub-second
+latched a false MISSED and rang through `fireNow`.
+
+I had credited the `:00:20` hourly-tick offset with fixing this. Wrong, and worth recording as
+wrong: that offset shipped in Round 19, long before both incidents.
+
+Telling "due 50 ms ago, broadcast in flight" from "due 50 ms ago, broadcast lost" is not possible
+without waiting — `lastAliveMs` is a lower bound on liveness, not a measure of it, so it cannot
+distinguish alive-and-idle from dead. The wait is irreducible; only its length was a choice.
+`FIRE_DELIVERY_GRACE_MS = 60 s`, from measured delivery of 1 s, and cheap because an alarm whose
+broadcast is genuinely lost rings at the next recompute, which the hourly tick already bounds at an
+hour.
+
+**Scoped to the MISSED conclusion only.** My first attempt put the grace on the `at > now` guard and
+broke a pre-existing test: an occurrence coming due during a real ring stopped latching SUPERSEDED.
+That test was right to go red. SUPERSEDED and SKIPPED are settled by a ring or an override, not by
+delivery, so only MISSED waits.
+
+### 2. A moved alarm was lost outright if the phone was off across its ORIGINAL instant
+
+Found by one of the new tests, pre-existing, and the worst class of defect in this app.
+
+Move 04:00 to 07:00 at 23:00; phone dies at 23:30; boots at 07:01. The backward walk reached the
+04:00 occurrence, latched it SUPERSEDED, step 3 cleared the override, and the moved-alarm block then
+found a latch and did nothing. **Nothing rang, and nothing in history said so.** The old guard only
+skipped the occurrence while the replacement instant was still ahead (`fireAtMs > now`), which is
+false once the phone has slept past it.
+
+A TIME-moved occurrence is now skipped by the walk unconditionally: the moved-alarm block is its
+single owner and decides its fate alone.
+
+### 3. `fireNow` opened a ring session with no gate on it
+
+Round 28 recorded that of seven `RingService.start`/`forceSession` call sites only two open a new
+session, and put the gate on one. `Svc.apply`'s `fireNow` was the other, and it called
+`RingService.start` directly. With a block armed and the owner genuinely away, an alarm missed
+during an outage rang anyway — safe direction, but not what the setting says, and combined with
+defect 1 that was *every* raced morning.
+
+`Svc.openSession(trigger)` is now the only place a new session opens, and it returns whether the
+ring service started so the caller knows the wake lock was handed off. The trigger is the mark the
+scheduler wrote when it armed the alarm, routed in and never re-derived; an unreadable mark logs
+`fire_source_unreadable` rather than being swallowed.
+
+### The gate moved to `:core`, which is the only reason any of this is now tested
+
+`core/build.gradle.kts` has always said: *":core is pure Kotlin/JVM with ZERO Android dependencies.
+That is the point: the entire state machine runs in unit tests on the Mac in seconds."* The ring
+gate was built in `:service` anyway — 3270 lines with **zero tests**, holding the only three
+functions in the app that can decide not to wake the owner.
+
+`Svc.Presence` became `core.PeerReport`; `ringBlockReason`, `awayReasonFor`, `roleAvailableTo`,
+`effectiveAwayFloorMs` and `PRESENT_WINDOW_MS` became pure functions in `core/Gate.kt` taking
+`nowElapsed` and `linkUpSinceElapsed` as parameters. `Svc` keeps one line each, supplying
+`SystemClock.elapsedRealtime()` and `Group.listenerUpSinceElapsed`. No behaviour change, no new
+dependency, no Robolectric; `service` → `core` still points one way.
+
+The `Pair<String?, String?>` returns became tagged unions — `RoleVerdict`, `RingVerdict`,
+`FireAction` — which deleted the `why != "setting_off"` string comparison at the log site and made
+the fire routing an exhaustive match instead of a chain of booleans.
+
+### Proof the tests can fail: `tools/mutation-check`
+
+A test nothing can turn red catches nothing, so this is a result rather than a claim. The harness
+applies 15 mutants — remove the grace, `< 20` back to `in 0..19`, trust a missing `powerSave`, drop
+the power-save / gates / own-link vetoes, let a nap consult the gate, let the role slot never free,
+and so on — and requires **the test that names each mutant** to go red.
+
+```
+15/15 mutants killed by the test that names them
+```
+
+Its first version reported 0/15 survived-everything, which was the harness and not the tests: `-q`
+suppresses Gradle's per-test `FAILED` lines, so it read that silence as success. It now takes the
+exit code as the authority. Exactly the failure mode the mutation check exists to catch, found in
+the checker itself.
+
+Suite: **95 tests**, one command, `./gradlew :core:test`.
+
+### Deferred, not cut
+
+The p2p→wifi path choice stays in `HttpStateClient`. The ordering half is too thin to test without
+the test restating the code; the half worth testing — only `ClientError.Transport` retries the other
+path — needs either `org.json` as a test dependency or a test-only seam in front of `attempt`.
+Neither earns its place against three defects that can silence an alarm.
