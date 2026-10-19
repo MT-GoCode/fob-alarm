@@ -299,12 +299,13 @@ object Svc : AlarmHost {
         // wrong room and chirp about gates it cannot pass.
         if (state.settings.role == Role.ALARM) Scheduler.arm(app, r.nextFire)
 
-        if (alsoFire && r.fireNow != null && state.session == null &&
+        val fireNow = r.fireNow
+        if (alsoFire && fireNow != null && state.session == null &&
             state.settings.role == Role.ALARM) {
-            log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
+            log("fire_now_after_clock_jump", "source" to fireNow.name)
             // Through openSession, never straight to RingService: this is a second place a NEW
             // session opens, and the gate lives there.
-            urgent.execute { openSession(r.fireNow!!) }
+            urgent.execute { openSession(fireNow) }
         }
         snapshot()
     }
@@ -374,7 +375,8 @@ object Svc : AlarmHost {
     private fun buildSnapshot(): Snapshot {
         val gates = GateEval.current(app, state.settings, lastNextFire != null)
         val s = state.session
-        val ovFire = state.override?.fireAtMs
+        val ov = state.override
+        val ovFire = (ov as? Override.Time)?.fireAtMs
         // The scheduled alarm the override replaces -- or WOULD replace when there is
         // none yet, which is what lets the Move dialog show where a time will land.
         val boundAt = state.override?.let {
@@ -405,8 +407,13 @@ object Svc : AlarmHost {
             lastOutcome = state.lastOutcome,
             appVersion = appVersion,
             settingsSchemaVersion = Persist.SCHEMA_VERSION,
+            // The wire's string tag, produced exhaustively from the variant.
             tomorrow = TomorrowView(
-                state.override?.kind?.name ?: "NONE", ovFire, boundAt),
+                when (ov) {
+                    null -> "NONE"
+                    is Override.Time -> "TIME"
+                    is Override.Skip -> "SKIP"
+                }, ovFire, boundAt),
             nap = NapView(state.nap != null, state.nap?.fireAtMs),
             settings = state.settings,
             lastEvents = recentEvents(10),

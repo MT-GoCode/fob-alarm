@@ -48,8 +48,7 @@ MUTANTS = [
      "if (ov.fireAtMs > now - FIRE_DELIVERY_GRACE_MS) {", "if (ov.fireAtMs > now) {",
      "moved alarm is pending at its new instant"),
     ("moved-alarm-superseded", ENGINE,
-     """if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
-                ov.fireAtMs != null) continue""", "",
+     "if (ov is Override.Time && ov.boundOccurrenceId == id) continue", "",
      "survives the phone being off"),
     ("liveness-swallows-pending", ENGINE,
      "val liveness = pending?.let { minOf(now, it.atMs - 1) } ?: now", "val liveness = now",

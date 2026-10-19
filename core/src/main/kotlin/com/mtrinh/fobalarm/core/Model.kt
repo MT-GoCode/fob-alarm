@@ -133,17 +133,27 @@ data class OccurrenceId(val localDate: String, val source: OccurrenceSource) {
 
 data class Latch(val id: OccurrenceId, val reason: LatchReason, val atMs: Long)
 
-enum class OverrideKind { TIME, SKIP }
-
 /**
- * The thing a user would call "tomorrow". Never stored as a word or a relative notion:
- * bound to a specific occurrence and resolved to an absolute instant at set time.
+ * The thing a user would call "tomorrow". Never a word or a relative notion: bound to a specific
+ * occurrence and, when it moves one, resolved to an absolute instant at set time.
+ *
+ * Sealed, with the instant carried by the only variant that has one. A single `kind` plus a
+ * nullable `fireAtMs` made TIME-without-an-instant constructible, so four places in [Engine] each
+ * had to remember `kind == TIME && fireAtMs != null`, and the fire path dereferenced it with `!!`
+ * guarded only by a check three lines above. Now the type says it and the compiler checks it.
+ *
+ * The WIRE still carries a string tag ("NONE"/"SKIP"/"TIME"): that is a serialization boundary,
+ * validated once where a request enters.
  */
-data class Override(
-    val boundOccurrenceId: OccurrenceId,
-    val kind: OverrideKind,
-    val fireAtMs: Long?,      // null when SKIP
-)
+sealed interface Override {
+    val boundOccurrenceId: OccurrenceId
+
+    /** Moved: this occurrence is replaced by one at [fireAtMs]. */
+    data class Time(override val boundOccurrenceId: OccurrenceId, val fireAtMs: Long) : Override
+
+    /** Silenced: this occurrence is spent without a sound. */
+    data class Skip(override val boundOccurrenceId: OccurrenceId) : Override
+}
 
 data class Nap(val fireAtMs: Long)
 

@@ -745,7 +745,7 @@ class EngineTest {
         val (c, s0) = liveTo("2026-09-25T23:00:00-07:00[America/Los_Angeles]",
                              "2026-09-25T22:59:00-07:00[America/Los_Angeles]")
         val moved = Engine.setOverrideTime(s0, c, "07:00").state
-        assertNotNull(moved.override?.fireAtMs)
+        assertIs<Override.Time>(moved.override, "a moved alarm is a TIME override with an instant")
 
         c.set("2026-09-26T07:00:00-07:00[America/Los_Angeles]")
         val pending = Engine.recompute(moved, c, "t")

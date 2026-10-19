@@ -176,9 +176,10 @@ class RingService : Service() {
             //    `stopForeground`s;
             //  - return START_STICKY, because Android applies the LAST return to the whole
             //    service, so START_NOT_STICKY here strips sticky restart from the live ring.
-            if (Svc.session != null) {
+            val live = Svc.session
+            if (live != null) {
                 Svc.testUntilMs = 0L
-                Svc.log("test_refused_during_ring", "ringId" to Svc.session!!.ringId)
+                Svc.log("test_refused_during_ring", "ringId" to live.ringId)
                 return START_STICKY
             }
             // Only if it is not already live. Svc.testRing sets this before starting the
@@ -343,7 +344,10 @@ class RingService : Service() {
 
             when (s.phase) {
                 RingPhase.SNOOZED -> {
-                    if (s.snoozeUntilMs != null && now >= s.snoozeUntilMs!!) {
+                    // A local, so the compiler carries the non-null through rather than a `!!`
+                    // asserting it: `s` is a snapshot of volatile state and cannot smart-cast.
+                    val until = s.snoozeUntilMs
+                    if (until != null && now >= until) {
                         Svc.onTrigger(s.trigger)     // re-ring, same session
                         beginAudio()
                     }

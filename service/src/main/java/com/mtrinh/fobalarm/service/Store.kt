@@ -236,12 +236,25 @@ object Persist {
         val o = a.getJSONObject(i)
         Latch(OccurrenceId.parse(o.getString("id")), LatchReason.valueOf(o.getString("reason")), o.getLong("atMs"))
     }
+    // The stored shape is unchanged, so existing rows and mirrors still read. Exhaustive on the
+    // variant, so a third kind would be a compile error here rather than a silent default.
     fun overrideToJson(o: Override): JSONObject = JSONObject()
-        .put("bound", o.boundOccurrenceId.toString()).put("kind", o.kind.name)
-        .put("fireAtMs", o.fireAtMs ?: JSONObject.NULL)
-    fun overrideFrom(o: JSONObject) = Override(
-        OccurrenceId.parse(o.getString("bound")), OverrideKind.valueOf(o.getString("kind")),
-        if (o.isNull("fireAtMs")) null else o.getLong("fireAtMs"))
+        .put("bound", o.boundOccurrenceId.toString())
+        .apply {
+            when (o) {
+                is Override.Time -> put("kind", "TIME").put("fireAtMs", o.fireAtMs)
+                is Override.Skip -> put("kind", "SKIP").put("fireAtMs", JSONObject.NULL)
+            }
+        }
+
+    fun overrideFrom(o: JSONObject): Override {
+        val bound = OccurrenceId.parse(o.getString("bound"))
+        return when (val kind = o.getString("kind")) {
+            "TIME" -> Override.Time(bound, o.getLong("fireAtMs"))
+            "SKIP" -> Override.Skip(bound)
+            else -> error("unknown override kind in storage: $kind")
+        }
+    }
 
     fun scheduleToJson(latches: List<Latch>, override: Override?, nap: Nap?): String = JSONObject()
         .put("latches", latchesToJson(latches))

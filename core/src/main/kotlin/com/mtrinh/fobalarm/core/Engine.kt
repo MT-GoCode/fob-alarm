@@ -146,8 +146,9 @@ object Engine {
         //    fixed instant minutes away, and dropping it is the one outcome that loses
         //    an alarm outright.
         val zoneId = zone.id
-        if (st.lastTimeZone != null && st.lastTimeZone != zoneId) {
-            events += PendingEvent("tz_change", mapOf("from" to st.lastTimeZone!!, "to" to zoneId))
+        val wasZone = st.lastTimeZone
+        if (wasZone != null && wasZone != zoneId) {
+            events += PendingEvent("tz_change", mapOf("from" to wasZone, "to" to zoneId))
             if (st.override != null) events += PendingEvent("override_cleared", mapOf("reason" to "tz_change"))
             st = st.copy(override = null)
         }
@@ -204,15 +205,14 @@ object Engine {
             // latch and does nothing: the moved alarm is lost outright. That happens whenever the
             // phone is off across the ORIGINAL instant, e.g. move 04:00 to 07:00 at 23:00, phone
             // dies at 23:30, boots at 07:01 -- and nothing rings.
-            if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
-                ov.fireAtMs != null) continue
+            if (ov is Override.Time && ov.boundOccurrenceId == id) continue
 
             val suppressed = ov != null && ov.boundOccurrenceId == id   // DERIVED, never stored
             // Due while a real alarm is already ringing: the trigger is absorbed into that
             // ring, so it was not missed. A nap does not count, a real alarm supersedes it.
             val absorbed = st.session != null && st.session.trigger != OccurrenceSource.NAP
             val reasonFor = when {
-                suppressed && ov!!.kind == OverrideKind.SKIP -> LatchReason.SKIPPED
+                suppressed && ov is Override.Skip -> LatchReason.SKIPPED
                 suppressed || absorbed -> LatchReason.SUPERSEDED
                 else -> LatchReason.MISSED
             }
@@ -238,7 +238,7 @@ object Engine {
         // missed too. The loop above cannot see it: it walks the ORIGINAL instants, and
         // one older than lastAliveMs is skipped as already handled.
         st.override?.let { ov ->
-            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null && ov.fireAtMs <= now &&
+            if (ov is Override.Time && ov.fireAtMs <= now &&
                 st.session?.occurrenceId != ov.boundOccurrenceId &&
                 st.latches.none { it.id == ov.boundOccurrenceId }) {
                 if (ov.fireAtMs > now - FIRE_DELIVERY_GRACE_MS) {
@@ -288,9 +288,8 @@ object Engine {
         // the next scheduled occurrence: with a 04:00 default and a 07:00 override, 05:00 makes
         // "next scheduled" tomorrow, and anything gated on that identity drops the override.
         val ov = st.override
-        val overrideFire = ov?.takeIf {
-            it.kind == OverrideKind.TIME && it.fireAtMs != null && it.fireAtMs > now
-        }?.let { NextFire(it.fireAtMs!!, OccurrenceSource.TOMORROW_OVERRIDE, "override") }
+        val overrideFire = (ov as? Override.Time)?.takeIf { it.fireAtMs > now }
+            ?.let { NextFire(it.fireAtMs, OccurrenceSource.TOMORROW_OVERRIDE, "override") }
 
         // The scheduled candidate, with the occurrence the override owns removed:
         // SKIP silences it, TIME replaces it. Either way it must not also fire itself.
@@ -355,7 +354,7 @@ object Engine {
     fun setOverrideTime(st: EngineState, ts: TimeSource, hhmm: String): RecomputeResult {
         val (boundId, boundAt) = nextUnlatchedScheduled(st, ts)
         val at = nextWallTimeAfter(boundAt, hhmm, ts.zone())
-        val next = st.copy(override = Override(boundId, OverrideKind.TIME, at))
+        val next = st.copy(override = Override.Time(boundId, at))
         return recompute(next, ts, "override_set").let {
             it.copy(events = it.events + PendingEvent("override_set",
                 mapOf("kind" to "TIME", "fireAtMs" to at.toString(), "bound" to boundId.toString())))
@@ -364,7 +363,7 @@ object Engine {
 
     fun setSkip(st: EngineState, ts: TimeSource): RecomputeResult {
         val (boundId, _) = nextUnlatchedScheduled(st, ts)
-        val next = st.copy(override = Override(boundId, OverrideKind.SKIP, null))
+        val next = st.copy(override = Override.Skip(boundId))
         return recompute(next, ts, "override_skip").let {
             it.copy(events = it.events + PendingEvent("override_set", mapOf("kind" to "SKIP")))
         }
@@ -506,7 +505,7 @@ object Engine {
 
         // An override owns the instant if one is bound and due.
         st.override?.let { ov ->
-            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null &&
+            if (ov is Override.Time &&
                 now >= ov.fireAtMs - 5_000 && now - ov.fireAtMs < 60 * 60_000L) {
                 return ov.boundOccurrenceId
             }
@@ -518,7 +517,7 @@ object Engine {
             if (at <= now + 5_000) {
                 val rang = st.lastOutcome?.occurrenceId == id.toString()
                 val latch = st.latches.firstOrNull { it.id == id }
-                val skipped = st.override?.let { it.boundOccurrenceId == id && it.kind == OverrideKind.SKIP } == true
+                val skipped = st.override.let { it is Override.Skip && it.boundOccurrenceId == id }
                 return if (rang || skipped || (latch != null && latch.reason != LatchReason.MISSED)) null else id
             }
             date = date.minusDays(1)

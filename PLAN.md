@@ -400,10 +400,46 @@ Shipped as `0.3.108`. Four adversarial reviews against `code-principles.md`, abo
 production code down. These items were raised by the reviews and consciously left, so that the next
 round starts from a list rather than a rediscovery.
 
-### Type-level work with wide ripple
+### Type-level work: two done, two declined on the evidence
 
-The `:core` review asked for four changes that make illegal states unrepresentable. Each is correct
-by the principles and each ripples through `Engine`, `Wire`, `Svc` and the UI at once:
+The `:core` review asked for four changes that make illegal states unrepresentable. The test I
+applied to each: **does a live defect hang off it, or only a shape problem?**
+
+**Done — both had a defect attached.**
+
+- **`Snapshot.mode` deleted.** A third copy of facts the snapshot already carried; two of its three
+  states had no readers; and `Wire` decoded an unknown value as WAITING, so a version mismatch
+  would have hidden the ring screen. Its own docstring claimed it was "DERIVED, never stored" while
+  it was stored and transmitted. `NagTest`'s fixture passed `WAITING` while building a RINGING
+  snapshot and nothing noticed, which is what a decorative field looks like.
+- **`Override` sealed into `Time(bound, fireAtMs)` / `Skip(bound)`.** The old `kind` plus nullable
+  `fireAtMs` made TIME-without-an-instant constructible, so four sites in `Engine` each had to
+  remember `kind == TIME && fireAtMs != null`, and `Engine.kt:293` dereferenced it with `!!` guarded
+  only by a `takeIf` three lines above. One forgotten conjunct away from a null-pointer exception in
+  `recompute`, on the path that decides when the alarm fires. The compiler now enforces it, and it
+  immediately rejected a test that had baked in the same assumption. The WIRE keeps its string tag:
+  that is a serialization boundary, validated once where a request enters.
+
+**Declined — guards that work, and a wide blast radius for no behaviour change.**
+
+- **`RingPhase` → sealed with `Snoozed(untilMs)`.** The correlation costs one `?: return false` in
+  `canExtendSnooze`, one `takeIf` in the UI, and a same-line null check in `RingService` (now a
+  local rather than a `!!`). Sealing it ripples through Model, Engine, Store, Svc, RingService and
+  the UI at once, to delete one guard and one `takeIf`.
+- **`passwordHash` + `passwordSalt` → one `Credential`.** The half-set state is handled inside
+  `verifies`, and `setPassword` is the single writer that always writes both or neither. No
+  dereference, no default.
+
+Doing those two for symmetry would apply the principle's letter against its purpose. *Make illegal
+states unrepresentable* exists to stop defects; on a path where several defects were introduced
+while fixing others this round, a no-behaviour-change refactor with a wide blast radius is a cost
+with no attached benefit. Disagree on this evidence rather than rediscovering the question.
+
+**Also done, with no refactor:** every `!!` in `:core` and `:service` replaced by a local the
+compiler verifies. One of them (`Group.kt`, where `stale` implied `g != null`) was the same
+correlated pattern as `Override`'s, contained to four lines.
+
+### The original framing, kept for the record
 
 - **`Override(kind, fireAtMs: Long?)` → sealed `Time(bound, fireAtMs)` / `Skip(bound)`.** TIME
   without an instant is constructible, so `kind == TIME && fireAtMs != null` is re-checked at four

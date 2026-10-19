@@ -96,7 +96,9 @@ object Group {
                         (g.passphrase != null && g.passphrase != s.passphrase))
                 running = g != null && !stale
                 if (was && !running) listenerUpSinceElapsed = 0L
-                if (stale) { Svc.log("ap_stale_group", "owner" to g!!.isGroupOwner.toString()); stop(ctx) }
+                if (g != null && stale) {
+                    Svc.log("ap_stale_group", "owner" to g.isGroupOwner.toString()); stop(ctx)
+                }
                 ownerAddress = "192.168.49.1"
             }
         }
