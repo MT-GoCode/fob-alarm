@@ -15,8 +15,11 @@ FLAVOR="release"
 # and an earlier run of this script killed it by mistake. Override with PORT=... if needed.
 PORT="${PORT:-8010}"
 
-echo "==> core tests (the whole state machine, no phone needed)"
-./gradlew --no-daemon :core:test -q
+echo "==> tests (the whole state machine and every at-rest encoding, no phone needed)"
+# EVERY module's unit tests, not just :core. A test the release pipeline does not run is not a
+# gate, and :data's at-rest settings round trip is exactly the kind whose silent failure costs
+# the password or the alarm.
+./gradlew --no-daemon test -q
 
 echo "==> building"
 ./gradlew --no-daemon "$TASK" -q

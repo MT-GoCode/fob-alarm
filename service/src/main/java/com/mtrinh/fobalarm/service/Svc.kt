@@ -134,6 +134,8 @@ object Svc : AlarmHost {
             is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
         }
 
+    /** Whether the DE mirror already held settings when this process started. */
+    @Volatile private var settingsSeededFromDe = false
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -157,7 +159,13 @@ object Svc : AlarmHost {
         // reading it here would be disk IO on whatever thread woke the process -- including a
         // broadcast receiver. The mirror now holds the WHOLE of Settings, so the alarm is armed
         // with the owner's real settings, not a subset, before Room is even opened.
-        state = state.copy(settings = de.settings ?: state.settings, lastAliveMs = de.lastAliveMs)
+        val mirrored = de.settings
+        // Whether the mirror had settings to give. `apply` writes the blob on the very first
+        // recompute, so by the time Room opens the blob always exists -- and without this flag
+        // tryLoadRoom would read that freshly written copy as authoritative and discard Room's
+        // real settings. Exactly parallel to `scheduleSeededFromDe`.
+        settingsSeededFromDe = mirrored != null
+        state = state.copy(settings = mirrored ?: state.settings, lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         de.schedule()?.let {
             state = state.copy(latches = it.latches, override = it.override, nap = it.nap)
@@ -224,12 +232,15 @@ object Svc : AlarmHost {
                 // EngineState whose role is null -- assigning it wholesale would throw
                 // away the DE-seeded role and silently un-arm the alarm forever.
                 state = state.copy(
-                    // The DE mirror WINS. It is written synchronously on every apply; Room is
-                    // written asynchronously and only once dbReady. Letting Room win reverted a
-                    // settings change made before the phone's first unlock -- silently, and if
-                    // the reverted alarm time was later, the owner slept through it. Room seeds
-                    // settings only on the first load after an upgrade, when no DE blob exists.
-                    settings = de.settings ?: loaded.settings,
+                    // The DE mirror wins ONLY if it had settings before this process wrote any.
+                    // It is written synchronously on every apply while Room is written
+                    // asynchronously, so it is the fresher copy -- letting Room win reverts a
+                    // change made before first unlock, and if the reverted alarm time is later
+                    // the owner sleeps through it. But `apply` has already mirrored our in-memory
+                    // settings by now, so without the flag this would prefer that copy and
+                    // discard Room's, which on an upgrade or a wiped mirror means defaults: no
+                    // role, and therefore no alarm armed at all.
+                    settings = if (settingsSeededFromDe) state.settings else loaded.settings,
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
                     // duplicated id, so memory must come FIRST -- a latch can be replaced (a

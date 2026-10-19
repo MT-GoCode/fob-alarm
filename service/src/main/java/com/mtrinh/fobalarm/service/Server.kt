@@ -120,6 +120,10 @@ object Server {
     }
 
     private fun handle(ctx: Context, sock: Socket, control: Boolean) = sock.use { s ->
+        // Only the ALARM phone answers control, checked HERE and not merely where the socket is
+        // bound: the accept loop never exits, so a phone switched to another role would otherwise
+        // carry on serving a port that can move and dismiss alarms.
+        if (control && Svc.settings.role != Role.ALARM) return@use
         val raw = java.io.BufferedInputStream(s.getInputStream())
         val request = readLine(raw) ?: return@use
         val parts = request.split(" ")
@@ -292,6 +296,10 @@ object Server {
             403 to """{"error":"password required"}"""
         // A caller's mistake is the caller's: a missing or unparseable field, or a value this
         // phone does not recognise, is 400. Only a fault of ours is 500.
+        } catch (e: IllegalStateException) {
+            // A refusal, not a fault: the alarm phone is busy ringing. 409, like every other
+            // "your request was understood and the state says no".
+            409 to JSONObject().put("reason", e.message ?: "not now").toString()
         } catch (e: org.json.JSONException) {
             400 to JSONObject().put("error", "bad field: ${e.message}").toString()
         } catch (e: IllegalArgumentException) {

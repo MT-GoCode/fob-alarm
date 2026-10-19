@@ -27,10 +27,37 @@ class DeMirror(ctx: Context) {
      * key, so the first load after an upgrade falls back to Room and the next `apply` writes this.
      */
     val settings: Settings?
-        get() = p.getString("settings", null)?.let {
-            runCatching { com.mtrinh.fobalarm.data.Wire.settingsFrom(JSONObject(it), Settings()) }
-                .getOrNull()
-        }
+        get() = p.getString("settings", null)
+            ?.let { runCatching { com.mtrinh.fobalarm.data.Wire.settingsAtRestFrom(JSONObject(it)) }.getOrNull() }
+            ?: legacySettings()
+
+    /**
+     * Builds the settings from the per-field keys a pre-0.3 build mirrored.
+     *
+     * Without this an upgrade has NO settings before the phone's first unlock -- no role, so no
+     * alarm is armed -- which is the exact failure the mirror exists to prevent. The next `apply`
+     * writes the blob, after which this is never reached again. Deletable once both phones have
+     * upgraded.
+     */
+    private fun legacySettings(): Settings? {
+        if (!p.contains("defaultAlarmTime")) return null
+        return Settings(
+            defaultAlarmTime = p.getString("defaultAlarmTime", "04:00")!!,
+            alarmVolumePercent = p.getInt("alarmVolumePercent", 85),
+            maxRingMinutes = p.getInt("maxRingMinutes", 60),
+            snoozeSeconds = p.getInt("snoozeSeconds", 30),
+            snoozeHoldSeconds = p.getInt("snoozeHoldSeconds", 3),
+            resnoozeAfterSeconds = p.getInt("resnoozeAfterSeconds", 5),
+            ringtoneUri = p.getString("ringtoneUri", null),
+            ringtoneName = p.getString("ringtoneName", null),
+            role = p.getString("role", null)?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
+            ssid = p.getString("ssid", null) ?: Settings.DEFAULT_SSID,
+            passphrase = p.getString("passphrase", null) ?: Settings.DEFAULT_PASSPHRASE,
+            passwordHash = p.getString("passwordHash", null),
+            passwordSalt = p.getString("passwordSalt", null),
+            vibrate = p.getBoolean("vibrate", true),
+        )
+    }
 
     /** Written by [mirror] only, and read only by `Scheduler.sourceOf`'s one migration case. */
     val nextFireSource: String get() = p.getString("nextFireSource", "SCHEDULED")!!
@@ -74,7 +101,7 @@ class DeMirror(ctx: Context) {
         // settings, napMinutes -- read as defaults before first unlock, and it made this mirror
         // and Room two partial copies of one fact that could disagree.
         p.edit()
-            .putString("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(s).toString())
+            .putString("settings", com.mtrinh.fobalarm.data.Wire.settingsAtRestToJson(s).toString())
             .putString("schedule", Persist.scheduleToJson(latches, override, nap))
             .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
             .putString("session", session?.let { sessionToJson(it) })
@@ -169,10 +196,8 @@ object Persist {
     const val SCHEMA_VERSION = 1
 
     fun save(dao: Dao_, st: EngineState) = dao.putAll(buildList {
-        add(KvRow("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(st.settings)
-            .put("passwordHash", st.settings.passwordHash ?: JSONObject.NULL)
-            .put("passwordSalt", st.settings.passwordSalt ?: JSONObject.NULL)
-            .toString()))
+        add(KvRow("settings",
+            com.mtrinh.fobalarm.data.Wire.settingsAtRestToJson(st.settings).toString()))
         add(KvRow("latches", latchesToJson(st.latches).toString()))
         add(KvRow("override", st.override?.let { overrideToJson(it).toString() } ?: ""))
         add(KvRow("nap", st.nap?.fireAtMs?.toString() ?: ""))
@@ -218,13 +243,9 @@ object Persist {
     }
 
     fun load(dao: Dao_): EngineState {
-        val settings = dao.get("settings")?.let {
-            val o = JSONObject(it)
-            com.mtrinh.fobalarm.data.Wire.settingsFrom(o, Settings()).copy(
-                passwordHash = o.optString("passwordHash").takeIf { s -> s.isNotEmpty() && s != "null" },
-                passwordSalt = o.optString("passwordSalt").takeIf { s -> s.isNotEmpty() && s != "null" },
-            )
-        } ?: Settings()
+        val settings = dao.get("settings")
+            ?.let { com.mtrinh.fobalarm.data.Wire.settingsAtRestFrom(JSONObject(it)) }
+            ?: Settings()
         val latches = dao.get("latches")?.let { latchesFrom(JSONArray(it)) } ?: emptyList()
         val override = dao.get("override")?.takeIf { it.isNotEmpty() }?.let { overrideFrom(JSONObject(it)) }
         val nap = dao.get("nap")?.takeIf { it.isNotEmpty() }?.let { Nap(it.toLong()) }

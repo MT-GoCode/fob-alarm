@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Prove the gate's tests can actually fail.
 
-For each mutant below: apply the edit, run `:core:test`, and require that the NAMED test goes red.
+For each mutant below: apply the edit, run the WHOLE unit suite, and require that the NAMED test
+goes red. Every module, not just :core -- a mutant in an at-rest encoding is proved by a :data
+test, and a harness that only ran one module could not tell a vacuous test there from a real one.
 A mutant that leaves the suite green means nothing in the suite observes that behaviour, and the
 test that claims to cover it is decoration. A mutant that reddens a different test than the one
 named means the coverage is not where it is documented to be.
@@ -28,6 +30,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Engine.kt"
 GATE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Gate.kt"
+WIRE = "data/src/main/java/com/mtrinh/fobalarm/data/Wire.kt"
 GATEINFO = "core/src/main/kotlin/com/mtrinh/fobalarm/core/GateInfo.kt"
 
 # (id, file, exact text to replace, replacement, substring of the test that must fail)
@@ -93,6 +96,12 @@ MUTANTS = [
      "if (linkUpSinceElapsed == 0L || linkUpSinceElapsed > p.lastSeenElapsed)",
      "if (linkUpSinceElapsed == 0L || linkUpSinceElapsed >= p.lastSeenElapsed)",
      "exactly at the peer's last sighting"),
+    ("at-rest-drops-credentials", WIRE,
+     """    fun settingsAtRestToJson(s: Settings): JSONObject = settingsToJson(s)
+        .put("passwordHash", s.passwordHash ?: JSONObject.NULL)
+        .put("passwordSalt", s.passwordSalt ?: JSONObject.NULL)""",
+     "    fun settingsAtRestToJson(s: Settings): JSONObject = settingsToJson(s)",
+     "credentials survive"),
     ("unknown-gate-key-passes", GATEINFO,
      'else -> error("unknown gate key: $key -- GateInfo.ALL and Gates have diverged")',
      "else -> true",
@@ -146,7 +155,7 @@ def run_suite():
     """
     env = dict(os.environ)
     env.setdefault("JAVA_HOME", "/Applications/Android Studio.app/Contents/jbr/Contents/Home")
-    p = subprocess.run(["./gradlew", ":core:test", "--console=plain"],
+    p = subprocess.run(["./gradlew", "test", "--console=plain"],
                        cwd=ROOT, env=env, capture_output=True, text=True)
     out = p.stdout + p.stderr
     if p.returncode == 0:

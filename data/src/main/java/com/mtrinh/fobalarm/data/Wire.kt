@@ -21,21 +21,6 @@ object Wire {
             // Every gate in the one table, so a new check cannot reach the controller as a
             // missing field that decodes to false and shows as a permanent warning.
             GateInfo.ALL.forEach { put(it.key, s.gates.value(it.key)) }
-            put("p2pSupported", s.gates.p2pSupported)
-            put("groupCredentialsSet", s.gates.groupCredentialsSet)
-            put("localNetworkPermission", s.gates.localNetworkPermission)
-            put("notificationPolicyAccess", s.gates.notificationPolicyAccess)
-            put("dndAllowsAlarms", s.gates.dndAllowsAlarms)
-            put("volumeNotFixed", s.gates.volumeNotFixed)
-            put("fullScreenIntent", s.gates.fullScreenIntent)
-            put("notHibernating", s.gates.notHibernating)
-            put("thermalOk", s.gates.thermalOk)
-            put("audioPlayable", s.gates.audioPlayable)
-            put("powerOk", s.gates.powerOk)
-            put("vibrationEnabled", s.gates.vibrationEnabled)
-            put("freeDiskOk", s.gates.freeDiskOk)
-            put("noBluetoothAudio", s.gates.noBluetoothAudio)
-            put("batteryUnrestricted", s.gates.batteryUnrestricted)
             put("allPass", s.gates.allPass)
         })
         put("armGate", s.armGate?.let {
@@ -163,6 +148,24 @@ object Wire {
     }
 
     /** Status fields the controller must read from the snapshot, not from a patch echo. */
+    /**
+     * Settings for an AT-REST copy: Room, the device-protected mirror, a backup.
+     *
+     * [settingsToJson] deliberately omits the password hash and salt, because that encoding goes
+     * over the link to the controller and a password hash must not cross it. Every at-rest copy
+     * needs them, so the pair exists once here instead of being bolted on at each call site --
+     * which is how the mirror came to be written with the wire encoding and silently drop the
+     * password on every process restart.
+     */
+    fun settingsAtRestToJson(s: Settings): JSONObject = settingsToJson(s)
+        .put("passwordHash", s.passwordHash ?: JSONObject.NULL)
+        .put("passwordSalt", s.passwordSalt ?: JSONObject.NULL)
+
+    fun settingsAtRestFrom(o: JSONObject): Settings = settingsFrom(o, Settings()).copy(
+        passwordHash = if (o.isNull("passwordHash")) null else o.optString("passwordHash").takeIf { it.isNotEmpty() },
+        passwordSalt = if (o.isNull("passwordSalt")) null else o.optString("passwordSalt").takeIf { it.isNotEmpty() },
+    )
+
     fun settingsFromSnapshot(o: JSONObject): Settings =
         settingsFrom(o, Settings()).copy(
             hasPasswordRemote = o.optBoolean("hasPassword", false))

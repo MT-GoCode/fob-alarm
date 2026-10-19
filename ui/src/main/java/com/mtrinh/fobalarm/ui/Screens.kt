@@ -91,7 +91,16 @@ fun RootScreen(
     // controller or sentinel has not heard from it. Every role needs this guard, not just the
     // alarm -- the `s!!` below is reachable by whichever role the branches above do not cover.
     if (s == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            LinkBar(app, isAlarmRole)
+            Spacer(Modifier.height(S.lg))
+            CircularProgressIndicator()
+            Spacer(Modifier.height(S.lg))
+            // Never a dead end: changing role must stay reachable before first contact, or a
+            // phone set to the wrong role can only be fixed by clearing app data.
+            Column(Modifier.padding(horizontal = S.page)) { roleSwitcher() }
+        }
         return
     }
 
@@ -157,8 +166,10 @@ fun RootScreen(
         // Red bar: what is below came from the other phone earlier. Dim it so it reads as such.
         Box(Modifier.padding(pad).consumeWindowInsets(pad).alpha(if (isAlarmRole || app.connected) 1f else 0.55f)) {
             when (tab) {
-                0 -> WaitingScreen(app, s, isAlarmRole)
-                1 -> SetupScreen(app, s, isAlarmRole, onFixGate, pairing)
+                0 -> WaitingScreen(app, s, role)
+                1 -> SetupScreen(app, s, isAlarmRole, onFixGate, pairing,
+                        // The sentinel has no Settings tab, which is where this otherwise lives.
+                        extra = if (role == Role.SENTINEL) roleSwitcher else null)
                 2 -> SettingsScreen(app, s, isAlarmRole,
                         deviceSettings = deviceSettings?.let { ds -> { pairing(); ds() } },
                         roleSwitcher = if (isAlarmRole) roleSwitcher else ({ pairing(); roleSwitcher() }))
@@ -501,7 +512,8 @@ private fun RedCard(text: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
+private fun WaitingScreen(app: AppState, s: Snapshot, role: Role) {
+    val isAlarmRole = role == Role.ALARM
     // The nag is the controller's job: "go and check it" makes no sense on the phone itself.
     val nag = if (isAlarmRole) Nag.Reason.NONE else Nag.evaluate(s, app.lastOkMs, app.nowMs)
     var confirmSkip by remember { mutableStateOf(false) }
@@ -522,21 +534,27 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 
         StatusBlock(s, app.nowMs, app.connected, app.localGates, { app.checkClock() }) { app.reload() }
 
-        Section("Next alarm only")
-        Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
-            if (s.tomorrow.kind != "NONE") {
-                OutlinedButton(onClick = { app.clearOverride() }) { Text("Revert") }
-            } else {
-                OutlinedButton(onClick = { pickTime = true }) { Text("Move it") }
-                OutlinedButton(onClick = { confirmSkip = true }) { Text("Skip it") }
+        // A SENTINEL gets none of these. It is a presence beacon, and the phone it runs on is
+        // the one the whole design distrusts -- the pocket phone that must not be able to skip
+        // tomorrow's alarm from bed. The mutating routes cannot tell it apart (they carry no
+        // role and are all Actor.CONTROLLER), so this is where that line is drawn.
+        if (role != Role.SENTINEL) {
+            Section("Next alarm only")
+            Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
+                if (s.tomorrow.kind != "NONE") {
+                    OutlinedButton(onClick = { app.clearOverride() }) { Text("Revert") }
+                } else {
+                    OutlinedButton(onClick = { pickTime = true }) { Text("Move it") }
+                    OutlinedButton(onClick = { confirmSkip = true }) { Text("Skip it") }
+                }
             }
-        }
 
-        Section("Nap")
-        Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
-            Button(onClick = { pickNap = true }) { Text("Nap for") }
-            Button(onClick = { pickNapUntil = true }) { Text("Nap until") }
-            if (s.nap.armed) OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap") }
+            Section("Nap")
+            Row(horizontalArrangement = Arrangement.spacedBy(S.sm)) {
+                Button(onClick = { pickNap = true }) { Text("Nap for") }
+                Button(onClick = { pickNapUntil = true }) { Text("Nap until") }
+                if (s.nap.armed) OutlinedButton(onClick = { app.clearNap() }) { Text("Cancel nap") }
+            }
         }
     }
 
@@ -590,6 +608,8 @@ private fun WaitingScreen(app: AppState, s: Snapshot, isAlarmRole: Boolean) {
 private fun SetupScreen(
     app: AppState, s: Snapshot, isAlarmRole: Boolean,
     onFix: (String) -> Unit, pairing: @Composable () -> Unit,
+    /** Appended at the end. The sentinel's role switcher, which has no Settings tab to live on. */
+    extra: (@Composable () -> Unit)? = null,
 ) {
     // Always THIS phone's gates; the controller has its own permissions to grant.
     val g = app.localGates ?: s.gates
@@ -637,6 +657,7 @@ private fun SetupScreen(
         }
 
         if (isAlarmRole) pairing()
+        extra?.invoke()
     }
 }
 
