@@ -240,6 +240,7 @@ object Server {
                             batteryPct = param(path, "batteryPct")?.toIntOrNull() ?: -1,
                             plugged = param(path, "plugged") == "true",
                             powerSave = param(path, "powerSave") == "true",
+                            reportedPowerSave = param(path, "powerSave") != null,
                             missingGates = param(path, "blockers")
                                 ?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
                             appVersion = param(path, "appVersion") ?: "?"))

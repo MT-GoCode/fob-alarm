@@ -49,6 +49,16 @@ data class Settings(
      * controller is a phone you carry.
      */
     val blockRingIfControllerAway: Boolean = false,
+    /**
+     * How long a phone must be unreachable before it counts as away. 0 to 24 h.
+     *
+     * **The effective minimum is two minutes**, whatever is set here, because that is this app's
+     * definition of "present" and the sentinel only reports every 30 s — a shorter floor would read
+     * a phone sitting in the owner's pocket as having left. Genuinely immediate detection is not
+     * available from a polling design, and pretending otherwise would be the dangerous kind of
+     * configurable.
+     */
+    val awayAfterSeconds: Int = 600,             // 0..86400, effective floor 120
     val maxRingMinutes: Int = 60,                 // floor 5
     val napMinutes: Int = 20,                     // last value remembered; 1..300
     val vibrate: Boolean = true,
@@ -90,6 +100,7 @@ object SettingsValidator {
         snoozeSeconds = snooze,
         snoozeHoldSeconds = s.snoozeHoldSeconds.coerceIn(0, 10),
         resnoozeAfterSeconds = s.resnoozeAfterSeconds.coerceIn(0, snooze),
+        awayAfterSeconds = s.awayAfterSeconds.coerceIn(0, 24 * 3600),
         maxRingMinutes = s.maxRingMinutes.coerceIn(Settings.MAX_RING_FLOOR_M, 120),
         napMinutes = s.napMinutes.coerceIn(1, 720),
         )

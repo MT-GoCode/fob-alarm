@@ -113,6 +113,7 @@ object Wire {
         .put("resnoozeAfterSeconds", s.resnoozeAfterSeconds)
         .put("blockRingIfSentinelAway", s.blockRingIfSentinelAway)
         .put("blockRingIfControllerAway", s.blockRingIfControllerAway)
+        .put("awayAfterSeconds", s.awayAfterSeconds)
         .put("maxRingMinutes", s.maxRingMinutes)
         .put("napMinutes", s.napMinutes)
         .put("vibrate", s.vibrate)
@@ -135,6 +136,7 @@ object Wire {
         resnoozeAfterSeconds = o.optInt("resnoozeAfterSeconds", base.resnoozeAfterSeconds),
         blockRingIfSentinelAway = o.optBoolean("blockRingIfSentinelAway", base.blockRingIfSentinelAway),
         blockRingIfControllerAway = o.optBoolean("blockRingIfControllerAway", base.blockRingIfControllerAway),
+        awayAfterSeconds = o.optInt("awayAfterSeconds", base.awayAfterSeconds),
         maxRingMinutes = o.optInt("maxRingMinutes", base.maxRingMinutes),
         napMinutes = o.optInt("napMinutes", base.napMinutes),
         vibrate = o.optBoolean("vibrate", base.vibrate),

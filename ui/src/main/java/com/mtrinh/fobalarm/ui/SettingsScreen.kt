@@ -102,6 +102,14 @@ fun SettingsScreen(
                 ToggleSetting("Don't ring if the controller is away", s.settings.blockRingIfControllerAway,
                     enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfControllerAway = v) } }
             }
+            LockedRow(locked) { on ->
+                DurationSetting("Away after", s.settings.awayAfterSeconds,
+                    minSeconds = 0, maxSeconds = 24 * 3600, enabled = on) { secs ->
+                    app.patch("Away after") { it.copy(awayAfterSeconds = secs) }
+                }
+            }
+            Text("Anything under 2 minutes behaves as 2 minutes: the sentinel reports every 30 seconds.",
+                fontSize = T.caption, color = Muted)
         }
 
         Section("Test", if (isAlarmRole) "Rings this phone now." else "Rings the alarm phone now, for up to a minute.")

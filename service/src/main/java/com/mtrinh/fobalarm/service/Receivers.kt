@@ -45,14 +45,19 @@ class AlarmReceiver : BroadcastReceiver() {
                     // watchdog and boot paths resume an OPEN one, and suppressing those would
                     // silence an alarm that is already ringing. A session already open means this
                     // trigger will be absorbed, so the decision has passed.
-                    val blocked = if (Svc.session != null) null else Svc.ringBlockDecision()
                     // Naps are exempt: a nap is a fresh, explicit "ring me in 20 minutes" from
-                    // someone standing right there.
+                    // someone standing right there. Decided BEFORE consulting the gate, so a nap
+                    // never logs a `ring_blocked` it then ignores -- history must not claim a block
+                    // that did not happen.
                     val isNap = Svc.de.nextFireSource == OccurrenceSource.NAP.name
-                    if (blocked != null && !isNap) {
+                    val blocked = when {
+                        Svc.session != null -> null          // absorbed; the decision has passed
+                        isNap -> null
+                        else -> Svc.ringBlockDecision()
+                    }
+                    if (blocked != null) {
                         runCatching { Svc.suppressRing(blocked) }
                     } else {
-                        if (blocked != null) Svc.log("ring_block_skipped", "why" to "nap")
                         RingService.start(ctx); handedOff = true
                     }
                 }

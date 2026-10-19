@@ -1093,3 +1093,35 @@ mains-powered wall controller that goes absent has usually lost its link, not mo
 on when the controller never leaves the house converts a link failure into a silent morning. The
 doc comment says to enable it only if the controller is a phone you carry.
 
+
+## Round 31 — the away delay is a setting, and three fail-opens closed
+
+**`awayAfterSeconds`, 0 to 24 h**, as an hours-and-minutes duration like the others, password-gated,
+default 10 minutes.
+
+**The effective minimum is two minutes and is not negotiable from the UI.** The sentinel reports
+every 30 s, so a floor below this app's own definition of "present" (`PRESENT_WINDOW_MS`, 120 s)
+would read a phone sitting in the owner's pocket as having left and silence the alarm. Setting 0
+therefore means "as soon as absence is detectable at all", and the screen says so. Genuinely
+immediate detection is not available from a polling design; offering it as a number would have been
+the dangerous kind of configurable.
+
+Then an adversarial pass over my own code, which found three fail-opens — each one a case where the
+decision trusted information it did not have:
+
+1. **An unknown battery counted as healthy.** `p.batteryPct in 0..19` excludes `-1`, which is what a
+   peer that never reported a battery level looks like. Now `< 20`, so unknown vetoes too.
+2. **A peer that never reports `powerSave` read as "not in power save".** Builds predating the field
+   send nothing, and absence was being read as good news. `Presence.reportedPowerSave` now records
+   whether the field arrived at all, and an absent one vetoes. The consequence is deliberate: until
+   both phones are on this build the feature never blocks, which is the safe way to be wrong.
+3. **A blocked nap logged `ring_blocked` and then rang anyway.** `ringBlockDecision()` was called
+   before the nap exemption was applied, so history claimed a block that never happened — the exact
+   class of lie round 26 exists to prevent. The nap check now comes first and the gate is not
+   consulted at all for one.
+
+Still unmeasured and stated rather than glossed: the `own_link_unstable` guard refuses to block
+unless this phone's P2P group has been up since before the peer's last sighting, so **any group
+restart while the owner is away produces a false ring** rather than a block. The alarm phone logged
+zero `p2p_lost` over eleven days, which suggests the group is stable, but `ap_start` frequency has
+not been counted. False ring is the correct direction to fail; the frequency is simply unknown.

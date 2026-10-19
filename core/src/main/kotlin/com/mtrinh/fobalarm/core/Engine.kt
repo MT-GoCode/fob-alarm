@@ -577,6 +577,7 @@ object Engine {
         if (a.resnoozeAfterSeconds != b.resnoozeAfterSeconds) add("resnoozeAfter:${a.resnoozeAfterSeconds}->${b.resnoozeAfterSeconds}")
         if (a.blockRingIfSentinelAway != b.blockRingIfSentinelAway) add("blockSentinel:${a.blockRingIfSentinelAway}->${b.blockRingIfSentinelAway}")
         if (a.blockRingIfControllerAway != b.blockRingIfControllerAway) add("blockController:${a.blockRingIfControllerAway}->${b.blockRingIfControllerAway}")
+        if (a.awayAfterSeconds != b.awayAfterSeconds) add("awayAfter:${a.awayAfterSeconds}->${b.awayAfterSeconds}")
         if (a.maxRingMinutes != b.maxRingMinutes) add("maxRingMinutes:${a.maxRingMinutes}->${b.maxRingMinutes}")
         if (a.vibrate != b.vibrate) add("vibrate:${a.vibrate}->${b.vibrate}")
         if (a.ringtoneUri != b.ringtoneUri) add("ringtone")

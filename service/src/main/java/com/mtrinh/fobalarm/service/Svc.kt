@@ -71,6 +71,8 @@ object Svc : AlarmHost {
         val batteryPct: Int,
         val plugged: Boolean,
         val powerSave: Boolean,
+        /** False when the peer sent no `powerSave` at all -- an older build, so unknown. */
+        val reportedPowerSave: Boolean,
         val missingGates: List<String>,
         val appVersion: String,
     )
@@ -167,9 +169,13 @@ object Svc : AlarmHost {
         val p = presenceOf(role) ?: return null to "never_seen"
         if (p.missingGates.isNotEmpty()) return null to "gates:${p.missingGates.joinToString("|")}"
         if (p.powerSave) return null to "power_save"
-        if (!p.plugged && p.batteryPct in 0..19) return null to "low_battery:${p.batteryPct}"
+        // Absent means the peer predates the field. Unknown trustworthiness is not trustworthy,
+        // and "never blocks" is the safe way to be wrong.
+        if (!p.reportedPowerSave) return null to "no_power_report"
+        // `< 20`, not `in 0..19`: an unreported battery is -1, and that must veto too.
+        if (!p.plugged && p.batteryPct < 20) return null to "low_battery:${p.batteryPct}"
         val absentMs = android.os.SystemClock.elapsedRealtime() - p.lastSeenElapsed
-        if (absentMs < ABSENCE_FLOOR_MS) return null to "present:${absentMs / 1000}s"
+        if (absentMs < effectiveAwayFloorMs) return null to "present:${absentMs / 1000}s"
         // This phone's OWN link being down must never read as the other phone having left.
         val upSince = Group.listenerUpSinceElapsed
         if (upSince == 0L || upSince > p.lastSeenElapsed) return null to "own_link_unstable"
@@ -188,11 +194,15 @@ object Svc : AlarmHost {
     }
 
     /**
-     * Ten minutes, not two. Two was invented; this is deliberately conservative until `peer_gap`
-     * says otherwise, and it costs the owner nothing -- leaving the house before an 04:00 alarm
-     * means being gone far longer than ten minutes.
+     * The owner's `awayAfterSeconds`, floored at [PRESENT_WINDOW_MS].
+     *
+     * The floor is not a preference and is not negotiable from the UI: the sentinel reports every
+     * 30 s, so anything shorter than this app's own definition of "present" would read a phone in
+     * the owner's pocket as having left and silence the alarm. Setting 0 therefore means "as soon
+     * as absence is detectable at all", which is two minutes, not zero.
      */
-    const val ABSENCE_FLOOR_MS = 10 * 60_000L
+    val effectiveAwayFloorMs: Long
+        get() = maxOf(settings.awayAfterSeconds * 1000L, PRESENT_WINDOW_MS)
     @Volatile private var unlockedAtMs: Long = 0
     private val seenRequests = HashMap<String, Long>()
 
@@ -564,6 +574,7 @@ object Svc : AlarmHost {
             // The only two settings that can stop an alarm ringing. Locked, obviously.
             patch.blockRingIfSentinelAway != state.settings.blockRingIfSentinelAway,
             patch.blockRingIfControllerAway != state.settings.blockRingIfControllerAway,
+            patch.awayAfterSeconds != state.settings.awayAfterSeconds,
             patch.defaultAlarmTime != state.settings.defaultAlarmTime,
             patch.vibrate != state.settings.vibrate,
             patch.maxRingMinutes != state.settings.maxRingMinutes,
