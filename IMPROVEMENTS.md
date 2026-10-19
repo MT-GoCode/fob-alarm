@@ -1425,6 +1425,9 @@ and is delivered at once — no second mechanism needed.
 - PLAN.md still described `de.nextFireSource` as "the mark, set at origin" — the opposite of what
   32e established — with pseudocode showing the old `RingService.start(app)`. Rewritten.
 
+Suite: **102 tests**, 23 mutants, all killed by the test that names them. (The 32f commit message
+says 103; the count is 102. Noted here rather than force-pushed over.)
+
 Confirmed by the same review, so recorded as verified rather than assumed: `Intent.filterEquals`
 ignores extras; `requestCode` is part of PendingIntent identity so 1001 and 1005 can never collide;
 `FLAG_IMMUTABLE` does not block `FLAG_UPDATE_CURRENT`, because immutability constrains the sender's
