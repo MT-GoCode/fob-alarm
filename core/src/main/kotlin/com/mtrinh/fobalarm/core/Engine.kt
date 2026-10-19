@@ -410,21 +410,28 @@ object Engine {
         val open = st.session
         val events = mutableListOf<PendingEvent>()
 
+        // A NAP trigger IS that nap's delivery, so it consumes it -- here, once, whatever happens
+        // next. Three of the paths below used to leave it in place, which only became a fault when
+        // the delivery window started keeping an elapsed nap: `napFire` stayed the next fire at a
+        // past instant, so it re-armed, fired, was absorbed, re-armed -- a fire storm for the
+        // length of the window, each round re-posting the notification and recreating the ring
+        // screen under the owner's thumb.
+        val st0 = if (source == OccurrenceSource.NAP) st.copy(nap = null) else st
+
         // Nap arriving while a real alarm rings: dropped.
         if (open != null && open.trigger != OccurrenceSource.NAP && source == OccurrenceSource.NAP) {
             events += PendingEvent("nap_dropped")
-            val next = st.copy(nap = null)
-            return recompute(next, ts, "nap_dropped").let { it.copy(events = events + it.events) }
+            return recompute(st0, ts, "nap_dropped").let { it.copy(events = events + it.events) }
         }
 
         // A trigger while SNOOZED cancels the snooze and rings now, same session.
         if (open != null && open.phase == RingPhase.SNOOZED && source == open.trigger) {
-            val next = st.copy(session = open.copy(phase = RingPhase.RINGING, snoozeUntilMs = null))
+            val next = st0.copy(session = open.copy(phase = RingPhase.RINGING, snoozeUntilMs = null))
             return recompute(next, ts, "snooze_cancelled_by_trigger").let { it.copy(events = events + it.events) }
         }
 
         // Real alarm superseding an open nap session: new ringId, fresh counters, audio never stops.
-        var st1 = st
+        var st1 = st0
         if (open != null && open.trigger == OccurrenceSource.NAP && source != OccurrenceSource.NAP) {
             events += PendingEvent("superseded", mapOf("oldRingId" to open.ringId))
             st1 = st1.copy(
@@ -469,7 +476,7 @@ object Engine {
             snoozeUntilMs = null,
             endsByMs = now + st1.settings.maxRingMinutes * 60_000L,
         )
-        st1 = st1.copy(session = session, nap = if (source == OccurrenceSource.NAP) null else st1.nap)
+        st1 = st1.copy(session = session)
         events += PendingEvent("ring_start", mapOf("ringId" to newRingId, "trigger" to source.name))
         return recompute(st1, ts, "ring_start").let { it.copy(events = events + it.events) }
     }

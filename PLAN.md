@@ -344,3 +344,17 @@ retry); `require(action != ACTION_FIRE || source != null)`; two dead accessors d
 - In `onTrigger`'s supersede branch, an `occId == null` result drops the nap session, so a stale real
   trigger can kill a live nap. Reachable only through the test-ring sequence now fixed above; worth
   revisiting if it is ever reachable another way.
+
+## 7. Round 32h — the last two, both found by review
+
+1. **The refused test was still a ring-stopper.** `testRing` sets `testUntilMs` before starting the
+   service and the heartbeat tests it first, so a refusal that left the window set ran the test path
+   over a live ring for 60 s and then tore it down. The refusal clears the window.
+2. **The nap grace invented a fire storm.** An absorbed NAP trigger left `st.nap` set; once an
+   elapsed nap was no longer dropped immediately, `napFire` stayed `nextFire` at a past instant and
+   re-armed in a loop for the window, recreating the ring screen each round. A NAP trigger now
+   consumes the nap once, at the top of `onTrigger` — the delivery consumes its own mark.
+
+Count for this round: **eleven defects**, four of them mine, three of those being a fix that
+re-introduced the defect it was fixing by another route. Every one of the three was in a guard that
+returned early from a shared path, and every one read correct in isolation.

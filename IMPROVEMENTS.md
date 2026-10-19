@@ -1454,3 +1454,39 @@ The lesson generalises, and is worth stating because it has now happened three t
 **a guard that returns early from a shared code path has to be checked against what that path has
 already done, and against what the early return skips.** Reading the new branch in isolation says it
 is correct. Only reading `teardown()` says it is not.
+
+### 32h — the refusal was still a ring-stopper, and the nap grace invented a fire storm
+
+The review of 32f/32g confirmed the no-teardown reasoning on all four points I asked about, then
+found the one line it misses, plus a defect the nap grace created.
+
+**The refused test still silenced the ring.** `Svc.testRing` sets `testUntilMs` *before* starting
+the service, and the heartbeat tests `testUntilMs > 0` **first** — so a refused test that returned
+with the window still set ran the *test* path over a live ring for 60 s (skipping the session cap
+and the snooze re-ring, gating audio on `testSilent`) and then called `teardown()` at the end of the
+window. Same width of race as the original, third route to the same silence. The refusal now clears
+`Svc.testUntilMs` before returning, and that clear is the point of the branch rather than
+bookkeeping.
+
+**The nap grace created a 60-second fire storm.** A NAP trigger absorbed into an open NAP session
+left `st.nap` in place — harmless while step 4 dropped an elapsed nap immediately, and a fault the
+moment it stopped. `napFire` stayed `nextFire` at a *past* instant, so it re-armed, fired, was
+absorbed, re-armed: for the length of the window, each round taking a receiver wake lock, starting
+the foreground service, re-posting the loud notification and recreating the ring screen with
+`FLAG_ACTIVITY_CLEAR_TASK` — resetting the dismiss slider under the owner's thumb for a minute.
+
+Fixed as provenance rather than as three patches: **a NAP trigger is that nap's delivery, so it
+consumes it**, once, at the top of `onTrigger`, whatever happens next. Three of the paths below
+used to leave it; the per-branch clears are now redundant and gone.
+
+**Stale parts the same review named, all deleted whole:** `de.pendingTestUntilMs` existed only to
+support the sniffing that `ACTION_TEST` replaced, so the field, its doc and all four writes are
+gone. `launch()` was labelling its log by inferring a kind from an absent action
+(`intent.action ?: "fire"`); the three entry points pass their kind in. The `ACTION_TEST` KDoc told
+the story of the bug instead of stating the property, and now states the property.
+
+Also confirmed, so recorded as checked rather than assumed: `START_STICKY` is right on the refusal
+path, because Android applies the **last** `onStartCommand` return to the whole service — so
+`START_NOT_STICKY` would have stripped sticky restart from the live ring. And the `require` on
+`ACTION_FIRE` cannot throw today: every `set()` caller passes a source, `NextFire.source` is
+non-null, and the watchdog/tick/gate alarms are not FIRE.

@@ -117,14 +117,6 @@ class DeMirror(ctx: Context) {
         get() = p.getLong("lastAliveMs", 0)
         set(v) = p.edit().putLong("lastAliveMs", v).apply()
 
-    /**
-     * A test ring was requested; survives the process hop to the alarm delivery.
-     * Stamped with an expiry so a flag that is never consumed cannot be picked up by a
-     * real alarm hours later and turned into a 60-second no-op.
-     */
-    var pendingTestUntilMs: Long
-        get() = p.getLong("pendingTestUntilMs", 0)
-        set(v) = p.edit().putLong("pendingTestUntilMs", v).apply()
 
 
     fun mirror(s: Settings, next: NextFire?, session: RingSession?,

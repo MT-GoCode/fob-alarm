@@ -552,6 +552,31 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `a nap trigger consumes the nap even when it is absorbed`() {
+        // The delivery window turned a harmless omission into a fire storm. A NAP trigger absorbed
+        // into an open NAP session used to leave `st.nap` in place; once step 4 stopped dropping
+        // an elapsed nap, `napFire` stayed the next fire at a PAST instant, so it re-armed, fired,
+        // was absorbed, re-armed -- for the length of the window, each round re-posting the
+        // notification and recreating the ring screen under the owner's thumb.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        val firstNap = Engine.setNap(s0, c, 10).state
+        val ringing = Engine.onTrigger(firstNap, c, OccurrenceSource.NAP, "r-nap1").state
+        assertEquals(OccurrenceSource.NAP, ringing.session?.trigger)
+        assertNull(ringing.nap, "its own delivery consumed it")
+
+        // A second nap set while the first still rings -- the controller can do this over HTTP.
+        val second = Engine.setNap(ringing, c, 5).state
+        assertNotNull(second.nap)
+
+        c.set("2026-09-26T06:05:10-07:00[America/Los_Angeles]")
+        val absorbed = Engine.onTrigger(second, c, OccurrenceSource.NAP, "r-nap2")
+        assertEquals("r-nap1", absorbed.state.session?.ringId, "absorbed into the open ring")
+        assertNull(absorbed.state.nap, "and consumed, absorbed or not")
+        assertTrue(absorbed.nextFire?.source != OccurrenceSource.NAP,
+            "nextFire must not be the past nap: ${absorbed.nextFire}")
+    }
+
     @Test fun `a nap due this instant is not dropped and stays armed`() {
         // The same race the scheduled grace fixes, left open for naps until a review walked it: a
         // recompute landing after the nap's instant but BEFORE AlarmManager dispatched it dropped

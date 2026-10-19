@@ -684,8 +684,6 @@ object Svc : AlarmHost {
         }
         commit(requestId)
         de.testSilent = silent
-        // Short window: long enough to reach the fire, far too short to survive to 04:00.
-        de.pendingTestUntilMs = System.currentTimeMillis() + 30_000
         log("test_ring", "silent" to silent.toString(), "from" to if (fromController) "controller" else "here")
         // Live from this instant, so the caller's snapshot already shows a test in
         // progress and both phones' screens flip to the ring at once. The link service
@@ -703,7 +701,6 @@ object Svc : AlarmHost {
 
     override fun stopTest(): Snapshot {
         testUntilMs = 0L; testSnoozedUntilMs = 0L
-        de.pendingTestUntilMs = 0L
         RingService.stop(app)
         log("test_ring_stopped")
         return snapshot()
