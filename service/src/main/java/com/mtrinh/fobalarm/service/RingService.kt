@@ -172,9 +172,17 @@ class RingService : Service() {
         if (intent?.action == ACTION_TEST) {
             // A real ring outranks a test, always. Without this the test fell through to the
             // trigger path and killed the session that was already sounding.
+            //
+            // Return WITHOUT teardown. This service is already in the foreground for the live
+            // ring, and `teardown` stops the audio, releases the wake lock and calls
+            // `stopForeground(STOP_FOREGROUND_REMOVE)` -- so tearing down here would silence the
+            // very ring this branch exists to protect, which is the original defect wearing a
+            // different hat. Nothing above this point has touched the live ring: the
+            // `startForeground` call re-posted the notification it already had, and the watchdog
+            // was re-armed, which is harmless.
             if (Svc.session != null) {
                 Svc.log("test_refused_during_ring", "ringId" to Svc.session!!.ringId)
-                teardown(); return START_NOT_STICKY
+                return START_STICKY
             }
             Svc.de.pendingTestUntilMs = 0L
             // Only if it is not already live. Svc.testRing sets this before starting the

@@ -1433,3 +1433,24 @@ ignores extras; `requestCode` is part of PendingIntent identity so 1001 and 1005
 `FLAG_IMMUTABLE` does not block `FLAG_UPDATE_CURRENT`, because immutability constrains the sender's
 `fillIn`, not the creator; and a delivered Intent is a parcelled copy, so the recompute inside the
 same `onReceive` cannot relabel it.
+
+### 32g — the refusal branch silenced the ring it was written to protect
+
+Caught by re-reading my own 32f before the review got to it, and it is the third time this round
+that a fix of mine introduced the defect it was fixing.
+
+The new `ACTION_TEST` branch refused a test during a live ring with `teardown(); return
+START_NOT_STICKY`. But `teardown()` does `audio.stop()`, releases the wake lock, cancels the
+watchdog, sets `serviceAlive = false` and calls `stopForeground(STOP_FOREGROUND_REMOVE)`. **So
+refusing the test silenced the ring** — C(1) reintroduced by a different route, inside the branch
+written to prevent it.
+
+The refusal now returns `START_STICKY` with nothing but a log. Nothing earlier in
+`onStartCommand` has disturbed the live ring: `serviceAlive` was already true, the `startForeground`
+call re-posted the notification the ring already had, and `armWatchdog` re-armed a watchdog that
+should be armed anyway.
+
+The lesson generalises, and is worth stating because it has now happened three times in one round:
+**a guard that returns early from a shared code path has to be checked against what that path has
+already done, and against what the early return skips.** Reading the new branch in isolation says it
+is correct. Only reading `teardown()` says it is not.
