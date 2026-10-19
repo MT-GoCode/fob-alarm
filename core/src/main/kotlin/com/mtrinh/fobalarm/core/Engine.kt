@@ -217,11 +217,10 @@ object Engine {
                 else -> LatchReason.MISSED
             }
 
-            // PENDING, not missed. At the due instant the broadcast is still in flight: the
-            // session is not open yet and `lastAliveMs` cannot tell alive-and-idle from dead, so a
-            // recompute landing in that sub-second used to latch MISSED and ring through `fireNow`
-            // -- observed 13 Oct 05:00:00 and 17 Oct 08:00:00. Only the MISSED conclusion waits;
-            // SUPERSEDED and SKIPPED are settled by a ring or an override, not by delivery.
+            // PENDING, not missed: at the due instant the broadcast is still in flight, the
+            // session is not open yet, and `lastAliveMs` cannot tell alive-and-idle from dead.
+            // Only the MISSED conclusion waits -- SUPERSEDED and SKIPPED are settled by a ring or
+            // an override, not by delivery.
             if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) {
                 pending = NextFire(at, OccurrenceSource.SCHEDULED, "pending_delivery")
                 continue
@@ -285,12 +284,9 @@ object Engine {
 
         // 5. Pick nextFire: the earliest of the three independent candidates.
         //
-        // The override is a candidate IN ITS OWN RIGHT, not a special case of the next
-        // scheduled occurrence. Earlier this was gated on
-        // `ov.boundOccurrenceId == nextSchedId`, so the moment the bound occurrence's
-        // original instant passed -- 05:00, with a 04:00 default and a 07:00 override --
-        // the next scheduled occurrence became tomorrow, the condition went false, and
-        // the override the user had just set stopped existing.
+        // The override is a candidate IN ITS OWN RIGHT, never conditioned on the identity of
+        // the next scheduled occurrence: with a 04:00 default and a 07:00 override, 05:00 makes
+        // "next scheduled" tomorrow, and anything gated on that identity drops the override.
         val ov = st.override
         val overrideFire = ov?.takeIf {
             it.kind == OverrideKind.TIME && it.fireAtMs != null && it.fireAtMs > now
@@ -348,9 +344,9 @@ object Engine {
      *
      * **A Move only ever pushes an alarm later.** The instant is resolved against the
      * occurrence being replaced, not against now, so a time that has not come round yet
-     * before that alarm lands on the following day instead of in front of it. At 23:00
-     * with a 04:00 alarm, "move to 23:30" used to ring half an hour later and silently
-     * eat tomorrow morning; now it means 23:30 tomorrow.
+     * before that alarm lands on the following day instead of in front of it: at 23:00 with a
+     * 04:00 alarm, "move to 23:30" means 23:30 TOMORROW, not half an hour from now, because the
+     * latter would also eat tomorrow morning.
      *
      * The invariant that follows is worth having: the replacement instant is always
      * after the alarm it replaces, so the original time comes and goes with the override
@@ -418,9 +414,9 @@ object Engine {
     fun onTrigger(st: EngineState, ts: TimeSource, source: OccurrenceSource, newRingId: String): RecomputeResult {
         val now = ts.nowMs()
         // A session that has outrun its own cap is NOT open. The two early returns below run
-        // before step 0 reaps it, so an expired-but-unreaped session used to swallow an elapsed
-        // nap -- dropped or snooze-cancelled -- and then be reaped, leaving the nap gone with
-        // nothing ringing.
+        // before step 0 reaps it, and an expired-but-unreaped session must not swallow an
+        // elapsed nap -- dropped or snooze-cancelled -- only to be reaped straight after, which
+        // leaves the nap gone with nothing ringing.
         val open = st.session?.takeIf { it.endsByMs > now }
         val events = mutableListOf<PendingEvent>()
 

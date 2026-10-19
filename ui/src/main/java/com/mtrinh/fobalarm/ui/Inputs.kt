@@ -16,9 +16,8 @@ import androidx.compose.ui.unit.dp
  */
 
 // ---------------------------------------------------------------------------
-// Time: a real clock face. Previously a free-text field where "0530" failed
-// validation and surfaced as a raw HTTP 500 string at the bottom of the page --
-// on the single most important control in the app.
+// Time: a real clock face, not free text. The most important control in the app cannot be one
+// where "0530" is a validation failure the user has to decode.
 // ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)

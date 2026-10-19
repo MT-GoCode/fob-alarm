@@ -9,10 +9,9 @@ import com.mtrinh.fobalarm.data.HttpStateClient
  * How a phone that is not the alarm reaches the alarm phone: the Wi-Fi Direct group owner first,
  * the alarm phone's ordinary LAN address as the fallback.
  *
- * The decision this hides is "which path", and it is hidden ONCE. It used to be wired in three
- * places -- both watchers and the UI's client -- and they had already diverged: the UI's copy was
- * built with no `fallbackHostProvider` at all, so with the group down the controller's screen and
- * every action on it failed while the background watcher carried on over Wi-Fi.
+ * The decision this hides is "which path", and it is hidden ONCE -- for both watchers and the
+ * UI's client. Wiring it per caller lets one of them be built without a fallback, and then the
+ * screen and its actions fail during a P2P outage while the background watcher carries on.
  *
  * Deliberately NOT a base class for the watchers. The sentinel must never inherit the controller's
  * authority -- no alert, no dismiss, no unlock -- so only the transport is shared and the two

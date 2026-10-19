@@ -86,10 +86,10 @@ class HttpStateClient(
                 code == 409 -> {
                     val o = runCatching { JSONObject(text) }.getOrNull()
                         ?: throw ClientError.Server(code, text)
-                    // A 409 WITHOUT a snapshot is the role-already-claimed answer. Reading
-                    // `snapshot` unconditionally used to throw JSONException here, which became a
-                    // Transport error, so the rejected phone showed a dead link instead of saying
-                    // which role was taken.
+                    // A 409 WITHOUT a snapshot is the role-already-claimed answer, and must be
+                    // read as one: treating the absent field as a parse failure makes it a
+                    // Transport error, and the rejected phone then shows a dead link instead of
+                    // saying which role was taken.
                     val snapObj = o.optJSONObject("snapshot")
                         ?: throw ClientError.RoleTaken(o.optString("reason").ifBlank { "role taken" })
                     val snap = Wire.snapshotFrom(snapObj)

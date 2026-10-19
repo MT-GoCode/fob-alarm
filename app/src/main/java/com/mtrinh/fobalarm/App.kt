@@ -86,11 +86,10 @@ class App : Application() {
                 }
             }
             val snap = app.snapshot
-            // Finish ONLY when the ring is genuinely over -- an open session or a live
-            // test. Never render the tabbed screen here: a snapshot flicker used to drop
-            // the user into Settings mid-ring.
-            // Observe the test window through the snapshot; Svc.testActive is a plain
-            // getter and never triggers recomposition, so the screen used to linger.
+            // Finish ONLY when the ring is genuinely over -- an open session or a live test --
+            // and never render the tabbed screen here, or a snapshot flicker drops the user into
+            // Settings mid-ring. The test window is read from the snapshot because Svc.testActive
+            // is a plain getter and never triggers recomposition.
             val ringing = snap == null || snap.ring != null ||
                     (snap.testUntilMs > 0 && System.currentTimeMillis() < snap.testUntilMs)
             LaunchedEffect(ringing) { if (!ringing) activity.finish() }

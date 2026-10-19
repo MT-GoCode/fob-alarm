@@ -44,10 +44,9 @@ object Svc : AlarmHost {
     @Volatile private var unlockTokenValue: String? = null
     /**
      * Unlocked until it is locked again, by the Lock button or by the process dying.
-     * It used to expire two minutes after the unlock, which meant the screen said
-     * "Unlocked" while the next save came back 403, and there was no way to lock on
-     * purpose. Living only in memory is the one implicit re-lock that remains, and it
-     * is not a timer: an app restart is locked.
+     * No timer. An unlock that lapses on a clock leaves the screen saying "Unlocked" while
+     * the next save returns 403. Living only in memory is the one implicit re-lock that
+     * remains: an app restart is locked.
      */
     val unlockToken: String? get() = unlockTokenValue
     /**
@@ -233,10 +232,9 @@ object Svc : AlarmHost {
                     settings = de.settings ?: loaded.settings,
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
-                    // duplicated id, so Room's copy used to win and contradict this comment --
-                    // which matters now that a latch can be replaced (a block supersedes a miss),
-                    // because reloading would resurrect MISSED over SKIPPED and offer the
-                    // occurrence up to ring again.
+                    // duplicated id, so memory must come FIRST -- a latch can be replaced (a
+                    // block supersedes a miss), and Room winning would resurrect MISSED over
+                    // SKIPPED and offer the occurrence up to ring again.
                     latches = (state.latches + loaded.latches).distinctBy { it.id },
                     override = if (scheduleSeededFromDe) state.override else loaded.override,
                     nap = if (scheduleSeededFromDe) state.nap else loaded.nap,
@@ -302,8 +300,8 @@ object Svc : AlarmHost {
         if (alsoFire && r.fireNow != null && state.session == null &&
             state.settings.role == Role.ALARM) {
             log("fire_now_after_clock_jump", "source" to r.fireNow!!.name)
-            // Through openSession, not straight to RingService: this path used to ring without
-            // consulting the gate at all, so an away block simply did not apply to a missed alarm.
+            // Through openSession, never straight to RingService: this is a second place a NEW
+            // session opens, and the gate lives there.
             urgent.execute { openSession(r.fireNow!!) }
         }
         snapshot()
@@ -550,7 +548,7 @@ object Svc : AlarmHost {
             commit(requestId)
             apply(Engine.patchSettings(state, ts, patch, actor))
         }
-        // D19: reuse io rather than leaking a fresh executor per credential change.
+        // Reuse `io` rather than leaking a fresh executor per credential change.
         if (ssidChanged && state.settings.role == Role.ALARM) io.execute { Group.restart(app, state.settings) }
         return snap
     }
@@ -567,8 +565,8 @@ object Svc : AlarmHost {
     override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot =
         idempotent(requestId) {
             // Exhaustive, and it throws rather than returning an unchanged snapshot: an
-            // unrecognised kind used to be committed as a 200 that did nothing, so a caller with
-            // a typo was told its alarm had moved.
+            // unrecognised kind must not be committed as a 200 that did nothing, which tells a
+            // caller with a typo that its alarm moved.
             when (kind) {
                 "SKIP" -> apply(Engine.setSkip(state, ts))
                 "NONE" -> apply(Engine.clearOverride(state, ts))
@@ -800,16 +798,14 @@ object Scheduler {
     /**
      * The next top of the hour, plus [offsetMs].
      *
-     * Both hourly jobs used to be "now + one hour", and both are re-armed by every
-     * state transaction, so they drifted with whatever the user last did and crossing
-     * 02:00 on the wall clock did nothing at all. On the hour is what "hourly" says on
-     * the screen, and it is what makes the row's age readable: a check that last ran
-     * "58m ago" is now one that ran at the top of the last hour.
+     * An absolute hour boundary, not "now + one hour": both hourly jobs are re-armed by every
+     * state transaction, so a relative deadline drifts with whatever the user last did and
+     * "hourly" stops meaning what the screen says.
      *
-     * The LOCAL hour, via ZonedDateTime, not epoch-millis arithmetic: dividing by
-     * 3,600,000 gives the top of the UTC hour, which is :30 in India and :45 in Nepal.
-     * Truncating is also what makes this safe to call from the wakeup it just served --
-     * it always lands on the following hour, never on the instant we are standing on.
+     * The LOCAL hour, via ZonedDateTime, not epoch-millis arithmetic: dividing by 3,600,000
+     * gives the top of the UTC hour, which is :30 in India and :45 in Nepal. Truncating is also
+     * what makes this safe to call from the wakeup it just served -- it always lands on the
+     * following hour, never on the instant we are standing on.
      */
     private fun topOfNextHour(offsetMs: Long): Long =
         java.time.ZonedDateTime.now()
@@ -819,26 +815,16 @@ object Scheduler {
     /**
      * **Twenty seconds past the hour, never on it.**
      *
-     * Round 19 aligned this to :00:00 exactly, which put it on the same millisecond as
-     * any alarm set to a whole hour -- and 04:00 is the default. Both are `setAlarmClock`
-     * for the same instant, so which one Android delivers first is a coin toss. When the
-     * tick won, `recompute` ran with the alarm due and no session open, decided the
-     * occurrence had been MISSED, latched it, cleared the override and fired immediately;
-     * the real trigger then arrived a second later and was absorbed. The alarm always
-     * rang on time, but the history recorded a miss that never happened -- which is the
-     * one signal in this product that has to mean exactly what it says.
+     * On :00:00 this shares an instant with any alarm set to a whole hour -- 04:00 is the
+     * default -- and both are `setAlarmClock`, so delivery order is a coin toss. Alarm times are
+     * whole minutes, so any offset strictly inside the minute cannot collide with one. Twenty
+     * seconds is ~20x the observed trigger delivery delay and leaves the health check its own
+     * wakeup.
      *
-     * **This offset is not what fixed that, and it never was.** It only stops the tick
-     * being one of the callers that can race; any recompute landing between the due
-     * instant and the session opening loses the same race. It still did, twice, on 13 Oct
-     * 05:00:00 and 17 Oct 08:00:00 -- both SCHEDULED, both after this offset shipped.
-     * `Engine.FIRE_DELIVERY_GRACE_MS` is the actual fix: a due occurrence is PENDING until
-     * its delivery window expires. The offset stays because not colliding on purpose is
-     * still right.
-     *
-     * Alarm times are whole minutes (`HH:mm`), so any offset strictly inside the minute
-     * cannot collide with one. Twenty seconds is ~20x the observed trigger delivery
-     * delay, and leaves the health check its own wakeup.
+     * **This offset is not what keeps `missed` honest.** It only stops the tick being one of the
+     * callers that can race a due occurrence; ANY recompute landing between the due instant and
+     * the session opening races it the same way. `Engine.FIRE_DELIVERY_GRACE_MS` is what settles
+     * that. Not colliding on purpose is still worth doing.
      */
     fun armHourlyTick(ctx: Context) = set(ctx, ACTION_TICK, 1003, topOfNextHour(20_000))
 

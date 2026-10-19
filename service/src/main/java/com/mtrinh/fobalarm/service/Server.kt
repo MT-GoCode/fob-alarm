@@ -21,12 +21,12 @@ import kotlin.concurrent.thread
  *  :8765 CONTROL  -- all interfaces. Mutating.
  *  :8766 LOGS     -- all interfaces, GET-only, read-only. The logcat replacement.
  *
- * **The control port used to bind to the P2P address only**, so that nothing on home Wi-Fi could
- * dismiss an alarm. That was given up deliberately, because binding it there also meant the
- * controller was useless the moment Wi-Fi Direct membership flapped -- and it flaps for reasons
- * that have nothing to do with where anyone is standing: a 10 s client-group idle timeout, a 45 s
+ * **The control port binds all interfaces, deliberately**, rather than the P2P address alone.
+ * Binding it there would keep home Wi-Fi from dismissing an alarm, but it also makes the
+ * controller useless the moment Wi-Fi Direct membership flaps -- and it flaps for reasons that
+ * have nothing to do with where anyone is standing: a 10 s client-group idle timeout, a 45 s
  * rejoin guard, this phone rebuilding its own group with up to 120 s of backoff. Home Wi-Fi is
- * unaffected by all of it, so it is now a fallback path for dismiss, nap and settings.
+ * unaffected by all of it, so it is the fallback path for dismiss, nap and settings.
  *
  * There is still no application-layer signing, and the owner's threat model is explicit: the
  * defence is not against an attacker on the LAN, it is against the OWNER at 04:00 turning a pocket
@@ -65,8 +65,8 @@ object Server {
             }
             runCatching {
                 // All interfaces, so home Wi-Fi reaches this phone before pairing and through any
-                // P2P outage. Nothing may close this socket from outside: a group flap used to do
-                // so, which killed the listener the Wi-Fi fallback depends on.
+                // P2P outage. NOTHING may close this socket from outside -- a group flap doing
+                // so kills the listener the Wi-Fi fallback depends on.
                 val server = ServerSocket(port)
                 if (control) controlStatus = "listening" else logStatus = "listening"
                 Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())
@@ -166,8 +166,7 @@ object Server {
     }
 
     /**
-     * `/v1/history` is served on BOTH ports and the two copies used to be seven
-     * duplicated lines that had to be edited together. One reader, one cap.
+     * `/v1/history` is served on BOTH ports: one reader, one cap, so the two cannot drift.
      */
     private fun historyJson(path: String, indent: Int): String {
         val since = param(path, "since")?.toLongOrNull() ?: 0
@@ -211,8 +210,8 @@ object Server {
                     // alarm phone can render both devices. No new endpoint.
                     val id = param(path, "deviceId")
                     // Stated, never guessed. Both clients always send it, and only these two
-                    // roles poll: anything else -- a missing value, a typo, or ALARM -- used to be
-                    // read as CONTROLLER and overwrite the controller's presence slot.
+                    // roles poll: anything else -- a missing value, a typo, or ALARM -- read as
+                    // CONTROLLER would overwrite the controller's presence slot.
                     val role = when (param(path, "role")) {
                         Role.CONTROLLER.name -> Role.CONTROLLER
                         Role.SENTINEL.name -> Role.SENTINEL

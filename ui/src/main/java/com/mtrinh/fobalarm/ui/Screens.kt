@@ -38,9 +38,8 @@ import com.mtrinh.fobalarm.core.entries
  * ONE set of screens for all three roles. Role selects a client, not a screen; the only
  * role-specific pieces arrive as slots from the app module.
  *
- * The role is passed as itself. It used to be `isAlarmRole: Boolean` plus a nullable `trying`
- * slot standing in for "is the controller" -- two values encoding three states, which left the
- * sentinel as neither and crashed it on launch.
+ * The role is passed as itself, not as a boolean plus a nullable slot standing in for one:
+ * three roles need three states, and encoding them in two leaves one role as neither.
  */
 @Composable
 fun RootScreen(
@@ -89,9 +88,8 @@ fun RootScreen(
     }
 
     // Nothing to render yet, for ANY role: the alarm phone is briefly "starting", and a
-    // controller or sentinel has not heard from the alarm phone yet. This used to be guarded
-    // only for the alarm role, with `trying` standing in for "is the controller" -- so the
-    // sentinel, which has no `trying`, reached the `s!!` below and crashed on every launch.
+    // controller or sentinel has not heard from it. Every role needs this guard, not just the
+    // alarm -- the `s!!` below is reachable by whichever role the branches above do not cover.
     if (s == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return

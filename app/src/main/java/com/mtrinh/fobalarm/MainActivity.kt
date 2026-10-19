@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         // DE storage: readable at 04:00 after a reboot nobody unlocked. `?: error` is
-        // load-bearing -- a null stream used to leave runCatching succeeding, so no bytes
+        // load-bearing -- a null stream leaves runCatching succeeding, so no bytes
         // were written and the setting still claimed the file.
         runCatching {
             contentResolver.openInputStream(uri)?.use { input ->

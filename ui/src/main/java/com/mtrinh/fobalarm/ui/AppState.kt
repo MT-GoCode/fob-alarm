@@ -42,11 +42,9 @@ class AppState(
      */
     var via by mutableStateOf<String?>(null); internal set
 
-    /** Matches the server's two-minute window, so the screen never claims a dead unlock. */
     /**
-     * No clock in this. The unlock used to lapse silently a couple of minutes in, so the
-     * screen could read "Unlocked" while the next save came back 403. It ends when Lock
-     * is pressed or the process dies, and nothing else.
+     * No clock in this. An unlock that lapses on a timer lets the screen read "Unlocked" while
+     * the next save returns 403. It ends when Lock is pressed or the process dies, nothing else.
      */
     val unlocked: Boolean get() = token != null
     var history by mutableStateOf<List<Event>>(emptyList()); private set
@@ -109,10 +107,9 @@ class AppState(
      * The ONE way a snapshot is installed.
      *
      * A new ringId briefly locks the dismiss button and clears the previous verdict, so a
-     * reflexive second tap cannot answer a question it never saw. This used to live only in
-     * [refresh], while eight other places assigned `snapshot` directly -- including the 409
-     * StaleRing path, which is exactly where the ring HAS just changed, so the second tap
-     * dismissed the new one.
+     * reflexive second tap cannot answer a question it never saw. EVERY install goes through
+     * here, including the 409 StaleRing path -- that path is precisely where the ring has just
+     * changed, so a direct assignment there would leave the button live for the new one.
      */
     private fun accept(s: Snapshot) {
         if (s.ring?.ringId != lastRingId) {

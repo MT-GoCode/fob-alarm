@@ -14,7 +14,7 @@ import java.util.UUID
 /**
  * The CONTROLLER's watch on the alarm phone, owned by the foreground service.
  *
- * Remote dismiss used to depend on MainActivity being alive, not crashed, composing,
+ * Remote dismiss must not depend on MainActivity being alive, not crashed, composing,
  * and polling -- nine separate things, several of them UI-lifecycle-scoped, for the one
  * control the owner will use half asleep. Now the service polls, the service raises the
  * full-screen alert, and the alert's DISMISS action is handled by the service. No

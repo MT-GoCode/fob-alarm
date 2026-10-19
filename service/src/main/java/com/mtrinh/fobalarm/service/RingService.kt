@@ -11,7 +11,7 @@ import com.mtrinh.fobalarm.core.*
  * notification carrying the full-screen intent. Started by the alarm trigger and by
  * nothing else; it outlives the ring screen so that killing the UI cannot silence an
  * alarm. It registers no sensors -- snooze is ACTION_SNOOZE from the bar on the ring
- * screen, and the rotation gesture it used to own is gone.
+ * screen.
  *
  * Also serves the test ring, which has no engine session -- see `Svc.testActive`.
  */

@@ -12,7 +12,7 @@ package com.mtrinh.fobalarm.core
  *              the past, while still answering polls. "Alive, polling fine, didn't ring."
  *   (2 AND 3)  liveness -- no contact at all for 20 minutes.
  *
- * These were ANDed together in an earlier draft, which made the headline case unreachable:
+ * They are ORed, never ANDed: ANDing makes the headline case unreachable, because
  * if the phone is alive and polling, condition 3 is false by construction, so the
  * conjunction could never fire. SPEC.md, controller fallback nag.
  */
