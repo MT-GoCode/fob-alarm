@@ -20,72 +20,20 @@ class DeMirror(ctx: Context) {
     private val p: SharedPreferences = ctx.createDeviceProtectedStorageContext()
         .getSharedPreferences("fobalarm_de", Context.MODE_PRIVATE)
 
-    var nextFireAtMs: Long
-        get() = p.getLong("nextFireAtMs", 0)
-        set(v) = p.edit().putLong("nextFireAtMs", v).apply()
+    /**
+     * The whole of [Settings] as last mirrored, or null before this phone has ever written one.
+     *
+     * Null is the migration case only: a build that mirrored a subset field by field left no such
+     * key, so the first load after an upgrade falls back to Room and the next `apply` writes this.
+     */
+    val settings: Settings?
+        get() = p.getString("settings", null)?.let {
+            runCatching { com.mtrinh.fobalarm.data.Wire.settingsFrom(JSONObject(it), Settings()) }
+                .getOrNull()
+        }
 
     /** Written by [mirror] only, and read only by `Scheduler.sourceOf`'s one migration case. */
     val nextFireSource: String get() = p.getString("nextFireSource", "SCHEDULED")!!
-
-    var defaultAlarmTime: String
-        get() = p.getString("defaultAlarmTime", "04:00")!!
-        set(v) = p.edit().putString("defaultAlarmTime", v).apply()
-
-    var alarmVolumePercent: Int
-        get() = p.getInt("alarmVolumePercent", 85)
-        set(v) = p.edit().putInt("alarmVolumePercent", v).apply()
-
-    var maxRingMinutes: Int
-        get() = p.getInt("maxRingMinutes", 60)
-        set(v) = p.edit().putInt("maxRingMinutes", v).apply()
-
-    var snoozeSeconds: Int
-        get() = p.getInt("snoozeSeconds", 30)
-        set(v) = p.edit().putInt("snoozeSeconds", v).apply()
-
-    var snoozeHoldSeconds: Int
-        get() = p.getInt("snoozeHoldSeconds", 3)
-        set(v) = p.edit().putInt("snoozeHoldSeconds", v).apply()
-    var resnoozeAfterSeconds: Int
-        get() = p.getInt("resnoozeAfterSeconds", 5)
-        set(v) = p.edit().putInt("resnoozeAfterSeconds", v).apply()
-
-    var ringtoneUri: String?
-        get() = p.getString("ringtoneUri", null)
-        set(v) = p.edit().putString("ringtoneUri", v).apply()
-    var ringtoneName: String?
-        get() = p.getString("ringtoneName", null)
-        set(v) = p.edit().putString("ringtoneName", v).apply()
-
-    var role: String?
-        get() = p.getString("role", null)
-        set(v) = p.edit().putString("role", v).apply()
-
-    // The link credentials and the password MUST be readable before first unlock, or a
-    // reboot leaves the phone unpairable and ungated until someone physically unlocks
-    // it -- which, by design, nobody ever does.
-    var ssid: String?
-        get() = p.getString("ssid", null)
-        set(v) = p.edit().putString("ssid", v).apply()
-
-    var passphrase: String?
-        get() = p.getString("passphrase", null)
-        set(v) = p.edit().putString("passphrase", v).apply()
-
-    var passwordHash: String?
-        get() = p.getString("passwordHash", null)
-        set(v) = p.edit().putString("passwordHash", v).apply()
-
-    var passwordSalt: String?
-        get() = p.getString("passwordSalt", null)
-        set(v) = p.edit().putString("passwordSalt", v).apply()
-
-    /** Distinguishes "never set" from "deliberately removed", so removal sticks. */
-
-    var vibrate: Boolean
-        get() = p.getBoolean("vibrate", true)
-        set(v) = p.edit().putBoolean("vibrate", v).apply()
-
 
     /** Without this, process death between the tap and the fire turns a SILENT test
      *  into a full-volume siren. */
@@ -121,24 +69,14 @@ class DeMirror(ctx: Context) {
 
     fun mirror(s: Settings, next: NextFire?, session: RingSession?,
                latches: List<Latch>, override: Override?, nap: Nap?) {
+        // The WHOLE of Settings, in the same encoding Room uses, under one key. Mirroring a
+        // chosen subset field by field meant the fields nobody remembered to add -- the away
+        // settings, napMinutes -- read as defaults before first unlock, and it made this mirror
+        // and Room two partial copies of one fact that could disagree.
         p.edit()
+            .putString("settings", com.mtrinh.fobalarm.data.Wire.settingsToJson(s).toString())
             .putString("schedule", Persist.scheduleToJson(latches, override, nap))
-            .putString("role", s.role?.name)
-            .putString("ssid", s.ssid)
-            .putString("passphrase", s.passphrase)
-            .putString("passwordHash", s.passwordHash)
-            .putString("passwordSalt", s.passwordSalt)
-            .putBoolean("vibrate", s.vibrate)
-            .putLong("nextFireAtMs", next?.atMs ?: 0)
             .putString("nextFireSource", next?.source?.name ?: "SCHEDULED")
-            .putString("defaultAlarmTime", s.defaultAlarmTime)
-            .putInt("alarmVolumePercent", s.alarmVolumePercent)
-            .putInt("maxRingMinutes", s.maxRingMinutes)
-            .putInt("snoozeSeconds", s.snoozeSeconds)
-            .putInt("snoozeHoldSeconds", s.snoozeHoldSeconds)
-            .putInt("resnoozeAfterSeconds", s.resnoozeAfterSeconds)
-            .putString("ringtoneUri", s.ringtoneUri)
-            .putString("ringtoneName", s.ringtoneName)
             .putString("session", session?.let { sessionToJson(it) })
             .apply()
     }

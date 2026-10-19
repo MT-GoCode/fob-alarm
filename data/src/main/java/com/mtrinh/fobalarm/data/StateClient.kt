@@ -13,6 +13,13 @@ import com.mtrinh.fobalarm.core.*
  * exercised on BOTH phones, and the local path is not a privileged shortcut.
  */
 interface StateClient {
+    /**
+     * Which path the last successful call took -- "p2p", "wifi", or null if none has yet. Part of
+     * the interface because the link bar renders it; the alternative was the caller downcasting to
+     * the HTTP implementation to find out, which is the caller knowing who it is talking to.
+     */
+    val via: String? get() = null
+
     suspend fun snapshot(): Result<Snapshot>
     suspend fun dismiss(ringId: String, requestId: String): Result<Snapshot>
     suspend fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?): Result<Snapshot>

@@ -173,22 +173,12 @@ class MainActivity : ComponentActivity() {
     private fun buildClient(role: Role): StateClient = when (role) {
         Role.ALARM -> LocalStateClient(Svc)
         // The sentinel reads the alarm phone the same way; it simply never acts on what it sees.
-        Role.CONTROLLER, Role.SENTINEL -> HttpStateClient(
-            hostProvider = { P2pJoin.ownerAddress },
-            selfProvider = { Svc.selfDevice() },
-            // Report our own failing gates so the alarm phone can show them.
-            localBlockers = {
-                GateEval.current(this, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
-            },
-            extraParams = {
-                buildMap {
-                    put("role", role.name)
-                    if (role == Role.SENTINEL) {
-                        put("powerSave", Power.saveMode(this@MainActivity).toString())
-                    }
-                }
-            },
-        )
+        // Through PeerLink so this client has the Wi-Fi fallback too: built separately, it had
+        // none, and with the group down the screen and its actions failed while the background
+        // watcher was still reaching the alarm phone.
+        Role.CONTROLLER, Role.SENTINEL -> PeerLink.client(role) {
+            if (role == Role.SENTINEL) PeerLink.sentinelExtras() else emptyMap()
+        }
     }
 
     /**

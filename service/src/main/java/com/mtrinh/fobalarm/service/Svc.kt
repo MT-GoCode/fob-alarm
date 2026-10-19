@@ -64,8 +64,12 @@ object Svc : AlarmHost {
     @Volatile var controllerPresence: PeerReport? = null
     @Volatile var sentinelPresence: PeerReport? = null
 
-    fun presenceOf(role: Role): PeerReport? =
-        if (role == Role.SENTINEL) sentinelPresence else controllerPresence
+    /** Exhaustive: ALARM has no slot, and silently folding it into the controller's was wrong. */
+    fun presenceOf(role: Role): PeerReport? = when (role) {
+        Role.CONTROLLER -> controllerPresence
+        Role.SENTINEL -> sentinelPresence
+        Role.ALARM -> null
+    }
 
     fun roleAvailableTo(role: Role, deviceId: String): Boolean =
         RingGate.roleAvailable(presenceOf(role), deviceId, SystemClock.elapsedRealtime())
@@ -78,7 +82,11 @@ object Svc : AlarmHost {
             val gap = (p.lastSeenElapsed - prev.lastSeenElapsed) / 1000
             if (gap >= 60) log("peer_gap", "role" to role.name, "seconds" to gap.toString())
         }
-        if (role == Role.SENTINEL) sentinelPresence = p else controllerPresence = p
+        when (role) {
+            Role.CONTROLLER -> controllerPresence = p
+            Role.SENTINEL -> sentinelPresence = p
+            Role.ALARM -> error("the alarm phone does not report presence to itself")
+        }
     }
 
     /** Back-compat: the snapshot's single `peer` field has always meant the controller. */
@@ -146,26 +154,11 @@ object Svc : AlarmHost {
         de = DeMirror(app)
         if (de.deviceId == null) de.deviceId = UUID.randomUUID().toString()
 
-        // Seed from the DE mirror FIRST. Room is credential-encrypted, may be locked,
-        // and reading it here would be disk IO on whatever thread woke the process --
-        // including a broadcast receiver. The mirror is exactly the subset the ring path
-        // needs, so the alarm is armed correctly before Room is even opened.
-        state = state.copy(settings = state.settings.copy(
-            defaultAlarmTime = de.defaultAlarmTime,
-            alarmVolumePercent = de.alarmVolumePercent,
-            maxRingMinutes = de.maxRingMinutes,
-            snoozeSeconds = de.snoozeSeconds,
-            snoozeHoldSeconds = de.snoozeHoldSeconds,
-            resnoozeAfterSeconds = de.resnoozeAfterSeconds,
-            ringtoneUri = de.ringtoneUri,
-            ringtoneName = de.ringtoneName,
-            role = de.role?.let { r -> runCatching { Role.valueOf(r) }.getOrNull() },
-            ssid = de.ssid ?: Settings.DEFAULT_SSID,
-            passphrase = de.passphrase ?: Settings.DEFAULT_PASSPHRASE,
-            passwordHash = de.passwordHash,
-            passwordSalt = de.passwordSalt,
-            vibrate = de.vibrate,
-        ), lastAliveMs = de.lastAliveMs)
+        // Seed from the DE mirror FIRST. Room is credential-encrypted, may be locked, and
+        // reading it here would be disk IO on whatever thread woke the process -- including a
+        // broadcast receiver. The mirror now holds the WHOLE of Settings, so the alarm is armed
+        // with the owner's real settings, not a subset, before Room is even opened.
+        state = state.copy(settings = de.settings ?: state.settings, lastAliveMs = de.lastAliveMs)
         de.session()?.let { state = state.copy(session = it) }
         de.schedule()?.let {
             state = state.copy(latches = it.latches, override = it.override, nap = it.nap)
@@ -231,15 +224,13 @@ object Svc : AlarmHost {
                 // MERGE, never replace. An empty or wiped kv table returns a default
                 // EngineState whose role is null -- assigning it wholesale would throw
                 // away the DE-seeded role and silently un-arm the alarm forever.
-                val hasRoomSettings = loaded.settings.role != null || loaded.latches.isNotEmpty()
                 state = state.copy(
-                    settings = if (hasRoomSettings) loaded.settings.copy(
-                        role = loaded.settings.role ?: state.settings.role,
-                        ssid = loaded.settings.ssid ?: state.settings.ssid,
-                        passphrase = loaded.settings.passphrase ?: state.settings.passphrase,
-                        passwordHash = loaded.settings.passwordHash ?: state.settings.passwordHash,
-                        passwordSalt = loaded.settings.passwordSalt ?: state.settings.passwordSalt,
-                    ) else state.settings,
+                    // The DE mirror WINS. It is written synchronously on every apply; Room is
+                    // written asynchronously and only once dbReady. Letting Room win reverted a
+                    // settings change made before the phone's first unlock -- silently, and if
+                    // the reverted alarm time was later, the owner slept through it. Room seeds
+                    // settings only on the first load after an upgrade, when no DE blob exists.
+                    settings = de.settings ?: loaded.settings,
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
                     // duplicated id, so Room's copy used to win and contradict this comment --
@@ -427,8 +418,12 @@ object Svc : AlarmHost {
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,
             testUntilMs = testUntilMs,
             testSnoozedUntilMs = testSnoozedUntilMs,
-            problems = runCatching { Health.problems() }.getOrDefault(emptyList()),
-            warnings = runCatching { Health.warnings() }.getOrDefault(emptyList()),
+            // A throw here must never read as "nothing wrong": that turns the screen green on a
+            // failure to look. Report the failure itself as the problem.
+            problems = runCatching { Health.problems() }
+                .getOrElse { listOf("health check failed: ${it.javaClass.simpleName}") },
+            warnings = runCatching { Health.warnings() }
+                .getOrElse { listOf("health check failed: ${it.javaClass.simpleName}") },
         )
     }
 
@@ -466,17 +461,32 @@ object Svc : AlarmHost {
         seenRequests.containsKey(requestId)
     }
 
+    /**
+     * An idempotent mutation. The replay check, the mutation and the commit are ONE transaction:
+     * checked outside the lock, two concurrent retries of the same requestId both passed and both
+     * applied. The commit happens only after [body] returns, so a mutation that threw is retried
+     * rather than swallowed.
+     *
+     * [body] must END in its result, never `return` it: this is inline, so a `return` inside it
+     * leaves the enclosing function and skips the commit, silently disabling idempotency.
+     */
+    private inline fun idempotent(requestId: String, body: () -> Snapshot): Snapshot =
+        synchronized(lock) {
+            if (seen(requestId)) return snapshot()
+            body().also { commit(requestId) }
+        }
+
     /** Recorded only once the mutation has actually happened. */
     private fun commit(requestId: String) = synchronized(seenRequests) {
         seenRequests[requestId] = System.currentTimeMillis()
     }
 
     override fun dismiss(ringId: String, requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
         // The ringId check and the end MUST be one transaction: a supersede landing
         // between them would let a dismiss aimed at the finished nap ring end the real
-        // 04:00 session instead.
+        // 04:00 session instead. The replay check is inside it for the same reason.
         val snap = synchronized(lock) {
+            if (seen(requestId)) return snapshot()
             val s = state.session ?: throw StaleRingException(snapshot())
             if (s.ringId != ringId) {
                 log("stale_dismiss_rejected", "got" to ringId, "have" to s.ringId)
@@ -545,38 +555,31 @@ object Svc : AlarmHost {
         return snap
     }
 
-    override fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        return synchronized(lock) { commit(requestId); apply(Engine.setNap(state, ts, minutes)) }
-    }
+    override fun nap(minutes: Int, requestId: String, actor: Actor): Snapshot =
+        idempotent(requestId) { apply(Engine.setNap(state, ts, minutes)) }
 
-    override fun napUntil(hhmm: String, requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        return synchronized(lock) { commit(requestId); apply(Engine.setNapUntil(state, ts, hhmm)) }
-    }
+    override fun napUntil(hhmm: String, requestId: String, actor: Actor): Snapshot =
+        idempotent(requestId) { apply(Engine.setNapUntil(state, ts, hhmm)) }
 
-    override fun clearNap(requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        return synchronized(lock) { commit(requestId); apply(Engine.clearNap(state, ts)) }
-    }
+    override fun clearNap(requestId: String, actor: Actor): Snapshot =
+        idempotent(requestId) { apply(Engine.clearNap(state, ts)) }
 
-    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        return synchronized(lock) {
-            commit(requestId)
-            when {
-                kind == "SKIP" -> apply(Engine.setSkip(state, ts))
-                kind == "NONE" -> apply(Engine.clearOverride(state, ts))
-                time != null -> apply(Engine.setOverrideTime(state, ts, time))
-                else -> snapshot()
+    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor): Snapshot =
+        idempotent(requestId) {
+            // Exhaustive, and it throws rather than returning an unchanged snapshot: an
+            // unrecognised kind used to be committed as a 200 that did nothing, so a caller with
+            // a typo was told its alarm had moved.
+            when (kind) {
+                "SKIP" -> apply(Engine.setSkip(state, ts))
+                "NONE" -> apply(Engine.clearOverride(state, ts))
+                "TIME" -> apply(Engine.setOverrideTime(state, ts,
+                    time ?: throw IllegalArgumentException("TIME override needs a time")))
+                else -> throw IllegalArgumentException("unknown override kind: $kind")
             }
         }
-    }
 
-    override fun clearOverride(requestId: String, actor: Actor): Snapshot {
-        if (seen(requestId)) return snapshot()
-        return synchronized(lock) { commit(requestId); apply(Engine.clearOverride(state, ts)) }
-    }
+    override fun clearOverride(requestId: String, actor: Actor): Snapshot =
+        idempotent(requestId) { apply(Engine.clearOverride(state, ts)) }
 
     /**
      * Newest-last window of at most `limit` events with seq > `sinceSeq`.
@@ -588,27 +591,23 @@ object Svc : AlarmHost {
      */
     override fun history(sinceSeq: Long, limit: Int): List<Event> {
         if (!dbReady) return recentEvents(limit).filter { it.seq > sinceSeq }
-        return runCatching {
-            db.dao().since(sinceSeq, limit).map {
-                val d = JSONObject(it.detail)
-                val m = mutableMapOf<String, String>()
-                d.keys().forEach { k -> m[k] = d.optString(k) }
-                Event(it.seq, it.atMs, it.type, Actor.valueOf(it.actor), it.stateVersion, m)
-            }
-        }.getOrDefault(recentEvents(limit))
+        // No fallback to the in-memory tail: its sequence numbers are not the database's, so a
+        // client paging with `since` would silently receive the wrong events. A DB error is a 500.
+        return db.dao().since(sinceSeq, limit).map(::eventOf)
+    }
+
+    private fun eventOf(r: EventRow): Event {
+        val d = JSONObject(r.detail)
+        return Event(r.seq, r.atMs, r.type, Actor.valueOf(r.actor), r.stateVersion,
+            d.keys().asSequence().associateWith { d.optString(it) })
     }
 
     override fun export(): Backup = Backup(
         schemaVersion = Persist.SCHEMA_VERSION,
         settings = state.settings,
-        events = if (dbReady) runCatching {
-            db.dao().all().map {
-                val d = JSONObject(it.detail)
-                val m = mutableMapOf<String, String>()
-                d.keys().forEach { k -> m[k] = d.optString(k) }
-                Event(it.seq, it.atMs, it.type, Actor.valueOf(it.actor), it.stateVersion, m)
-            }
-        }.getOrDefault(emptyList()) else emptyList(),
+        // No fallback either: a backup that silently contains no events, reported as success, is
+        // worse than a failed export.
+        events = if (dbReady) db.dao().all().map(::eventOf) else emptyList(),
         exportedAtMs = System.currentTimeMillis())
 
     /**
@@ -657,7 +656,6 @@ object Svc : AlarmHost {
 
     fun setRole(role: Role): Snapshot {
         synchronized(lock) { state = state.copy(settings = state.settings.copy(role = role)) }
-        de.role = role.name
         log("role_changed", "to" to role.name)
         LinkService.start(app)
         return recompute("role_changed")
@@ -675,23 +673,24 @@ object Svc : AlarmHost {
     override fun testRing(silent: Boolean, requestId: String): Snapshot =
         testRing(silent, requestId, fromController = false)
 
-    fun testRing(silent: Boolean, requestId: String, fromController: Boolean): Snapshot {
-        if (seen(requestId)) return snapshot()
-        // Never while a real alarm is live: the test branch would be skipped and the
-        // flag left armed for the next genuine fire.
-        if (state.session != null || testActive || RingService.serviceAlive) {
-            throw IllegalStateException("already ringing")
+    fun testRing(silent: Boolean, requestId: String, fromController: Boolean): Snapshot =
+        idempotent(requestId) {
+            // Never while a real alarm is live: the test branch would be skipped and the flag
+            // left armed for the next genuine fire. Under the lock, so the guard and the mutation
+            // cannot interleave with a trigger or with a second test.
+            if (state.session != null || testActive || RingService.serviceAlive) {
+                throw IllegalStateException("already ringing")
+            }
+            de.testSilent = silent
+            log("test_ring", "silent" to silent.toString(),
+                "from" to if (fromController) "controller" else "here")
+            // Live from this instant, so the caller's snapshot already shows a test in progress
+            // and both phones' screens flip to the ring at once. The link service keeps this
+            // process at foreground importance, so the start is allowed either way.
+            testUntilMs = System.currentTimeMillis() + 60_000
+            urgent.execute { RingService.startTest(app) }
+            snapshot()
         }
-        commit(requestId)
-        de.testSilent = silent
-        log("test_ring", "silent" to silent.toString(), "from" to if (fromController) "controller" else "here")
-        // Live from this instant, so the caller's snapshot already shows a test in
-        // progress and both phones' screens flip to the ring at once. The link service
-        // keeps this process at foreground importance, so the start is allowed either way.
-        testUntilMs = System.currentTimeMillis() + 60_000
-        urgent.execute { RingService.startTest(app) }
-        return snapshot()
-    }
 
     override fun checkClock(): Snapshot {
         ClockObserver.poll()

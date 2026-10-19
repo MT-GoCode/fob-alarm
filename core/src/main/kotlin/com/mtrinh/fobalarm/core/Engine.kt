@@ -449,10 +449,11 @@ object Engine {
         var st1 = afterDelivery
         if (open != null && open.trigger == OccurrenceSource.NAP && source != OccurrenceSource.NAP) {
             events += PendingEvent("superseded", mapOf("oldRingId" to open.ringId))
+            // No latch: the superseded session is a NAP, and a NAP occurrence is never latched --
+            // every other latch site refuses one, so writing it here is a state the model denies.
             st1 = st1.copy(
                 session = null,
                 lastOutcome = LastOutcome(Outcome.SUPERSEDED, now, open.occurrenceId.toString(), open.ringId, open.snoozeCount),
-                latches = st1.latches + Latch(open.occurrenceId, LatchReason.SUPERSEDED, now),
             )
         } else if (open != null) {
             // Only one session at a time, ever. Absorb a duplicate.

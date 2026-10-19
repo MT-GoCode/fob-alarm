@@ -106,7 +106,7 @@ class AppState(
     }
 
     suspend fun refresh() {
-        (client as? com.mtrinh.fobalarm.data.HttpStateClient)?.let { via = it.lastVia }
+        via = client.via
         client.snapshot()
             .onSuccess { s ->
                 if (s.ring?.ringId != lastRingId) {

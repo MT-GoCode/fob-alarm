@@ -133,7 +133,7 @@ class LinkService : Service() {
                         else if (!waitingLogged) { waitingLogged = true; Svc.log("p2p_waiting_permission") }
                         backoffMs = (backoffMs * 2).coerceAtMost(15_000)
                     } else {
-                        Thread { SentinelWatch.poll(this@LinkService) }.start()
+                        Thread { SentinelWatch.poll() }.start()
                         backoffMs = 30_000L      // presence at minute granularity; saves battery
                     }
                 }

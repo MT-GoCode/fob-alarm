@@ -15,23 +15,23 @@ class HttpStateClient(
     private val hostProvider: () -> String?,
     private val selfProvider: () -> DeviceView,
     /** This phone's own failing blocking gates, sent so the peer can show them. */
-    private val localBlockers: () -> List<String> = { emptyList() },
+    private val localBlockers: () -> List<String>,
     /**
      * Anything else this phone reports about itself on the poll. Supplied from :service, where a
      * Context exists -- role, power-save mode, the LAN address. Values are URL-encoded here.
      */
-    private val extraParams: () -> Map<String, String> = { emptyMap() },
+    private val extraParams: () -> Map<String, String>,
     /**
      * The alarm phone's ordinary-network address, learned from its own snapshot while the P2P link
      * was up. Tried only when the P2P host is missing or unreachable.
      */
-    private val fallbackHostProvider: () -> String? = { null },
+    private val fallbackHostProvider: () -> String?,
 ) : StateClient {
 
     companion object { const val PORT = 8765 }
 
     /** Which path the last successful request took: "p2p", "wifi", or null if none has. */
-    @Volatile var lastVia: String? = null; private set
+    @Volatile override var via: String? = null; private set
 
     /**
      * P2P first, then the LAN address if P2P is missing or the connection fails.
@@ -47,10 +47,10 @@ class HttpStateClient(
         val lan = fallbackHostProvider()
         if (p2p == null && lan == null) throw ClientError.Transport("not joined to the alarm phone")
         var lastTransport: ClientError.Transport? = null
-        for ((via, host) in listOfNotNull(p2p?.let { "p2p" to it }, lan?.let { "wifi" to it })) {
+        for ((candidate, host) in listOfNotNull(p2p?.let { "p2p" to it }, lan?.let { "wifi" to it })) {
             try {
-                val out = attempt(via, host, method, path, body, timeoutMs)
-                lastVia = via
+                val out = attempt(candidate, host, method, path, body, timeoutMs)
+                via = candidate
                 return@withContext out
             } catch (e: ClientError.Transport) {
                 // Only a transport failure is worth retrying on the other path. A 403, 409 or a

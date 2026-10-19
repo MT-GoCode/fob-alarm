@@ -95,7 +95,7 @@ object Group {
                 val stale = g != null && (!g.isGroupOwner || g.networkName != s.ssid?.let(::networkName) ||
                         (g.passphrase != null && g.passphrase != s.passphrase))
                 running = g != null && !stale
-                if (was && !running) { Server.closeControl(); listenerUpSinceElapsed = 0L }
+                if (was && !running) listenerUpSinceElapsed = 0L
                 if (stale) { Svc.log("ap_stale_group", "owner" to g!!.isGroupOwner.toString()); stop(ctx) }
                 ownerAddress = "192.168.49.1"
             }
@@ -132,7 +132,6 @@ object Group {
                 override fun onSuccess() {
                     running = false
                     listenerUpSinceElapsed = 0L
-                    Server.closeControl()      // the bound address is going away
                     Svc.log("ap_stop")
                 }
                 override fun onFailure(reason: Int) { Svc.log("ap_error", "stop" to reason.toString()) }

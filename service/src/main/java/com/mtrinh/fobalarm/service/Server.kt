@@ -41,16 +41,6 @@ object Server {
     @Volatile var controlStatus = "stopped"
     @Volatile var logStatus = "stopped"
     @Volatile private var started = false
-    /** Held so the group teardown can force a rebind rather than leave a dead listener. */
-    @Volatile private var controlSocket: ServerSocket? = null
-
-    /** Called when the P2P interface goes away; the socket bound to it is now useless. */
-    fun closeControl() {
-        runCatching { controlSocket?.close() }
-        controlSocket = null
-        controlStatus = "rebinding"
-    }
-
     fun start(ctx: Context) {
         if (started) return
         started = true
@@ -61,30 +51,23 @@ object Server {
     private val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
 
     private fun serve(ctx: Context, port: Int, control: Boolean) {
-        // The control socket binds to 192.168.49.1, which does not exist until the
-        // group is up -- and one transient accept() failure used to kill the listener
-        // for the life of the process, making remote dismiss permanently impossible.
-        // Both get an outer retry loop.
+        // An outer retry loop, because one transient accept() failure must not kill the listener
+        // for the life of the process -- that made remote dismiss permanently impossible.
         var backoffMs = 1_000L
         var quietFailures = 0
         while (true) {
-            // The P2P address only exists while the group is up. Waiting for it is the
-            // normal state before pairing, not an error worth logging every 15 seconds.
-            // The controller never serves control: a listener on its own 192.168.49.1
-            // would answer its own polls and it would watch itself instead of the alarm.
-            // Only the ALARM phone serves control. A listener on a controller's own 192.168.49.1
-            // would answer its own polls and it would watch itself. The group no longer has to be
-            // up: the socket binds on all interfaces, so home Wi-Fi works before pairing and
-            // during any P2P outage.
+            // Only the ALARM phone serves control. A listener on a controller's own group-owner
+            // address would answer its own polls, and it would watch itself instead of the alarm.
             if (control && Svc.settings.role != Role.ALARM) {
-                controlStatus = "waiting for group"
+                controlStatus = "not the alarm role"
                 Thread.sleep(5_000)
                 continue
             }
             runCatching {
-                // All interfaces for both. The control socket is kept in a field so a group
-                // teardown can still force a rebind, which is why it is not just `ServerSocket(port)`.
-                val server = ServerSocket(port).also { if (control) controlSocket = it }
+                // All interfaces, so home Wi-Fi reaches this phone before pairing and through any
+                // P2P outage. Nothing may close this socket from outside: a group flap used to do
+                // so, which killed the listener the Wi-Fi fallback depends on.
+                val server = ServerSocket(port)
                 if (control) controlStatus = "listening" else logStatus = "listening"
                 Svc.log(if (control) "server_started" else "log_server_started", "port" to port.toString())
                 backoffMs = 1_000L; quietFailures = 0
@@ -208,8 +191,13 @@ object Server {
             return 400 to """{"error":"malformed json body"}"""
         }
         val o = parsed.getOrThrow()
-        val rid = o.optString("requestId").takeIf { it.isNotBlank() }
-            ?: java.util.UUID.randomUUID().toString()
+        // Required, but only for the routes that actually mutate -- `by lazy` leaves GET,
+        // /v1/ping and /v1/clock untouched. Minting a UUID for a caller that omitted one silently
+        // disabled idempotency, so a retried dismiss or nap applied twice.
+        val rid by lazy {
+            o.optString("requestId").takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("requestId required")
+        }
         return try {
             when {
                 // Loopback self-test target: exercises the full request path (headers,
@@ -222,11 +210,15 @@ object Server {
                     // The peer piggybacks its own device on the poll it already makes, so the
                     // alarm phone can render both devices. No new endpoint.
                     val id = param(path, "deviceId")
-                    // A MISSING role means CONTROLLER: builds before the sentinel existed send no
-                    // role, and this endpoint hardcoded CONTROLLER. Never guess SENTINEL.
-                    val role = runCatching {
-                        com.mtrinh.fobalarm.core.Role.valueOf(param(path, "role") ?: "CONTROLLER")
-                    }.getOrDefault(com.mtrinh.fobalarm.core.Role.CONTROLLER)
+                    // Stated, never guessed. Both clients always send it, and only these two
+                    // roles poll: anything else -- a missing value, a typo, or ALARM -- used to be
+                    // read as CONTROLLER and overwrite the controller's presence slot.
+                    val role = when (param(path, "role")) {
+                        Role.CONTROLLER.name -> Role.CONTROLLER
+                        Role.SENTINEL.name -> Role.SENTINEL
+                        else -> throw IllegalArgumentException(
+                            "role must be CONTROLLER or SENTINEL")
+                    }
                     if (id != null && !Svc.roleAvailableTo(role, id)) {
                         Svc.log("role_claim_rejected", "role" to role.name, "deviceId" to id)
                         // 409 with a reason and NO snapshot: the rejected phone renders the words.
@@ -258,12 +250,12 @@ object Server {
                         when {
                             o.optBoolean("clear") -> Svc.clearNap(rid, Actor.CONTROLLER)
                             o.has("until") -> Svc.napUntil(o.getString("until"), rid, Actor.CONTROLLER)
-                            else -> Svc.nap(o.optInt("minutes", 20), rid, Actor.CONTROLLER)
+                            else -> Svc.nap(o.getInt("minutes"), rid, Actor.CONTROLLER)
                         }).toString()
 
                 path.startsWith("/v1/tomorrow") && method == "POST" ->
                     200 to Wire.snapshotToJson(Svc.setOverride(
-                        o.optString("kind", "NONE"),
+                        o.getString("kind"),
                         o.optString("time").takeIf { it.isNotEmpty() && it != "null" },
                         rid, Actor.CONTROLLER)).toString()
 
@@ -299,6 +291,12 @@ object Server {
                 .put("snapshot", Wire.snapshotToJson(e.snapshot)).toString()
         } catch (e: ForbiddenException) {
             403 to """{"error":"password required"}"""
+        // A caller's mistake is the caller's: a missing or unparseable field, or a value this
+        // phone does not recognise, is 400. Only a fault of ours is 500.
+        } catch (e: org.json.JSONException) {
+            400 to JSONObject().put("error", "bad field: ${e.message}").toString()
+        } catch (e: IllegalArgumentException) {
+            400 to JSONObject().put("error", e.message ?: "bad request").toString()
         } catch (e: Exception) {
             500 to JSONObject().put("error", e.toString()).toString()
         }

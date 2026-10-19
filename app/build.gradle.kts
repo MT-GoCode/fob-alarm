@@ -21,15 +21,16 @@ android {
         // Do NOT raise targetSdk past 36 without re-running the Phase-3 transport spike:
         // Local Network Protection is triggered by targetSdk 37, not by an OTA.
         targetSdk = 36
-        // Monotonic and automatic. A hand-maintained constant meant every build
-        // carried the same versionCode, so the update channel never saw a new one and
-        // Android would refuse the install as a same-version downgrade.
-        versionCode = providers.exec {
+        // Monotonic and automatic, from ONE reading of the commit count. A hand-maintained
+        // constant meant every build carried the same versionCode, so the update channel never
+        // saw a new one and Android refused the install as a same-version downgrade.
+        val commits = providers.exec {
             commandLine("git", "rev-list", "--count", "HEAD")
-        }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
-        versionName = "0.2." + (providers.exec {
-            commandLine("git", "rev-list", "--count", "HEAD")
-        }.standardOutput.asText.get().trim())
+        }.standardOutput.asText.get().trim()
+        versionCode = commits.toIntOrNull() ?: 1
+        // The patch component stays the commit count, so a build is always identifiable from its
+        // version alone. Pinning it to a constant is what broke the update channel before.
+        versionName = "0.3.$commits"
     }
 
     signingConfigs {
