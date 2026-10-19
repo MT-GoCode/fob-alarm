@@ -181,6 +181,38 @@ class GateTest {
         assertTrue(RingGate.roleAvailable(peer(120_000, id = "old"), "new", NOW))
     }
 
+    // --- the gate table ---------------------------------------------------
+
+    private fun allGatesPassing() = Gates(
+        evaluatedAtMs = 1, scheduleExists = true, exactAlarm = true, foregroundService = true,
+        p2pSupported = true, groupCredentialsSet = true, localNetworkPermission = true,
+        notificationPolicyAccess = true, dndAllowsAlarms = true, volumeNotFixed = true,
+        fullScreenIntent = true, notHibernating = true, thermalOk = true, audioPlayable = true,
+        powerOk = true, vibrationEnabled = true, freeDiskOk = true, noBluetoothAudio = true,
+        batteryUnrestricted = true)
+
+    @Test fun `every key in the gate table reads a real field`() {
+        // `Gates.value` used to return `true` for an unrecognised key, so a typo in the table --
+        // or a field added to Gates and never listed -- turned a real check into a green row.
+        // It now errors, which makes this test the proof that the table and the data class agree.
+        // The wire encoding iterates the same table, so this also covers what reaches the
+        // controller.
+        val allPassing = allGatesPassing()
+        assertTrue(GateInfo.ALL.isNotEmpty())
+        GateInfo.ALL.forEach { info ->
+            assertTrue(allPassing.value(info.key), "gate ${info.key} did not read its field")
+        }
+        assertTrue(allPassing.allPass, "all fields true must mean allPass")
+    }
+
+    @Test fun `an unknown gate key is an error, never a pass`() {
+        // The test above only supplies keys that exist, so it cannot tell `else -> error()` from
+        // `else -> true` -- every real key resolves through its own branch either way. The
+        // mutation check caught that, which is what it is for. This is the test that observes the
+        // else-arm: an unrecognised key must refuse to answer rather than answer "passing".
+        assertFailsWith<IllegalStateException> { allGatesPassing().value("noSuchGate") }
+    }
+
     // --- the fire routing -------------------------------------------------
 
     @Test fun `an open session absorbs the trigger without consulting the gate`() {

@@ -18,9 +18,9 @@ object Wire {
         put("mode", s.mode.name)
         put("gates", JSONObject().apply {
             put("evaluatedAtMs", s.gates.evaluatedAtMs)
-            put("scheduleExists", s.gates.scheduleExists)
-            put("exactAlarm", s.gates.exactAlarm)
-            put("foregroundService", s.gates.foregroundService)
+            // Every gate in the one table, so a new check cannot reach the controller as a
+            // missing field that decodes to false and shows as a permanent warning.
+            GateInfo.ALL.forEach { put(it.key, s.gates.value(it.key)) }
             put("p2pSupported", s.gates.p2pSupported)
             put("groupCredentialsSet", s.gates.groupCredentialsSet)
             put("localNetworkPermission", s.gates.localNetworkPermission)

@@ -4,10 +4,10 @@ package com.mtrinh.fobalarm.core
  * ONE definition of every check: its key, what it is called, what it means, whether it
  * blocks, and how it is fixed.
  *
- * Previously this was spread across five hand-maintained parallel lists -- the Gates
- * fields, the failing() switch, the UI row list, the explain() table and the fix()
- * intent switch. Adding or changing a check meant five edits, and nothing failed if you
- * missed one. It is also why a gate could require something the app never did.
+ * This list is the single one: the UI rows, the explanations, the fix actions and the wire
+ * encoding all iterate it, and [Gates.value] errors on a key that has no field, so the table
+ * and the data class cannot drift apart in silence. Only the `Gates` fields themselves and
+ * the JSON decode are separate, because both are what a typed data class costs.
  */
 enum class GateKind {
     /** The user can grant it. Android shows a dialog, or we deep-link to one page. */
@@ -156,5 +156,8 @@ fun Gates.value(key: String): Boolean = when (key) {
     "freeDiskOk" -> freeDiskOk
     "noBluetoothAudio" -> noBluetoothAudio
     "batteryUnrestricted" -> batteryUnrestricted
-    else -> true
+    // NOT `true`. An unrecognised key meant the gate silently PASSED, so a typo in
+    // GateInfo.ALL -- or a field added to Gates and not to the table -- turned a real check
+    // into a green row, which is the one thing a setup screen must never do.
+    else -> error("unknown gate key: $key -- GateInfo.ALL and Gates have diverged")
 }
