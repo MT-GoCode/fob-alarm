@@ -239,14 +239,22 @@ object Engine {
         // missed too. The loop above cannot see it: it walks the ORIGINAL instants, and
         // one older than lastAliveMs is skipped as already handled.
         st.override?.let { ov ->
-            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null &&
-                ov.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS &&
+            if (ov.kind == OverrideKind.TIME && ov.fireAtMs != null && ov.fireAtMs <= now &&
                 st.session?.occurrenceId != ov.boundOccurrenceId &&
                 st.latches.none { it.id == ov.boundOccurrenceId }) {
-                fireNow = OccurrenceSource.SCHEDULED
-                st = st.copy(latches = st.latches + Latch(ov.boundOccurrenceId, LatchReason.MISSED, now))
-                events += PendingEvent("latch", mapOf("occurrence" to ov.boundOccurrenceId.toString(), "reason" to "MISSED"))
-                events += PendingEvent("missed", mapOf("occurrence" to ov.boundOccurrenceId.toString()))
+                if (ov.fireAtMs > now - FIRE_DELIVERY_GRACE_MS) {
+                    // Inside the delivery window, so pending -- and it must stay ARMED at its own
+                    // instant. `overrideFire` below requires `fireAtMs > now`, so without this a
+                    // moved alarm has no candidate at all while pending: a phone rebooted through
+                    // 07:00 would arm tomorrow and wait for the next hourly tick, about an hour,
+                    // where before this grace existed it rang at boot.
+                    pending = NextFire(ov.fireAtMs, OccurrenceSource.TOMORROW_OVERRIDE, "pending_delivery")
+                } else {
+                    fireNow = OccurrenceSource.SCHEDULED
+                    st = st.copy(latches = st.latches + Latch(ov.boundOccurrenceId, LatchReason.MISSED, now))
+                    events += PendingEvent("latch", mapOf("occurrence" to ov.boundOccurrenceId.toString(), "reason" to "MISSED"))
+                    events += PendingEvent("missed", mapOf("occurrence" to ov.boundOccurrenceId.toString()))
+                }
             }
         }
 

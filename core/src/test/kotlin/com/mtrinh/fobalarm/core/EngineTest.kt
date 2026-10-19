@@ -534,6 +534,24 @@ class EngineTest {
         assertTrue(r.events.none { it.type == "missed" }, "30s late is not missed")
     }
 
+    @Test fun `a moved alarm the phone rebooted through stays armed at its own instant`() {
+        // Written by the review that found the scheduled path fixed and this one not. The walk
+        // skips a moved occurrence and `overrideFire` requires `fireAtMs > now`, so inside the
+        // window a moved alarm had NO nextFire candidate: a reboot at 07:00:30 armed tomorrow
+        // 04:00 and the moved alarm waited for the 08:00:20 tick -- an hour late, where before
+        // the grace existed it rang at boot.
+        val (c, s0) = liveTo("2026-09-25T23:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-25T22:59:00-07:00[America/Los_Angeles]")
+        val moved = Engine.setOverrideTime(s0, c, "07:00").state
+
+        c.set("2026-09-26T07:00:30-07:00[America/Los_Angeles]")
+        val boot = Engine.recompute(moved, c, "boot:BOOT_COMPLETED")
+        assertEquals(at("2026-09-26T07:00:00-07:00[America/Los_Angeles]"), boot.nextFire!!.atMs,
+            "armed at its own past instant, so AlarmManager delivers at once")
+        assertNull(boot.fireNow, "pending, not missed")
+        assertNotNull(boot.state.override, "and the override must survive")
+    }
+
     @Test fun `a blocked ring after a miss leaves exactly one latch`() {
         // The fireNow path latches MISSED first, so appending SKIPPED gave one occurrence two
         // latches -- an illegal state, and `occurrenceBeingFired` kept handing it back because it

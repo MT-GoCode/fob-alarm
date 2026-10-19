@@ -8,6 +8,11 @@ named means the coverage is not where it is documented to be.
 
 Every source file is restored afterwards, including on Ctrl-C or an exception.
 
+Mutants are exact source text, which is brittle: editing a targeted line makes its mutant STALE,
+which happened three times while this round was being written. That is the deliberate trade. STALE
+is reported as NOT PROVEN and exits non-zero, so brittleness costs a script edit and can never
+quietly claim coverage that is not there. Do not "fix" it by loosening the match.
+
     tools/mutation-check            # all mutants
     tools/mutation-check battery    # only mutants whose id contains "battery"
 """
@@ -33,7 +38,7 @@ MUTANTS = [
      "if (reasonFor == LatchReason.MISSED) {",
      "grace never swallows a real outage"),
     ("override-pending-window", ENGINE,
-     "ov.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS &&", "ov.fireAtMs <= now &&",
+     "if (ov.fireAtMs > now - FIRE_DELIVERY_GRACE_MS) {", "if (ov.fireAtMs > now) {",
      "moved alarm is pending at its new instant"),
     ("moved-alarm-superseded", ENGINE,
      """if (ov != null && ov.boundOccurrenceId == id && ov.kind == OverrideKind.TIME &&
@@ -46,6 +51,9 @@ MUTANTS = [
      "listOfNotNull(pending, overrideFire, scheduledFire, napFire)",
      "listOfNotNull(overrideFire, scheduledFire, napFire)",
      "stays armed so a reboot"),
+    ("moved-alarm-not-armed-pending", ENGINE,
+     'pending = NextFire(ov.fireAtMs, OccurrenceSource.TOMORROW_OVERRIDE, "pending_delivery")', "",
+     "rebooted through stays armed"),
     ("grace-for-every-reason", ENGINE,
      "if (reasonFor == LatchReason.MISSED && at > now - FIRE_DELIVERY_GRACE_MS) {",
      "if (at > now - FIRE_DELIVERY_GRACE_MS) {",

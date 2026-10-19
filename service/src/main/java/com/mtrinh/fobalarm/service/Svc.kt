@@ -240,9 +240,13 @@ object Svc : AlarmHost {
                         passwordHash = loaded.settings.passwordHash ?: state.settings.passwordHash,
                         passwordSalt = loaded.settings.passwordSalt ?: state.settings.passwordSalt,
                     ) else state.settings,
-                    // Union, and the newer outcome: whatever happened between boot and
-                    // unlock lives only in memory, and Room is older than that.
-                    latches = (loaded.latches + state.latches).distinctBy { it.id },
+                    // Union, memory first: whatever happened between boot and unlock lives only
+                    // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
+                    // duplicated id, so Room's copy used to win and contradict this comment --
+                    // which matters now that a latch can be replaced (a block supersedes a miss),
+                    // because reloading would resurrect MISSED over SKIPPED and offer the
+                    // occurrence up to ring again.
+                    latches = (state.latches + loaded.latches).distinctBy { it.id },
                     override = if (scheduleSeededFromDe) state.override else loaded.override,
                     nap = if (scheduleSeededFromDe) state.nap else loaded.nap,
                     lastOutcome = listOfNotNull(loaded.lastOutcome, state.lastOutcome).maxByOrNull { it.atMs },

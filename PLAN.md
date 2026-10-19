@@ -249,3 +249,16 @@ source in the `PendingIntent` extras so it travels with the alarm that was armed
 `Scheduler` and both receivers, on the fire path, and not something to rush into the same build as
 three other fixes to that path. It is the first item of the next round. The comment in `Receivers`
 now says plainly that this is a mirror and not a mark, instead of claiming otherwise.
+
+### Second pass: the override path had only half the fix
+
+The reviewer, asked to verify rather than trust, found the scheduled path sound and the moved-alarm
+path still an hour late on a reboot — `pending` was set only in the backward walk, which now skips
+moved occurrences, and `overrideFire` needs `fireAtMs > now`. The moved block now produces its own
+pending candidate. It also found `Svc`'s latch merge kept Room's copy over memory's, contradicting
+its own comment, which only became dangerous once a latch could be replaced. Both fixed, both with
+a test and a mutant.
+
+It confirmed by walking them: arming a past instant cannot loop, no reader of `nextFire` misbehaves
+on a past instant, and MISSED is the only latch `occurrenceBeingFired` tolerates so replacing it is
+safe.

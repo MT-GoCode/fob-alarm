@@ -1281,3 +1281,36 @@ rewritten by every `apply`, not a mark written when the alarm was armed. A nap f
 death can therefore be relabelled SCHEDULED, gated, and then lost to `trigger_stale`. Pre-existing,
 unchanged by this round, and the first item of the next one — it belongs in its own build rather than
 on top of three other changes to the same path.
+
+### Second review pass: the moved-alarm path had only half the fix
+
+Asked to verify the fix rather than trust it, the same reviewer found the scheduled path sound and
+the override path still broken — a delay I had introduced myself.
+
+`pending` was set only in the backward walk, and that walk now skips any occurrence a TIME override
+moved, because the moved-alarm block owns it. But that block created no `pending`, and `overrideFire`
+requires `fireAtMs > now`. So **inside the window a moved alarm had no `nextFire` candidate at all.**
+Move 04:00 to 07:00; phone off at 07:00, boots at 07:00:30: it armed *tomorrow* 04:00, AlarmManager
+held nothing for 07:00, and the moved alarm waited for the 08:00:20 tick. **An hour late, where
+before the grace existed it rang at boot.** The moved block now produces a pending candidate at
+`ov.fireAtMs`, labelled `TOMORROW_OVERRIDE` — the same source a normally-armed moved alarm carries.
+
+Second finding, narrow but exactly the kind this change created: `Svc`'s Room merge was
+`(loaded.latches + state.latches).distinctBy { it.id }`, and `distinctBy` keeps the **first** of a
+duplicated id — so Room's copy won, while the comment two lines above said "Room is older than
+that". That contradiction was harmless until this round made a latch *replaceable*: a process death
+before the async Room save of a SKIPPED latch would reload MISSED, and `occurrenceBeingFired` would
+offer a blocked occurrence up to ring again. Memory now comes first, and the comment says why.
+
+The review also confirmed three things I had argued rather than proven, by walking them: arming a
+past instant cannot loop (re-arming 1001 replaces the request, so at most one delivery is queued per
+`apply`, and a failed FGS start does not call `apply` at all); no reader of `nextFire` misbehaves on
+a past instant; and replacing a MISSED latch is safe because that is the only latch
+`occurrenceBeingFired` tolerates.
+
+One accidental improvement worth recording: `Nag` flags SILENT_FAILURE when `nextFire` is more than
+90 s past with nothing ringing. Before, a lost broadcast published *tomorrow's* time and hid the
+failure from the controller; now a stuck pending occurrence makes the controller say "did not ring",
+which is true.
+
+Mutation check: **21 mutants, 21 killed by the test that names each one.** Suite is 100 tests.
