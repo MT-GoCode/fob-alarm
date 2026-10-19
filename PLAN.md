@@ -231,7 +231,7 @@ without knowing one had ever been armed, which is false after a reboot.
 And it caught my `own_link_unstable` test claiming to kill a `>`/`>=` mutant it could not: both
 operators rang for the inputs I used. There is now a boundary test and a mutant for it.
 
-### Deferred, with the reason — the trigger source is not marked at origin
+### CLOSED in round 32e — the trigger source now travels with the alarm
 
 `Receivers` and `RingService` both read `Svc.de.nextFireSource`, which is **the DE mirror, rewritten
 by every `apply`** — not a mark written when that alarm was armed. So a recompute between arming and
@@ -244,11 +244,32 @@ delivery can relabel the trigger. Concretely, a nap firing after a process death
 3. If the gate passes, `occurrenceBeingFired` returns null because today's alarm already rang, so
    the result is `trigger_stale` and **the nap never rings**.
 
-Pre-existing, and not made worse here: the old code read the same mirror. The fix is to put the
-source in the `PendingIntent` extras so it travels with the alarm that was armed — a real change to
-`Scheduler` and both receivers, on the fire path, and not something to rush into the same build as
-three other fixes to that path. It is the first item of the next round. The comment in `Receivers`
-now says plainly that this is a mirror and not a mark, instead of claiming otherwise.
+Pre-existing, and not made worse by the earlier commits in this round: the old code read the same
+mirror. I deferred it so it would not ride on top of three other changes to the fire path — and then
+did it once those were reviewed clean, because the reason to defer was spent and the defect was
+still closable.
+
+**The fix.** `Scheduler.EXTRA_SOURCE` carries the occurrence source on the armed alarm itself:
+`pi()` takes an optional source, `arm()` passes `next.source`, `armFireRetry` passes the source it
+is retrying, and `Scheduler.sourceOf(intent)` is the single reader for both `Receivers` and
+`RingService`. `RingService.start` carries it on the service intent too.
+
+The non-obvious part, written beside the code: **extras are not part of `PendingIntent` equality**,
+so `FLAG_UPDATE_CURRENT` is what makes a re-arm's source take effect — and is also why cancelling
+with no source still matches an alarm armed with one. A broadcast already dispatched carries the
+extras it was sent with, which is exactly why this works: the recompute inside the same `onReceive`
+rewrites the mirror but cannot touch the Intent already in hand.
+
+`sourceOf` falls back to the mirror in one case only — an alarm that was already pending when the
+package was replaced, so it was armed by a build that carried no source. That can happen once per
+install and is logged as `fire_source_from_mirror`, because a standing silent fallback here would
+hide the very relabelling this exists to stop.
+
+**Proof it mattered**, as a pure engine test: with the nap elapsed and dropped from state,
+`onTrigger(NAP)` opens a session and rings, while `onTrigger(SCHEDULED)` — the relabelling — returns
+`trigger_stale` with no session. `onTrigger` builds a NAP occurrence directly instead of consulting
+`occurrenceBeingFired`, which is why the carried mark is sufficient even though the engine no longer
+holds the nap.
 
 ### Second pass: the override path had only half the fix
 

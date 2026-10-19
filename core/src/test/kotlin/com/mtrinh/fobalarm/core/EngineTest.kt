@@ -552,6 +552,36 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `a nap rings after a process death even though the elapsed nap was dropped`() {
+        // Why the trigger source has to travel ON the alarm instead of being re-read from the DE
+        // mirror. The process dies before the nap fires. The broadcast arrives, `Boot.ensure`
+        // recomputes, step 4 drops the elapsed nap and the mirror is rewritten to the next
+        // SCHEDULED alarm -- so a trigger read from the mirror is relabelled, and this test shows
+        // what each label then does.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        // Today's 04:00 has already rung, which is what makes `occurrenceBeingFired` return null.
+        val rang = Engine.onTrigger(s0, c, OccurrenceSource.SCHEDULED, "r-morning").state
+        val done = Engine.endSession(rang, c, Outcome.DISMISSED_LOCAL).state
+        val napped = Engine.setNap(done, c, 20).state
+        assertNotNull(napped.nap)
+
+        // The process was dead at 06:20; it comes back at 06:20:30 and recomputes first.
+        c.set("2026-09-26T06:20:30-07:00[America/Los_Angeles]")
+        val dropped = Engine.recompute(napped, c, "init:de").state
+        assertNull(dropped.nap, "an elapsed nap is dropped, so state no longer knows about it")
+
+        // Carried source: the nap rings.
+        val carried = Engine.onTrigger(dropped, c, OccurrenceSource.NAP, "r-nap")
+        assertEquals(OccurrenceSource.NAP, carried.state.session?.trigger, "the nap must ring")
+        assertTrue(carried.events.any { it.type == "ring_start" })
+
+        // Mirror-derived source: relabelled SCHEDULED, nothing is due, the nap is lost in silence.
+        val relabelled = Engine.onTrigger(dropped, c, OccurrenceSource.SCHEDULED, "r-sched")
+        assertNull(relabelled.state.session, "this is the defect the carried mark removes")
+        assertTrue(relabelled.events.any { it.type == "trigger_stale" })
+    }
+
     @Test fun `a blocked ring after a miss leaves exactly one latch`() {
         // The fireNow path latches MISSED first, so appending SKIPPED gave one occurrence two
         // latches -- an illegal state, and `occurrenceBeingFired` kept handing it back because it

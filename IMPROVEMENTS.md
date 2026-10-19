@@ -1335,3 +1335,41 @@ again for either would cost more than it buys.
   a paragraph of reasoning about gyro-less Moto G Plays. That gate does not exist anywhere in the
   code — the gyroscope snooze was deleted outright when the ring screen became a held bar and a
   slid-down dismiss. Marked obsolete: a gyro-less replacement phone is simply fine now.
+
+## Round 32e — the trigger source travels with the alarm
+
+The one defect this round had deferred, now closed. I deferred it so it would not ride on top of
+three other changes to the fire path; once those were reviewed clean that reason was spent, and the
+defect was still closable, so leaving it would have been choosing not to finish.
+
+`Receivers` and `RingService` both read `Svc.de.nextFireSource` — **the DE mirror, rewritten by
+every `apply`**, not a mark written when that alarm was armed. A nap firing after a process death:
+the broadcast arrives, `Boot.ensure` recomputes, step 4 drops the elapsed nap and the mirror becomes
+the next SCHEDULED alarm. The trigger is relabelled, `occurrenceBeingFired` returns null because
+today's alarm already rang, and the result is `trigger_stale` — **the nap never rings**.
+
+`Scheduler.EXTRA_SOURCE` now carries the source on the alarm: `pi()` takes an optional source,
+`arm()` passes `next.source`, `armFireRetry` passes the source it is retrying, `RingService.start`
+carries it on the service intent, and `Scheduler.sourceOf(intent)` is the single reader for both.
+
+Two things worth knowing, both written beside the code:
+
+- **Extras are not part of `PendingIntent` equality** (action, data, type, class and categories
+  are). `FLAG_UPDATE_CURRENT` is therefore what makes a re-arm's source take effect, and is also
+  why cancelling with no source still matches an alarm armed with one.
+- A broadcast already dispatched carries the extras it was sent with. That is precisely why this
+  works: the recompute inside the same `onReceive` rewrites the mirror but cannot reach the Intent
+  already in hand.
+
+`sourceOf` reads the mirror in exactly one case — an alarm that was already pending when the package
+was replaced, armed by a build that carried no source. Once per install, and logged as
+`fire_source_from_mirror`, because a silent standing fallback would hide the relabelling this exists
+to stop.
+
+Proved as a pure engine test rather than asserted: with the nap elapsed and dropped from state,
+`onTrigger(NAP)` opens a session and rings, while `onTrigger(SCHEDULED)` returns `trigger_stale`
+with no session. `onTrigger` builds a NAP occurrence directly instead of consulting
+`occurrenceBeingFired`, which is why the carried mark suffices even though the engine no longer
+holds the nap.
+
+Suite 101 tests, 22 mutants, all killed by the test that names them.

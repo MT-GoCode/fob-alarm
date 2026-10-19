@@ -65,9 +65,11 @@ class RingService : Service() {
         }
         @Volatile var audible: String = "-"
 
-        fun start(ctx: Context, resume: Boolean = false) {
+        fun start(ctx: Context, resume: Boolean = false, source: OccurrenceSource? = null) {
             val intent = Intent(ctx, RingService::class.java)
             if (resume) intent.action = ACTION_RESUME
+            // Carried, not re-read: the DE mirror is rewritten by every `apply`.
+            source?.let { intent.putExtra(Scheduler.EXTRA_SOURCE, it.name) }
             runCatching { ctx.startForegroundService(intent) }
                 .onFailure {
                     // Blew the ~10s FGS allowlist window (cold start after an OTA, busy
@@ -75,7 +77,8 @@ class RingService : Service() {
                     // the PendingIntent with the real scheduled fire and, under
                     // FLAG_UPDATE_CURRENT, overwrite the next alarm with a 5s retry.
                     Svc.log("fgs_start_failed", "error" to it.toString())
-                    if (resume) Scheduler.armWatchdog(ctx) else Scheduler.armFireRetry(ctx)
+                    if (resume) Scheduler.armWatchdog(ctx)
+                    else Scheduler.armFireRetry(ctx, source ?: OccurrenceSource.SCHEDULED)
                 }
         }
 
@@ -179,8 +182,7 @@ class RingService : Service() {
             // superseding an open nap mints a fresh ringId, and a nap arriving during a
             // real alarm is dropped.
             val prev = Svc.session?.ringId
-            val src = runCatching { OccurrenceSource.valueOf(Svc.de.nextFireSource) }
-                .getOrDefault(OccurrenceSource.SCHEDULED)
+            val src = Scheduler.sourceOf(intent)
             // A wrong latch beats silence: never let an engine throw stop the ring.
             val engine = runCatching { Svc.onTrigger(src) }
                 .onFailure { Svc.log("trigger_failed", "error" to it.toString()) }

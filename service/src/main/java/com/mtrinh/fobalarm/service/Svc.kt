@@ -123,7 +123,7 @@ object Svc : AlarmHost {
      */
     fun openSession(trigger: OccurrenceSource): Boolean =
         when (val action = RingGate.fireAction(session != null, trigger, ::ringBlockDecision)) {
-            FireAction.Absorb, FireAction.Ring -> { RingService.start(app); true }
+            FireAction.Absorb, FireAction.Ring -> { RingService.start(app, source = trigger); true }
             is FireAction.Suppress -> { runCatching { suppressRing(action.reason) }; false }
         }
 
@@ -730,16 +730,53 @@ object Scheduler {
     const val ACTION_ARMGATE = "com.mtrinh.fobalarm.ARMGATE"
     const val ACTION_DISMISS = "com.mtrinh.fobalarm.DISMISS"
 
-    fun pi(ctx: Context, action: String, rc: Int): PendingIntent = PendingIntent.getBroadcast(
-        ctx, rc, Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    /**
+     * Which occurrence source this alarm was armed FOR, carried on the alarm itself.
+     *
+     * The DE mirror cannot answer this: it is rewritten by every `apply`, so a recompute between
+     * arming and delivery relabels the trigger -- a nap firing after a process death read as
+     * SCHEDULED, got gated, and was then dropped as `trigger_stale`. The mark has to travel with
+     * the thing it describes.
+     */
+    const val EXTRA_SOURCE = "com.mtrinh.fobalarm.SOURCE"
+
+    /**
+     * Extras are NOT part of PendingIntent equality (action, data, type, class and categories are),
+     * so two `pi()` calls differing only in [source] return the same PendingIntent --
+     * `FLAG_UPDATE_CURRENT` is what makes a re-arm's source take effect, and is why cancelling with
+     * no source still matches an alarm armed with one.
+     */
+    fun pi(ctx: Context, action: String, rc: Int, source: OccurrenceSource? = null): PendingIntent =
+        PendingIntent.getBroadcast(ctx, rc,
+            Intent(ctx, AlarmReceiver::class.java).setAction(action).setPackage(ctx.packageName)
+                .apply { source?.let { putExtra(EXTRA_SOURCE, it.name) } },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+    /**
+     * The source carried on [intent].
+     *
+     * Falls back to the DE mirror ONLY for an alarm armed by a build that did not carry one, which
+     * can happen exactly once per install -- for a `setAlarmClock` that was already pending when
+     * the package was replaced. It is logged, because a standing fallback here would hide the very
+     * relabelling this exists to stop.
+     */
+    fun sourceOf(intent: Intent?): OccurrenceSource {
+        intent?.getStringExtra(EXTRA_SOURCE)
+            ?.let { name -> runCatching { OccurrenceSource.valueOf(name) }.getOrNull() }
+            ?.let { return it }
+        val mirrored = Svc.de.nextFireSource
+        Svc.log("fire_source_from_mirror", "mark" to mirrored)
+        return runCatching { OccurrenceSource.valueOf(mirrored) }
+            .getOrDefault(OccurrenceSource.SCHEDULED)
+    }
 
     /** True only if the real scheduled fire was accepted by AlarmManager. */
     @Volatile var fireArmed = false
 
-    private fun set(ctx: Context, action: String, rc: Int, atMs: Long) {
+    private fun set(ctx: Context, action: String, rc: Int, atMs: Long,
+                    source: OccurrenceSource? = null) {
         val am = ctx.getSystemService(AlarmManager::class.java)
-        val p = pi(ctx, action, rc)
+        val p = pi(ctx, action, rc, source)
         val ok = runCatching { am.setAlarmClock(AlarmManager.AlarmClockInfo(atMs, p), p) }
             .onFailure { Svc.log("alarm_set_failed", "action" to action, "error" to it.toString()) }
             .isSuccess
@@ -747,7 +784,7 @@ object Scheduler {
     }
 
     fun arm(ctx: Context, next: NextFire?) {
-        if (next != null) set(ctx, ACTION_FIRE, 1001, next.atMs) else fireArmed = false
+        if (next != null) set(ctx, ACTION_FIRE, 1001, next.atMs, next.source) else fireArmed = false
         armHourlyTick(ctx)
         armGateAlarm(ctx)
     }
@@ -755,7 +792,8 @@ object Scheduler {
     fun armWatchdog(ctx: Context) = set(ctx, ACTION_WATCHDOG, 1002, System.currentTimeMillis() + 60_000)
 
     /** Separate request code from the scheduled fire, so a retry cannot clobber it. */
-    fun armFireRetry(ctx: Context) = set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000)
+    fun armFireRetry(ctx: Context, source: OccurrenceSource) =
+        set(ctx, ACTION_FIRE, 1005, System.currentTimeMillis() + 5_000, source)
     fun cancelWatchdog(ctx: Context) =
         ctx.getSystemService(AlarmManager::class.java).cancel(pi(ctx, ACTION_WATCHDOG, 1002))
 
