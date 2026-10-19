@@ -1782,3 +1782,48 @@ and that Room seeded settings only when no blob existed — true only in the ins
 A green suite says nothing about whether the tests observe anything. That is the whole argument for
 keeping the harness, and for keeping it brittle: a fuzzy mutant that still applies after the code
 moved is a mutant no longer testing what its name says.
+
+### 0.3 addendum — the type-level items, two taken and two declined
+
+Written after the main 0.3 section, because these landed once the round had stabilised. The reason
+I had given for deferring them — do not stack shape changes on thirty fixes — expired at that
+point, which is the same standard applied to the nap-mark deferral earlier in round 32.
+
+The test for each: **does a live defect hang off it, or only a shape problem?**
+
+**`Snapshot.mode`, deleted.** A third copy of facts the snapshot already carried. `RINGING` meant
+exactly `ring != null`, `INIT` meant `!gates.allPass`, and two of the three states had **no readers
+at all**. Its docstring said "mode is DERIVED, never stored" while it was stored on the snapshot and
+sent over the wire. The defect: `Wire` decoded an unknown mode as `WAITING`, so a controller on a
+mismatched version would **not show the ring screen** — a fail-silent on the one display that
+matters, from a `getOrDefault` on a value that should not have been transmitted. `NagTest`'s fixture
+passed `WAITING` while constructing a RINGING snapshot; the two contradicted each other and nothing
+noticed, which is what a decorative field looks like from the inside.
+
+**`Override`, sealed.** `Override(kind, fireAtMs: Long?)` made TIME-without-an-instant
+constructible, so four sites in `Engine` each had to remember `kind == TIME && fireAtMs != null`,
+and `Engine.kt:293` dereferenced it with `!!` guarded only by a `takeIf` three lines above — one
+forgotten conjunct from a null-pointer exception inside `recompute`, on the path that decides when
+the alarm fires. Now `Time(bound, fireAtMs)` carries the instant and `Skip(bound)` has none. The
+compiler immediately rejected a test that had baked in the same assumption, which is the clearest
+evidence the type was wrong: the belief had spread beyond the four places anyone was maintaining.
+
+Persistence keeps its stored shape, so existing rows and mirrors read, and is exhaustive both ways.
+**The wire keeps its string tag deliberately** — a serialization boundary validated once where a
+request enters. Pushing a sealed type out to HTTP would be the wrong abstraction.
+
+**Every `!!` in `:core` and `:service` replaced by a local the compiler verifies.** All were
+same-scope guarded, so none was a bug; but one — `Group.kt`, where `stale` implied `g != null` — was
+the same *correlated* pattern as `Override`'s, merely contained to four lines instead of four files.
+
+**Declined: sealing `RingPhase`, and pairing the password credentials.** Both fail the test above.
+`RingPhase`'s correlation costs one `?: return false`, one `takeIf`, and a same-line null check;
+`Credential`'s half-set state is handled inside `verifies` with `setPassword` as the single writer
+that always writes both or neither. Sealing either ripples through Model, Engine, Store, Svc,
+RingService and the UI at once to delete one guard.
+
+Doing them for symmetry would apply the principle's letter against its purpose. *Make illegal states
+unrepresentable* exists to stop defects, and on a path where this round introduced several while
+fixing others, a no-behaviour-change refactor with a wide blast radius is a cost with nothing
+attached. The evidence is in PLAN.md so a later round can disagree with the reasoning rather than
+rediscover the question.
