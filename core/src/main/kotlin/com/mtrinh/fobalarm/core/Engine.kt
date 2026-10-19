@@ -269,7 +269,19 @@ object Engine {
         // 4. Drop an elapsed nap, but not inside its delivery window: until that expires its
         //    broadcast may still be in flight. A kept nap is still a `napFire` candidate at its
         //    own past instant, so it stays armed and is redelivered at once.
-        st.nap?.let { if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) st = st.copy(nap = null) }
+        st.nap?.let {
+            if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) {
+                // Reaching here means the nap's broadcast never arrived -- a delivered nap is
+                // consumed by its own trigger and never gets this far. That is a ring the owner
+                // asked for and did not get, so it is RECORDED. Whether it should also ring late
+                // is open (see PLAN.md); silence was not a defensible answer either way, because
+                // it made the failure indistinguishable from success.
+                events += PendingEvent("nap_expired_undelivered",
+                    mapOf("fireAtMs" to it.fireAtMs.toString(),
+                          "lateBySeconds" to ((now - it.fireAtMs) / 1000).toString()))
+                st = st.copy(nap = null)
+            }
+        }
 
         // 5. Pick nextFire: the earliest of the three independent candidates.
         //

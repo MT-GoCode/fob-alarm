@@ -552,6 +552,23 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `a nap whose broadcast never arrived is recorded, not dropped in silence`() {
+        // A reboot across a nap's instant loses it: no recompute runs inside the delivery window,
+        // so the boot recompute drops it. Whether it should ring late is still open. What is NOT
+        // open is that it used to vanish with nothing in history -- a failure indistinguishable
+        // from success. A delivered nap never reaches this branch, because its own trigger
+        // consumes it, so this event has no false positives.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        val napped = Engine.setNap(s0, c, 10).state
+
+        c.set("2026-09-26T06:30:00-07:00[America/Los_Angeles]")
+        val r = Engine.recompute(napped, c, "boot:BOOT_COMPLETED")
+        assertNull(r.state.nap)
+        val ev = r.events.single { it.type == "nap_expired_undelivered" }
+        assertEquals("1200", ev.detail["lateBySeconds"])
+    }
+
     @Test fun `an elapsed nap is not swallowed by a session that outran its cap`() {
         // `nap_dropped` and `snooze_cancelled` are early returns that run BEFORE step 0 reaps an
         // expired session. So an expired-but-unreaped session consumed the nap and was then

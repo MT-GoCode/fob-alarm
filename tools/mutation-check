@@ -9,9 +9,11 @@ named means the coverage is not where it is documented to be.
 Every source file is restored afterwards, including on Ctrl-C or an exception.
 
 Mutants are exact source text, which is brittle: editing a targeted line makes its mutant STALE,
-which happened three times while this round was being written. That is the deliberate trade. STALE
-is reported as NOT PROVEN and exits non-zero, so brittleness costs a script edit and can never
-quietly claim coverage that is not there. Do not "fix" it by loosening the match.
+which happened five times while round 32 was being written. That is the deliberate trade, and the
+five catches are the argument for it. STALE is reported as NOT PROVEN and exits non-zero, so
+brittleness costs a script edit and can never quietly claim coverage that is not there. Do not
+"fix" it by loosening the match: a fuzzy mutant that still applies after the code moved is a mutant
+that is no longer testing what its name says.
 
     tools/mutation-check            # all mutants
     tools/mutation-check battery    # only mutants whose id contains "battery"
@@ -65,9 +67,13 @@ MUTANTS = [
      "st.nap?.takeIf { source == OccurrenceSource.NAP && it.fireAtMs <= now }",
      "st.nap?.takeIf { source == OccurrenceSource.NAP }",
      "does not consume a nap set during the snooze"),
+    ("nap-drop-unrecorded", ENGINE,
+     """events += PendingEvent("nap_expired_undelivered",
+                    mapOf("fireAtMs" to it.fireAtMs.toString(),
+                          "lateBySeconds" to ((now - it.fireAtMs) / 1000).toString()))""", "",
+     "recorded, not dropped in silence"),
     ("nap-dropped-inside-window", ENGINE,
-     "st.nap?.let { if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) st = st.copy(nap = null) }",
-     "st.nap?.let { if (it.fireAtMs <= now) st = st.copy(nap = null) }",
+     "if (it.fireAtMs <= now - FIRE_DELIVERY_GRACE_MS) {", "if (it.fireAtMs <= now) {",
      "nap due this instant is not dropped"),
     ("nap-occurrence-via-beingfired", ENGINE,
      "OccurrenceSource.NAP -> OccurrenceId(localDateOf(now, ts.zone()), OccurrenceSource.NAP)",

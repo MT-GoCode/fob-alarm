@@ -376,9 +376,16 @@ behaviour turns out to be: the failure is indistinguishable from success.
 The forward-clock-jump case (`TIME_SET` racing AlarmManager's overdue delivery) belongs to the same
 item.
 
-Deferred for this build, not dismissed: it needs a reboot or force-stop across a *daytime* nap, and
-the 04:00 morning path is unaffected. The minimum fix is to log the drop; the real fix is to decide
-whether a nap missed by an outage rings late, and the engine's own rule says it should.
+**The silent half is closed.** Step 4 now emits `nap_expired_undelivered{fireAtMs, lateBySeconds}`
+when it drops a nap whose broadcast never came. A delivered nap is consumed by its own trigger and
+never reaches that branch, so the event has no false positives: if it ever appears in history, a nap
+was genuinely lost, and by how much. The failure is no longer indistinguishable from success.
+
+**What is left is genuinely Minh's call, not an open defect:** should a nap missed by an outage ring
+late at all? The engine's own rule for alarms says yes ("an alarm that should have gone off and did
+not, rings now"), but a nap is minutes-scale and a nap resurrected hours later by a boot is arguably
+worse than none. I am not deciding that silently in either direction. Meanwhile it needs a reboot or
+force-stop across a *daytime* nap, and the 04:00 morning path is unaffected.
 
 ### Also still open: nothing else can silence the 04:00 path
 

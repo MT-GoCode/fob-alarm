@@ -1560,3 +1560,65 @@ it a known ring loss, deferred, with the forward-clock-jump case folded into the
 
 That is worth recording as its own lesson: **a deferral is a claim, and it can be wrong in the same
 way a comment can.** "Product question" was doing work that the evidence did not support.
+
+### 32k — the silent nap drop is now recorded
+
+The last thing in this round that was mine to close. Whether a nap missed by an outage should ring
+late is a decision for the owner; a nap vanishing with **nothing in history** was not a decision at
+all, it was the no-fallbacks violation.
+
+Step 4 now emits `nap_expired_undelivered{fireAtMs, lateBySeconds}` when it drops a nap whose
+broadcast never arrived. The event cannot fire falsely: a delivered nap is consumed by its own
+trigger and never reaches that branch. So if it ever appears in history, a nap was genuinely lost,
+and by how much.
+
+That leaves exactly one open question in this area, and it is a product decision rather than a
+defect: should a nap missed by an outage ring late? The engine's rule for alarms says yes; a nap is
+minutes-scale, so a boot resurrecting one hours later may be worse than none. Not decided silently
+in either direction.
+
+### Round 32 in one page
+
+Fourteen defects. **Six were mine, introduced while fixing the others** — which is the only number
+in this record worth generalising from.
+
+| # | Defect | Could it stop a ring? | Found by |
+|---|---|---|---|
+| 1 | An occurrence due this instant latched false MISSED and rang via the ungated `fireNow` | history lied; gate bypassed | the phone's own history |
+| 2 | A moved alarm lost outright if the phone was off across its ORIGINAL instant | **yes** | a new test, by accident |
+| 3 | `fireNow` opened a session without consulting the ring gate | gate inert | checking a round-28 claim |
+| 4 | The grace window lost the whole morning on a reboot *(mine)* | **yes** | review |
+| 5 | A moved alarm ~1 h late on reboot; the latch merge could resurrect a blocked occurrence *(mine)* | delay | review |
+| 6 | A test ring could silence a ring already sounding | **yes** | review |
+| 7 | The delivery race was fixed for alarms and left open for naps | **yes** | review |
+| 8 | The fix for #6 silenced the ring it protected, via `teardown()` *(mine)* | **yes** | me, re-reading it |
+| 9 | A refused test left `testUntilMs` set; the heartbeat then ran the test path over a live ring and tore it down *(mine)* | **yes** | review |
+| 10 | The nap grace created a 60 s fire storm that recreated the ring screen under the owner's thumb *(mine)* | usability | review |
+| 11 | A nap lost after a process death, because the trigger source came from a mirror any `apply` rewrites | **yes** | review |
+| 12 | The fire-storm fix consumed a nap the owner had just set *(mine)* | **yes** | review |
+| 13 | An expired-but-unreaped session swallowed an elapsed nap | **yes** | review |
+| 14 | A nap lost to an outage vanished with nothing in history | silent failure | review |
+
+**The through-line: five of my six were a guard returning early from a shared code path, and every
+one of them read correct in isolation.** #8 was only visible on opening `teardown()`; #9 on opening
+the heartbeat; #13 on opening step 0's reap; #12 on opening the snooze re-ring's call site. The
+habit that catches this class is not reading the new branch more carefully — it is reading what the
+shared path already did before the branch, and what the early return skips after it.
+
+Two further lessons, both earned the hard way:
+
+- **A test with an impossible setup hides the defect it was written for.** My fire-storm test
+  delivered a nap ten minutes before it was due. It passed, and it would have kept passing through
+  #12.
+- **A deferral is a claim and can be wrong like a comment can.** Calling #14 "a product question"
+  was doing work the evidence did not support; the silent-failure half was never a matter of taste.
+
+Method, for the next round: the gate moved into pure `:core`, the suite went from 65 to 106 tests,
+and `tools/mutation-check` requires **the test that names each mutant** to go red — 27/27. Its own
+first version reported 0/15 because `-q` hid Gradle's FAILED lines, and a mutant went STALE five
+times as the code moved under it. Both of those are the checker working.
+
+**Open, written down, neither able to silence the morning alarm:** whether a nap missed by an outage
+should ring late (the owner's call; the loss is now recorded either way), `forceSession` building its
+occurrence from the trigger, and the async `de.mirror`/Room write ordering. The last two need a
+process death inside a millisecond window and can only make the alarm ring.
