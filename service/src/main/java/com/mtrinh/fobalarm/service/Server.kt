@@ -123,7 +123,12 @@ object Server {
         // Only the ALARM phone answers control, checked HERE and not merely where the socket is
         // bound: the accept loop never exits, so a phone switched to another role would otherwise
         // carry on serving a port that can move and dismiss alarms.
-        if (control && Svc.settings.role != Role.ALARM) return@use
+        if (control && Svc.settings.role != Role.ALARM) {
+            // Say so, rather than leaving the screen claiming "listening" for a port this phone
+            // now refuses on every request.
+            controlStatus = "not the alarm role"
+            return@use
+        }
         val raw = java.io.BufferedInputStream(s.getInputStream())
         val request = readLine(raw) ?: return@use
         val parts = request.split(" ")

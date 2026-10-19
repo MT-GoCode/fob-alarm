@@ -1,6 +1,7 @@
 package com.mtrinh.fobalarm.service
 
 import android.content.Context
+import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.core.GateInfo
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -23,6 +24,10 @@ object Health {
      * dismiss in earlier builds -- on the actual device, every ten minutes, forever.
      */
     fun probe(ctx: Context) {
+        // Only the alarm phone serves control, so only the alarm phone has a listener worth
+        // probing. Without this an ex-alarm phone probes a port it now refuses, fails every ten
+        // minutes, and records a failure that describes nothing.
+        if (Svc.settings.role != Role.ALARM) return
         if (Server.controlStatus != "listening") return  // nothing to reach yet
         if (System.currentTimeMillis() - lastProbeMs < 10 * 60_000) return
         lastProbeMs = System.currentTimeMillis()
