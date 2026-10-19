@@ -410,28 +410,29 @@ object Engine {
         val open = st.session
         val events = mutableListOf<PendingEvent>()
 
-        // A NAP trigger IS that nap's delivery, so it consumes it -- here, once, whatever happens
-        // next. Three of the paths below used to leave it in place, which only became a fault when
-        // the delivery window started keeping an elapsed nap: `napFire` stayed the next fire at a
-        // past instant, so it re-armed, fired, was absorbed, re-armed -- a fire storm for the
-        // length of the window, each round re-posting the notification and recreating the ring
-        // screen under the owner's thumb.
-        val st0 = if (source == OccurrenceSource.NAP) st.copy(nap = null) else st
+        // A NAP trigger consumes the ELAPSED nap it delivers, and only that one. A nap still in
+        // the future has not been delivered by anything, so a snooze re-ring or an absorbed
+        // trigger -- both of which arrive with source NAP -- must leave it alone. Both setters
+        // guarantee a freshly set nap is in the future (`setNap` coerces to >= 1 minute,
+        // `setNapUntil` resolves strictly after now), so one can never be mistaken for the nap
+        // being delivered.
+        val elapsedNap = st.nap?.takeIf { source == OccurrenceSource.NAP && it.fireAtMs <= now }
+        val afterDelivery = if (elapsedNap != null) st.copy(nap = null) else st
 
         // Nap arriving while a real alarm rings: dropped.
         if (open != null && open.trigger != OccurrenceSource.NAP && source == OccurrenceSource.NAP) {
             events += PendingEvent("nap_dropped")
-            return recompute(st0, ts, "nap_dropped").let { it.copy(events = events + it.events) }
+            return recompute(afterDelivery, ts, "nap_dropped").let { it.copy(events = events + it.events) }
         }
 
         // A trigger while SNOOZED cancels the snooze and rings now, same session.
         if (open != null && open.phase == RingPhase.SNOOZED && source == open.trigger) {
-            val next = st0.copy(session = open.copy(phase = RingPhase.RINGING, snoozeUntilMs = null))
+            val next = afterDelivery.copy(session = open.copy(phase = RingPhase.RINGING, snoozeUntilMs = null))
             return recompute(next, ts, "snooze_cancelled_by_trigger").let { it.copy(events = events + it.events) }
         }
 
         // Real alarm superseding an open nap session: new ringId, fresh counters, audio never stops.
-        var st1 = st0
+        var st1 = afterDelivery
         if (open != null && open.trigger == OccurrenceSource.NAP && source != OccurrenceSource.NAP) {
             events += PendingEvent("superseded", mapOf("oldRingId" to open.ringId))
             st1 = st1.copy(

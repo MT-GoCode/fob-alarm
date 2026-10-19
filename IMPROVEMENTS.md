@@ -1490,3 +1490,36 @@ path, because Android applies the **last** `onStartCommand` return to the whole 
 `START_NOT_STICKY` would have stripped sticky restart from the live ring. And the `require` on
 `ACTION_FIRE` cannot throw today: every `set()` caller passes a source, `NextFire.source` is
 non-null, and the watchdog/tick/gate alarms are not FIRE.
+
+### 32i — my fire-storm fix ate a nap the owner had just set
+
+Fourth time this round that a fix of mine introduced a defect, and the review caught it.
+
+Consuming `st.nap` on *any* NAP trigger was wrong, because **a snooze re-ring arrives as
+`onTrigger(NAP)`** for a NAP session and is not a delivery at all. So: a nap rings, the owner
+snoozes, the owner (or the controller, over `/v1/nap`, which has no session guard) sets a fresh
+20-minute nap, the snooze ends — and the re-ring silently consumed the new nap. Nothing logged it.
+
+My stated provenance was simply false: *"a NAP trigger IS the delivery of whatever `st.nap` holds"*.
+A NAP trigger delivers an **elapsed** nap and only that one, so the consumption is now
+`st.nap?.takeIf { source == NAP && it.fireAtMs <= now }`. That is exact rather than approximate: the
+nap being delivered is identified by being due, not by being the only nap around. It still kills the
+fire storm, because the storm's nap is elapsed by definition — only an elapsed nap kept by the grace
+re-arms in the past — and it also closes an older case the review found, where a stale in-flight
+broadcast for an old nap consumed a newly set one.
+
+Renamed `st0` to `afterDelivery`, which says what changed, and the comment states the property
+instead of recounting the storm.
+
+The narrowed rule immediately failed one of my own tests, which is the point: the fire-storm test
+triggered a nap **ten minutes before it was due**, and an early trigger is not a delivery. A test
+with an impossible setup is exactly how the snooze-re-ring defect would have survived a green suite,
+so the setup now advances the clock to the nap's instant before delivering it.
+
+Confirmed clean in the same pass, so recorded as checked: removing the per-branch clears changed
+nothing for non-NAP sources (`afterDelivery` is the same object as `st` there, so a real alarm still
+leaves a pending nap intact); `trigger_stale` is unreachable for NAP because the occurrence is built
+directly; and a refused test leaves nothing harmful behind — `testSilent` is read only on test
+paths, `testSnoozedUntilMs` is never set by `testRing`, the `commit(requestId)` record correctly
+makes a retry idempotent, and `ControllerWatch` prefers `s.ring` over the test key so the controller
+never raises a test alert for a refused test.

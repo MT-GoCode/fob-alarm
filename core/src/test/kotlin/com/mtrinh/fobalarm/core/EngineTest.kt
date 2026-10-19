@@ -552,6 +552,27 @@ class EngineTest {
         assertNotNull(boot.state.override, "and the override must survive")
     }
 
+    @Test fun `a snooze re-ring does not consume a nap set during the snooze`() {
+        // The defect my own fire-storm fix introduced. A snooze re-ring arrives as onTrigger(NAP)
+        // for a NAP session, which is NOT a nap delivery -- so consuming `st.nap` on any NAP
+        // trigger silently ate a nap the owner had just set. Nothing logged it.
+        val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
+                             "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
+        val ringing = Engine.onTrigger(Engine.setNap(s0, c, 10).state, c, OccurrenceSource.NAP, "r1").state
+        val snoozed = Engine.snooze(ringing, c).state
+        assertEquals(RingPhase.SNOOZED, snoozed.session?.phase)
+
+        val withNew = Engine.setNap(snoozed, c, 20).state
+        val newNapAt = withNew.nap!!.fireAtMs
+
+        // The snooze ends and the heartbeat re-rings with the session's own trigger: NAP.
+        c.ms = snoozed.session!!.snoozeUntilMs!! + 1_000
+        val r = Engine.onTrigger(withNew, c, OccurrenceSource.NAP, "r1")
+        assertEquals(newNapAt, r.state.nap?.fireAtMs,
+            "a nap set during the snooze is in the FUTURE and was delivered by nothing")
+        assertEquals(RingPhase.RINGING, r.state.session?.phase, "and the snooze still ends")
+    }
+
     @Test fun `a nap trigger consumes the nap even when it is absorbed`() {
         // The delivery window turned a harmless omission into a fire storm. A NAP trigger absorbed
         // into an open NAP session used to leave `st.nap` in place; once step 4 stopped dropping
@@ -561,15 +582,18 @@ class EngineTest {
         val (c, s0) = liveTo("2026-09-26T06:00:00-07:00[America/Los_Angeles]",
                              "2026-09-26T05:59:00-07:00[America/Los_Angeles]")
         val firstNap = Engine.setNap(s0, c, 10).state
+        // A delivery arrives when the nap is DUE. Triggering one ten minutes early, as the first
+        // version of this test did, is not a delivery and must not consume anything.
+        c.ms = firstNap.nap!!.fireAtMs
         val ringing = Engine.onTrigger(firstNap, c, OccurrenceSource.NAP, "r-nap1").state
         assertEquals(OccurrenceSource.NAP, ringing.session?.trigger)
         assertNull(ringing.nap, "its own delivery consumed it")
 
         // A second nap set while the first still rings -- the controller can do this over HTTP.
         val second = Engine.setNap(ringing, c, 5).state
-        assertNotNull(second.nap)
+        val secondAt = second.nap!!.fireAtMs
 
-        c.set("2026-09-26T06:05:10-07:00[America/Los_Angeles]")
+        c.ms = secondAt + 10_000
         val absorbed = Engine.onTrigger(second, c, OccurrenceSource.NAP, "r-nap2")
         assertEquals("r-nap1", absorbed.state.session?.ringId, "absorbed into the open ring")
         assertNull(absorbed.state.nap, "and consumed, absorbed or not")

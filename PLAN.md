@@ -358,3 +358,12 @@ retry); `require(action != ACTION_FIRE || source != null)`; two dead accessors d
 Count for this round: **eleven defects**, four of them mine, three of those being a fix that
 re-introduced the defect it was fixing by another route. Every one of the three was in a guard that
 returned early from a shared path, and every one read correct in isolation.
+
+### Deferred to a later round: the nap/alarm reboot asymmetry
+
+A scheduled alarm the phone reboots through rings, via `pending` staying armed and then `fireNow`.
+A nap does not: if no recompute runs inside its 60 s window — a reboot or force-stop across the nap
+instant — the boot recompute drops it silently, with no `missed` event and no `fireNow`. This loss
+predates the delivery window and the window did not move it; it is an asymmetry rather than a
+regression, and closing it means deciding whether a nap missed by an outage should ring late at all,
+which is a product question and not a bug fix. Not mixed into this round.
