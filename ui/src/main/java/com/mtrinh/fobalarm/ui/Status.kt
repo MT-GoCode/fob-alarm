@@ -17,15 +17,13 @@ import com.mtrinh.fobalarm.core.*
  * it last check itself, what happened last night.
  */
 @Composable
-fun StatusBlock(s: Snapshot, nowMs: Long, connected: Boolean, localGates: Gates?,
-                onCheckClock: () -> Unit, onReload: () -> Unit) {
+fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -> Unit) {
     val iAmAlarm = s.self.role == Role.ALARM
     val problems = s.problems
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
     val willRing = problems.isEmpty() && s.nextFire != null
     val alarm = if (iAmAlarm) s.self else s.peer          // the phone that rings
     val controller = if (iAmAlarm) s.peer else s.self     // the phone that stops it
-    val peerAge = s.peer?.lastSeenMs?.takeIf { it > 0 }?.let { Fmt.age(it, nowMs) }
     val peerRecent = s.peer != null && nowMs - s.peer!!.lastSeenMs < 120_000
 
     // --- will it ring, and when ------------------------------------------

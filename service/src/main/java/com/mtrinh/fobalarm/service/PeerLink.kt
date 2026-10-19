@@ -10,8 +10,8 @@ import com.mtrinh.fobalarm.data.HttpStateClient
  * the alarm phone's ordinary LAN address as the fallback.
  *
  * The decision this hides is "which path", and it is hidden ONCE -- for both watchers and the
- * UI's client. Wiring it per caller lets one of them be built without a fallback, and then the
- * screen and its actions fail during a P2P outage while the background watcher carries on.
+ * UI's client. Wired per caller, one of them can be built without a fallback, and then the screen
+ * and its actions fail during a P2P outage while the background watcher carries on.
  *
  * Deliberately NOT a base class for the watchers. The sentinel must never inherit the controller's
  * authority -- no alert, no dismiss, no unlock -- so only the transport is shared and the two
@@ -23,8 +23,8 @@ object PeerLink {
      * The alarm phone's ordinary-network address, learned from its own snapshot while either path
      * was working.
      *
-     * One owner. A phone is a controller or a sentinel, never both, so the two copies this
-     * replaces were two owners of one fact, on the path that decides whether the alarm rings.
+     * ONE owner: a phone is a controller or a sentinel, never both, so a copy per watcher
+     * would be two owners of one fact on the path that decides whether the alarm rings.
      */
     @Volatile var alarmLanIp: String? = null; private set
 

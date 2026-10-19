@@ -243,9 +243,9 @@ object Svc : AlarmHost {
                     settings = if (settingsSeededFromDe) state.settings else loaded.settings,
                     // Union, memory first: whatever happened between boot and unlock lives only
                     // in memory, and Room is older than that. `distinctBy` keeps the FIRST of a
-                    // duplicated id, so memory must come FIRST -- a latch can be replaced (a
-                    // block supersedes a miss), and Room winning would resurrect MISSED over
-                    // SKIPPED and offer the occurrence up to ring again.
+                    // duplicated id, so memory must come FIRST: a latch can be replaced (a
+                    // block supersedes a miss), and Room winning resurrects MISSED over SKIPPED
+                    // and offers the occurrence up to ring again.
                     latches = (state.latches + loaded.latches).distinctBy { it.id },
                     override = if (scheduleSeededFromDe) state.override else loaded.override,
                     nap = if (scheduleSeededFromDe) state.nap else loaded.nap,

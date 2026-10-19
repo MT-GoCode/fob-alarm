@@ -96,10 +96,9 @@ class DeMirror(ctx: Context) {
 
     fun mirror(s: Settings, next: NextFire?, session: RingSession?,
                latches: List<Latch>, override: Override?, nap: Nap?) {
-        // The WHOLE of Settings, in the same encoding Room uses, under one key. Mirroring a
-        // chosen subset field by field meant the fields nobody remembered to add -- the away
-        // settings, napMinutes -- read as defaults before first unlock, and it made this mirror
-        // and Room two partial copies of one fact that could disagree.
+        // The WHOLE of Settings, in the same encoding Room uses, under one key. A chosen subset
+        // leaves whatever nobody remembered to add reading as a default before first unlock, and
+        // makes this mirror and Room two partial copies of one fact that can disagree.
         p.edit()
             .putString("settings", com.mtrinh.fobalarm.data.Wire.settingsAtRestToJson(s).toString())
             .putString("schedule", Persist.scheduleToJson(latches, override, nap))

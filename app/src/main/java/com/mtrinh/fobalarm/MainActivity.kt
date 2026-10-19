@@ -55,8 +55,7 @@ class MainActivity : ComponentActivity() {
         // The controller renders the ALARM phone's snapshot, so its own permission state
         // is supplied separately: GateEval.onEvaluated (set in onCreate) writes
         // app.localGates the moment the worker finishes, however long the probes take.
-        // No extra pull: the idle poll is 3 s and onResume already reloads. The burst this
-        // replaced was justified by a comment claiming a 20 s idle poll.
+        // No extra pull: the idle poll is 3 s and onResume already reloads.
     }
 
     override fun onDestroy() {

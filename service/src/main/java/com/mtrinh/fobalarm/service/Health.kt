@@ -29,9 +29,9 @@ object Health {
         Thread({
             val result = runCatching {
                 // Loopback, not the group-owner address: the listener binds all interfaces, so
-                // 127.0.0.1 proves it is alive whether or not the P2P group is up. Probing
-                // 192.168.49.1 failed every ten minutes with the group down, and then "healed" by
-                // closing the listener that home Wi-Fi was using.
+                // 127.0.0.1 proves it is alive whether or not the P2P group is up. Probing the
+                // group-owner address instead tests the group, and reports a dead listener
+                // whenever the group is merely down.
                 val conn = URL("http://127.0.0.1:${Server.CONTROL_PORT}/v1/ping")
                     .openConnection() as HttpURLConnection
                 conn.connectTimeout = 3000; conn.readTimeout = 3000
@@ -49,8 +49,9 @@ object Health {
             lastProbeError = result.exceptionOrNull()?.let { it.javaClass.simpleName + ": " + it.message }
             if (result.isSuccess) Svc.log("probe_ok")
             else {
-                // Detect only. The accept loop rebinds itself on a real failure, and closing
-                // the socket from here destroyed a listener that was serving home Wi-Fi fine.
+                // Detect only, never "heal": the accept loop rebinds itself on a real failure,
+                // and closing the socket from here takes down a listener that home Wi-Fi may be
+                // using perfectly well.
                 Svc.log("probe_fail", "error" to (lastProbeError ?: "?"))
             }
         }, "self-probe").start()

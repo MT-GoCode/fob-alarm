@@ -208,8 +208,6 @@ class AppState(
         }
     }
 
-    /** Called when returning to the app, so a just-granted permission flips immediately. */
-
     fun nap(minutes: Int) = act("Nap") { client.nap(minutes, UUID.randomUUID().toString()) }
     fun napUntil(hhmm: String) = act("Nap") { client.napUntil(hhmm, UUID.randomUUID().toString()) }
     fun clearNap() = act("Nap") { client.clearNap(UUID.randomUUID().toString()) }

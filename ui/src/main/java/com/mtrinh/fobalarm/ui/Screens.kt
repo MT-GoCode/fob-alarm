@@ -79,7 +79,7 @@ fun RootScreen(
                 trying()
                 if (s != null) {
                     Section("What it last said")
-                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, false, app.localGates, { app.checkClock() }) { app.reload() } } }
+                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, app.localGates) { app.checkClock() } } }
                 }
                 Spacer(Modifier.height(S.lg))
             }
@@ -107,10 +107,9 @@ fun RootScreen(
     if (ringing) {
         // The screen must not sleep on an in-app ring view. Scoped to this branch, so it is
         // released the instant the ring ends, and `ringing` here already counts a test ring.
-        // RingActivity sets the same flag for the full-screen ring; this covers the case where
-        // the app itself is in front, which the Activity-level attempt never did -- it read
-        // `app.snapshot` behind an `isInitialized` check that was false on first composition, so
-        // nothing ever subscribed and the scope never recomposed.
+        // RingActivity sets the same flag for the full-screen ring; this covers the app itself
+        // being in front. It belongs HERE, where `ringing` is derived from a subscribed snapshot
+        // -- at Activity level there is nothing to subscribe to on the first composition.
         val view = LocalView.current
         DisposableEffect(Unit) {
             view.keepScreenOn = true
@@ -532,7 +531,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, role: Role) {
             Spacer(Modifier.height(S.sm))
         }
 
-        StatusBlock(s, app.nowMs, app.connected, app.localGates, { app.checkClock() }) { app.reload() }
+        StatusBlock(s, app.nowMs, app.localGates) { app.checkClock() }
 
         // A SENTINEL gets none of these. It is a presence beacon, and the phone it runs on is
         // the one the whole design distrusts -- the pocket phone that must not be able to skip

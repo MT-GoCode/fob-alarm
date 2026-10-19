@@ -31,7 +31,7 @@ object ControllerWatch {
 
     @Volatile var lastSnapshot: Snapshot? = null; private set
     @Volatile var lastOkMs = 0L; private set
-    /** The alarm phone's LAN address, learned from its snapshot while any path worked. */
+    /** The ringId this phone has already raised its alert for, so one ring alerts once. */
     @Volatile private var alertShownFor: String? = null
 
     private val client by lazy { PeerLink.client(Role.CONTROLLER) }

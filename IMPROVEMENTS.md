@@ -1622,3 +1622,163 @@ times as the code moved under it. Both of those are the checker working.
 should ring late (the owner's call; the loss is now recorded either way), `forceSession` building its
 occurrence from the trigger, and the async `de.mirror`/Room write ordering. The last two need a
 process death inside a millisecond window and can only make the alarm ring.
+
+# 0.3 — the principles pass
+
+Round 32 asked whether the alarm rings. **0.3 asked whether the code deserves to be trusted**, under
+one instruction: *perfect quality and robustness in every corner with code principles absolutely
+exemplified, with adversarial review on the code principles and minimality.*
+
+Four adversarial reviewers against `code-principles.md`: one per module slice (`:core`+`:data`,
+`:service`, `:ui`+`:app`), then one over the whole diff. **Around 30 defects. Net −110 production
+lines.** `:service` — the least testable module — shrank; `:core`, the fully tested one, absorbed
+what moved out of it.
+
+## The feature that was not working
+
+**The Wi-Fi fallback was defeated in two independent places**, which together meant it had never
+worked during a real P2P outage:
+
+1. The UI's `HttpStateClient` was constructed separately from the two watchers' and simply had no
+   `fallbackHostProvider`. With the group down, the controller's screen and **every action on it**
+   failed while the background watcher carried on.
+2. `Health.probe` pinged `192.168.49.1` — an address that exists *only while the group is up* — and
+   on failure called `Server.closeControl()` as its "heal" step, **killing the listener home Wi-Fi
+   depends on**. Every ten minutes with the group down. `Group.refresh` and `Group.stop` did it on
+   every flap.
+
+`closeControl` was a remnant of binding to the P2P address; once the socket moved to all interfaces
+it stopped being necessary and started doing harm — the accept loop already rebinds itself. Deleted,
+with nothing able to close the listener from outside, and the probe now tests `127.0.0.1`: the
+listener itself rather than a proxy for it.
+
+The cause was triplication. `PeerLink` is now the one transport wiring for both watchers and the UI,
+so the fallback exists by construction, and it owns the alarm phone's LAN address — there were two
+copies of that one fact, and a phone is a controller *or* a sentinel, never both. Deliberately not a
+base class: the sentinel must never inherit the controller's authority, so only the transport is
+shared.
+
+## Settings had two owners and the staler one won
+
+The DE mirror is written synchronously on every change and is readable before first unlock; Room is
+written asynchronously and unreadable until unlock. **On unlock, Room won** — so a change made
+before the phone's first unlock was silently reverted, and if the reverted alarm time was *later*,
+the owner slept through it. The mirror also held a hand-picked subset, so both away settings,
+`awayAfterSeconds` and `napMinutes` read as **defaults** before first unlock.
+
+Fixing it took three attempts, and the first two were worse than the bug:
+
+- **Attempt 1** made the mirror authoritative and held the whole of `Settings`. But `init` seeds
+  defaults when no blob exists, `apply` then mirrors *those defaults* before Room opens, and
+  `tryLoadRoom` preferred them — so **the first launch after upgrading discarded the real settings,
+  including the role. With no role nothing is armed: the alarm never rings.** Found by review, not
+  by 108 green tests, because nothing in `:core` tests the `Svc` startup path.
+- **Attempt 1 also erased the password on every restart.** The blob used `Wire.settingsToJson`,
+  which deliberately omits the hash and salt *because that encoding goes over the link to the
+  controller* — three places separately bolted the credentials back on, each differently, and I used
+  the wire one for an at-rest copy. The settings lock opened silently.
+- **Attempt 2** read the legacy per-field keys on upgrade. Correct, and necessary — without it an
+  upgrade plus a reboot before first unlock arms nothing — but it still lost settings when the
+  mirror was wiped and Room survived.
+
+What shipped: one matched pair, `Wire.settingsAtRestToJson`/`settingsAtRestFrom`, used by Room, the
+mirror **and** backups, with `settingsToJson` still omitting the hash for the wire; the legacy
+per-field read for upgrades; and `settingsSeededFromDe`, set in `init` only when the mirror already
+held settings, parallel to the existing `scheduleSeededFromDe`.
+
+## The sentinel was unusable, and then too powerful
+
+**It crash-looped on every launch.** `MainActivity` passes the `trying` slot only for CONTROLLER and
+the loading guard was `if (isAlarmRole && s == null)`, so a sentinel — neither — fell through to
+`s!!` before any snapshot existed. The root cause is a principles tell exactly: **three roles
+encoded as a boolean plus a nullable composable standing in for one.** `RootScreen` takes
+`role: Role` now and decides once.
+
+Then the opposite problem. PLAN.md's non-goals say *"no sentinel authority: it cannot dismiss,
+snooze, change settings or unlock"* — and it could do all of it. I removed the ring takeover and the
+Settings tab and declared the gap closed. **The Status tab's action rows were untouched, so the
+pocket phone could still Skip, Move or Nap tomorrow's alarm** — precisely the threat the role exists
+to defend against. The server cannot catch it: the mutating routes carry no role and are all
+hardcoded `Actor.CONTROLLER`, so the UI is the only place that line can be drawn.
+
+The lesson is mine. "No authority" is a property of **every** mutating control, not of the two
+surfaces I happened to look at; I asked the reviewer to enumerate the rest instead of guessing
+again. And removing the Settings tab had made the role a **one-way door** — `RoleSwitcher` lived
+only there, so a phone set to the wrong role could only be recovered by clearing app data.
+
+## Silent degradation, removed
+
+- A throwing health check reported **"no problems"** and turned the screen green.
+- `history` fell back to the in-memory tail, whose sequence numbers are not the database's, so a
+  client paging with `since` silently received the wrong events. `export` returned an empty backup
+  and called it success.
+- `Gates.value(key)` ended in `else -> true`: an unrecognised gate key **passed**. A typo in the
+  table, or a field added to `Gates` and never listed, turned a real safety check into a green row.
+- The request boundary accepted missing fields as plausible values: no `requestId` minted a UUID
+  (disabling idempotency, so a retried dismiss applied twice), no `kind` cleared the override and
+  returned **200**, no `minutes` became a 20-minute nap.
+- An unrecognised `role` read as CONTROLLER, and `presenceOf` routed *every* non-SENTINEL role to the
+  controller slot — so a `role=ALARM` poll overwrote controller presence, an input to the ring gate.
+  **This supersedes the Round 29 note above:** a missing role is now a 400, not a legacy CONTROLLER.
+- The idempotency check sat outside the lock it guards, and `testRing` held no lock at all.
+- `KEEP_SCREEN_ON` in `MainActivity` never fired — `::app.isInitialized` is false on first
+  composition, so nothing subscribed and the scope never recomposed. `RingActivity` sets the flag
+  unconditionally, so a real alarm always kept the screen on; this only ever mattered for the in-app
+  ring view.
+- The double-tap guard was skipped on the one path it exists for: ring-change bookkeeping lived only
+  in `refresh()` while **nine** sites installed snapshots directly — including the 409 `StaleRing`
+  branch, which is exactly where the ring has just changed.
+
+## Minimality
+
+Four parallel gate lists became two. `Wire` encodes by iterating `GateInfo.ALL`; the two that remain
+are the `Gates` fields and the JSON decode, which is what a typed data class costs — not traded for
+a map to claim a smaller number.
+
+Deleted, each confirmed first: `App.kt`'s `while (true) { delay(80) }` — an **empty** loop left by
+the deleted gyroscope feature, waking the main thread 12 times a second for the length of every
+ring; `NumberSetting` (34 lines, no callers); `refreshNow`, which was `reload` under another name,
+and the 4× refresh burst it served — justified by a comment claiming a 20 s idle poll when the poll
+is 3 s and `onResume` already reloads, so every resume did five snapshot reads. **A stale comment
+had kept dead code alive.** Status duplicated `LinkBar`'s rows and `VersionBar`'s versions, carried
+a second refresh button, and an identity line that said "controller" for a sentinel. Deleting those
+callers orphaned three `StatusBlock` parameters, which compiled fine and would have sat there
+forever: **a deletion is not finished until you check what it orphaned.**
+
+"Away after" bounds itself at 120 s instead of offering 0 and explaining in a caption that 0 means
+two minutes. A caption saying a control's range is a lie means the control is wrong.
+
+## Comments
+
+**Thirty-eight comments told project history instead of stating a property** — and most were written
+during this work. Restated. Two were not merely noise but wrong: `Server.kt`'s header described the
+*old* binding as current, and `AppState` had a doubled KDoc whose first line claimed a two-minute
+window the second line denied. Two docstrings sat on the wrong declaration, asserting something
+false about the code beneath them — one created by my own extraction, which moved a field and left
+its documentation behind.
+
+Kept deliberately: the `FIRE_DELIVERY_GRACE_MS` derivation (a constant with no stated origin becomes
+a requirement to whoever reads it next), the `PendingIntent` extras-equality note, and the Wi-Fi
+Direct flap timings, which are facts about Android that justify the design.
+
+## What the tooling caught that I did not
+
+The suite is **112 tests** across `:core` and `:data`, one command — `./gradlew test`, which `ship`
+now gates on, because a test the release pipeline does not run is not a gate. **29 mutants, each
+required to be killed by the test that names it.**
+
+Three times this round the harness proved a test of mine observed nothing:
+
+1. A test that could not tell `>` from `>=` while claiming to cover that boundary.
+2. A test that could not tell `else -> error()` from `else -> true` — every real key resolves
+   through its own branch either way — while claiming to cover the silent-pass bug.
+3. Earlier, the harness itself reporting 0/15 because `-q` hid the `FAILED` lines it was parsing.
+
+And the reviewers caught two false claims in my own commit messages: that Wire's 18 hand-written
+gate puts were "gone" (the regex removed three; **15 survived**, so every gate was written twice),
+and that Room seeded settings only when no blob existed — true only in the instant before the first
+`apply`.
+
+A green suite says nothing about whether the tests observe anything. That is the whole argument for
+keeping the harness, and for keeping it brittle: a fuzzy mutant that still applies after the code
+moved is a mutant no longer testing what its name says.
