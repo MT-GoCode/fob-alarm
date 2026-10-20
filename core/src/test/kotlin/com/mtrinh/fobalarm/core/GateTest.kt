@@ -33,7 +33,11 @@ class GateTest {
     /** [p] occupies [role]'s slot; the other role has never been seen. */
     private fun verdict(
         s: Settings, p: PeerReport?, role: Role = Role.SENTINEL, linkUp: Long = LINK_UP,
-    ) = RingGate.verdict(s, NOW, linkUp) { if (it == role) p else null }
+    ) = ringVerdict(s, linkUp) { if (it == role) p else null }
+
+    /** The production path: gather the views once, then fold them. */
+    private fun ringVerdict(s: Settings, linkUp: Long = LINK_UP, peer: (Role) -> PeerReport?) =
+        RingGate.fold(s, RingGate.views(s, NOW, linkUp, peer))
 
     private fun assertRings(v: RingVerdict, expectWhy: String? = null) {
         assertTrue(v is RingVerdict.Allowed, "must ring, got $v")
@@ -144,7 +148,7 @@ class GateTest {
         val away = peer(20 * 60_000)
         // Controller armed, controller away -> blocks, and says controller.
         assertEquals("controller away 1200s", assertBlocked(
-            RingGate.verdict(settings(sentinel = false, controller = true), NOW, LINK_UP) {
+            ringVerdict(settings(sentinel = false, controller = true)) {
                 if (it == Role.CONTROLLER) away else null
             }))
         // Sentinel armed, only the CONTROLLER is away -> the sentinel was never seen, so it rings.
@@ -155,7 +159,7 @@ class GateTest {
     @Test fun `either role being away is enough when both are armed`() {
         // Mutant: AND instead of OR. The sentinel is here; the controller has gone.
         val both = settings(sentinel = true, controller = true)
-        val v = RingGate.verdict(both, NOW, LINK_UP) {
+        val v = ringVerdict(both) {
             if (it == Role.SENTINEL) peer(30_000) else peer(20 * 60_000)
         }
         assertEquals("controller away 1200s", assertBlocked(v))
@@ -163,8 +167,133 @@ class GateTest {
 
     @Test fun `when both are armed and both are here the log records both`() {
         val both = settings(sentinel = true, controller = true)
-        val v = RingGate.verdict(both, NOW, LINK_UP) { peer(30_000) }
+        val v = ringVerdict(both) { peer(30_000) }
         assertRings(v, "sentinel=present:30s,controller=present:30s")
+    }
+
+    // --- what the screen is told about a block's reach --------------------
+
+    private fun note(v: RoleVerdict, armed: Boolean) = AwayView(Role.SENTINEL, v).note(armed)
+
+    private val everyVerdict = listOf(
+        RoleVerdict.Away("sentinel away 1200s"), RoleVerdict.Present("present:3s"),
+        RoleVerdict.Vetoed("power_save"), RoleVerdict.Unknown)
+
+    @Test fun `armed reads each role's own setting and refuses the alarm's`() {
+        // Mutant: `Role.ALARM -> false`. The alarm phone's own absence is not a thing, and
+        // answering "not armed" for it would hide the caller's mistake instead of showing it.
+        val s = settings(sentinel = true, controller = false)
+        assertTrue(RingGate.armed(s, Role.SENTINEL))
+        assertFalse(RingGate.armed(s, Role.CONTROLLER))
+        assertFailsWith<IllegalStateException> { RingGate.armed(s, Role.ALARM) }
+    }
+
+    @Test fun `an armed block states its reach whatever the verdict`() {
+        everyVerdict.forEach {
+            assertNotNull(note(it, armed = true), "an armed block said nothing for $it")
+        }
+    }
+
+    @Test fun `an armed block that cannot stop a ring says so`() {
+        // The defect this exists for. A switch reading on while the gate cannot judge its phone
+        // absent is indistinguishable from a working block, and the morning it rings is the only
+        // report. Mutant: returning the blocking sentence regardless of the verdict.
+        listOf(RoleVerdict.Vetoed("power_save"), RoleVerdict.Unknown).forEach {
+            val n = note(it, armed = true)!!
+            assertTrue(n.contains("cannot stop a ring"), "no disclosure in: $n")
+            assertFalse(n.contains("would not ring"), "claims a block it has not got: $n")
+        }
+        assertTrue(note(RoleVerdict.Away("sentinel away 1200s"), armed = true)!!
+            .contains("would not ring"))
+    }
+
+    @Test fun `only an armed Away speaks for the whole gate`() {
+        // note() sees one role; fold ORs both. With both switches on, the sentinel Unknown and the
+        // controller away, the gate blocks -- so a sentinel row saying "the alarm will ring" would
+        // contradict the controller row directly below it, and be the wrong one.
+        // An armed Away may speak of the ring: the fold returns on the first armed Away, so one
+        // being away decides the outcome whatever the other says.
+        // Mutant: any non-Away sentence stating a gate outcome.
+        listOf(RoleVerdict.Present("present:3s"), RoleVerdict.Vetoed("power_save"), RoleVerdict.Unknown)
+            .flatMap { listOf(note(it, true), note(it, false)) }.filterNotNull().forEach {
+                assertFalse(it.contains("the alarm will"), "a row-local fact stated as the gate's: $it")
+            }
+        val both = settings(sentinel = true, controller = true)
+        val v = ringVerdict(both) { if (it == Role.SENTINEL) null else peer(20 * 60_000) }
+        assertEquals("controller away 1200s", assertBlocked(v),
+            "the premise: an unknown sentinel does not stop the controller's block")
+    }
+
+    @Test fun `an armed block whose phone is present is not described as broken`() {
+        // The same failure reversed, and the one the first attempt at these sentences shipped: a
+        // block that is armed and working, every night, saying the alarm will ring. The owner
+        // learns to ignore the line and then ignores it on the night it is true.
+        // Mutant: Present sharing the Vetoed sentence -- `present:3s` is a healthy state.
+        val n = note(RoleVerdict.Present("present:3s"), armed = true)!!
+        assertFalse(n.contains("cannot stop a ring"), "a working block called itself broken: $n")
+        assertTrue(n.contains("stops a scheduled alarm"), "a working block must say it works: $n")
+        // Present means "silent for less than the floor", and the floor goes up to 24 h -- so it
+        // must not claim the phone is here. With a 1 h limit, a phone gone 50 min is still Present.
+        assertFalse(n.contains("is here"), "Present is not a sighting: $n")
+    }
+
+    @Test fun `a switch that is off speaks only when flipping it would surprise`() {
+        // Mutant: the Unknown arm returning null when unarmed. Arming a block against a phone that
+        // has never reported must be visible BEFORE it is armed, not after a morning.
+        assertNotNull(note(RoleVerdict.Unknown, armed = false))
+        assertNotNull(note(RoleVerdict.Away("sentinel away 1200s"), armed = false))
+        // Nothing to correct: the switch is off and its phone is healthy.
+        assertNull(note(RoleVerdict.Present("present:3s"), armed = false))
+        assertNull(note(RoleVerdict.Vetoed("power_save"), armed = false))
+    }
+
+    @Test fun `the sentences that promise silence say they cover scheduled alarms only`() {
+        // A nap goes straight to Ring without consulting the gate, so an unqualified "would not
+        // ring" is false for the one kind of ring the owner sets by hand.
+        val away = RoleVerdict.Away("sentinel away 1200s")
+        listOf(note(away, true)!!, note(away, false)!!,
+            note(RoleVerdict.Present("present:3s"), true)!!).forEach {
+            assertTrue(it.contains("scheduled"), "a nap ignores the gate, so this promises too much: $it")
+        }
+    }
+
+    @Test fun `the sentence names its role, except where naming one would misattribute`() {
+        // Mutant: a hard-coded role in the sentence. Two rows differing only by subject.
+        listOf(RoleVerdict.Away("controller away 1200s"), RoleVerdict.Present("present:3s"),
+            RoleVerdict.Unknown).forEach {
+            assertTrue(AwayView(Role.CONTROLLER, it).note(true)!!.contains("controller"),
+                "the controller's row talked about something else: $it")
+        }
+        // Vetoed is the deliberate exception: `own_link_unstable` is THIS phone's group being
+        // down, so naming the peer there blames it for our own fault.
+        assertFalse(AwayView(Role.CONTROLLER, RoleVerdict.Vetoed("own_link_unstable")).note(true)!!
+            .contains("controller"), "a veto of ours was blamed on the peer")
+    }
+
+    @Test fun `a never-seen peer is Unknown and a vetoed one is not merely present`() {
+        // The tags the screen routes on, derived once here where the peer is looked at, so no
+        // reader has to recognise the string "never_seen" or "power_save".
+        assertEquals(RoleVerdict.Unknown,
+            RingGate.roleVerdict(Role.SENTINEL, null, settings(), NOW, LINK_UP))
+        assertTrue(RingGate.roleVerdict(Role.SENTINEL, peer(30_000), settings(), NOW, LINK_UP)
+                is RoleVerdict.Present)
+        // A healthy phone inside the floor is Present; an unhealthy one is Vetoed however recently
+        // it spoke. Mutant: one Here for both -- the row then calls a working block broken.
+        assertTrue(RingGate.roleVerdict(
+            Role.SENTINEL, peer(30_000, powerSave = true), settings(), NOW, LINK_UP)
+                is RoleVerdict.Vetoed)
+    }
+
+    @Test fun `the rows and the ring decision come from one evaluation`() {
+        // Mutant: `views` dropping the unarmed roles. The screen must be able to describe a block
+        // the owner has not armed yet, while the decision still ignores it.
+        val s = settings(sentinel = true, controller = false)
+        val views = RingGate.views(s, NOW, LINK_UP) { peer(20 * 60_000) }
+        assertEquals(listOf(Role.SENTINEL, Role.CONTROLLER), views.map { it.role })
+        // Both are away, only the sentinel is armed, and the reason names the armed one.
+        assertEquals("sentinel away 1200s", assertBlocked(RingGate.fold(s, views)))
+        assertEquals(RingVerdict.NotArmed,
+            RingGate.fold(settings(sentinel = false, controller = false), views))
     }
 
     // --- role slots -------------------------------------------------------

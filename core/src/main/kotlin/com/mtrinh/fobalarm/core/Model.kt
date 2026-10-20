@@ -43,10 +43,8 @@ data class Settings(
      * not everyone wall-mounts it. OR'd with [blockRingIfSentinelAway]: either condition, enabled
      * and met, blocks.
      *
-     * Riskier than the sentinel one and left off by default for a reason worth stating: a
-     * wall-mounted, mains-powered controller that goes absent has usually had its *link* fail, not
-     * gone anywhere — and that is precisely when the alarm must ring. Turn this on only if the
-     * controller is a phone you carry.
+     * Riskier than the sentinel one, and off by default for it. The owner-facing statement of why
+     * lives on the row that arms it, which is the only place it can change a decision.
      */
     val blockRingIfControllerAway: Boolean = false,
     /**
@@ -292,6 +290,12 @@ data class Snapshot(
     val sentinel: DeviceView? = null,
     /** Non-null when the next ring would be blocked right now, with the reason. */
     val ringBlock: String? = null,
+    /**
+     * What the away gate makes of each blockable role right now, armed or not, so the rows that
+     * arm those blocks can state their reach. Filled by the alarm phone only; it is the only
+     * phone that judges presence.
+     */
+    val away: List<AwayView> = emptyList(),
     /** Last successful exchange between the two phones, either direction. */
     val lastHeartbeatMs: Long = 0,
     /** Non-zero while a test ring is live, so the UI can observe it ending. */

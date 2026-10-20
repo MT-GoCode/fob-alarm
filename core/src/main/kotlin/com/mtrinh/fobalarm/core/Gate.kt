@@ -19,10 +19,79 @@ data class PeerReport(
     val appVersion: String = "?",
 )
 
-/** Whether one role's phone is genuinely away. [why] and [reason] are both for the decision log. */
+/**
+ * Whether one role's phone is genuinely away, and if not, why not. [why] is the decision log's
+ * token and the row's parenthetical.
+ *
+ * Four variants, not two, because they differ in what the owner can do:
+ * - [Away] blocks, if its setting is armed.
+ * - [Present] does not block now, and will once the phone has been gone past the floor. An armed
+ *   block in this state is working.
+ * - [Vetoed] cannot block even if the phone leaves: this app refuses to read silence as absence
+ *   when the peer was untrustworthy or our own link was down. An armed block in this state does
+ *   nothing.
+ * - [Unknown] has no phone to judge at all.
+ *
+ * All but [Away] ring, so the gate treats them alike -- the distinction exists so that the row
+ * which arms the block routes on a tag instead of recognising a `why` string, and so that a
+ * working block is never described in the same words as an inert one.
+ */
 sealed interface RoleVerdict {
-    data class Away(val reason: String) : RoleVerdict
-    data class Here(val why: String) : RoleVerdict
+    val why: String
+    data class Away(override val why: String) : RoleVerdict
+    data class Present(override val why: String) : RoleVerdict
+    data class Vetoed(override val why: String) : RoleVerdict
+    data object Unknown : RoleVerdict { override val why = "never_seen" }
+}
+
+/**
+ * One role's verdict as the snapshot carries it, and the sentence the row that arms its block
+ * shows underneath the switch.
+ *
+ * The gate's own verdict is carried here rather than re-derived from the snapshot's presence
+ * fields, so the row cannot disagree with the decision it describes.
+ */
+data class AwayView(val role: Role, val verdict: RoleVerdict) {
+
+    /**
+     * What the row says, or null when the switch is off and its state is the one the switch
+     * already implies.
+     *
+     * An armed switch always gets a sentence, and the sentence says whether THIS block can stop a
+     * ring -- an armed block that cannot fire is otherwise indistinguishable from one that can.
+     *
+     * Row-local, deliberately: [RingGate.fold] ORs the armed roles, so one role being unable to
+     * block says nothing about whether the alarm rings. Only an armed [RoleVerdict.Away] may speak
+     * of the ring itself, because that one does decide it.
+     *
+     * Hedged twice over as well: the gate decides at fire time and a phone can return or leave in
+     * between, so nothing here promises what a future morning will do; and a nap goes straight to
+     * [FireAction.Ring] without consulting the gate, so any sentence that promises silence says it
+     * covers scheduled alarms only.
+     */
+    fun note(armed: Boolean): String? {
+        val who = role.name.lowercase()
+        return when (val v = verdict) {
+            // The one sentence allowed to speak for the whole gate: an armed role that is Away
+            // blocks whatever the other role says, because the fold returns on the first of them.
+            is RoleVerdict.Away ->
+                if (armed) "If a scheduled alarm fired now it would not ring: the $who is away."
+                else "The $who is away now, so switching this on would stop a scheduled alarm ringing while it stays away."
+            // Presence is in memory only, so this is honestly "since this app started" and never
+            // "ever": a restart reads never-seen for a sentinel that has run for months.
+            RoleVerdict.Unknown ->
+                if (armed) "On, but no $who has reported since this app started, so this cannot stop a ring."
+                else "No $who has reported since this app started, so this could not stop a ring."
+            is RoleVerdict.Present ->
+                if (armed) "On and waiting: this stops a scheduled alarm once the $who has been gone past the away limit."
+                else null
+            // Neutral subject on purpose: `own_link_unstable` is THIS phone's group being down,
+            // not the peer's fault, and the row must not misattribute it.
+            is RoleVerdict.Vetoed ->
+                if (armed) "On, but this cannot stop a ring right now (${v.why})."
+                else null
+        }
+    }
 }
 
 /** Whether a ring may happen. Three states, so the log site needs no string comparison. */
@@ -65,9 +134,13 @@ object RingGate {
      */
     fun awayFloorMs(s: Settings): Long = maxOf(s.awayAfterSeconds * 1000L, PRESENT_WINDOW_MS)
 
-    fun armedRoles(s: Settings): List<Role> = buildList {
-        if (s.blockRingIfSentinelAway) add(Role.SENTINEL)
-        if (s.blockRingIfControllerAway) add(Role.CONTROLLER)
+    /** The roles whose absence can block a ring, in the order the OR below considers them. */
+    val BLOCKABLE = listOf(Role.SENTINEL, Role.CONTROLLER)
+
+    fun armed(s: Settings, role: Role): Boolean = when (role) {
+        Role.SENTINEL -> s.blockRingIfSentinelAway
+        Role.CONTROLLER -> s.blockRingIfControllerAway
+        Role.ALARM -> error("the alarm phone cannot block on its own absence")
     }
 
     /**
@@ -89,36 +162,50 @@ object RingGate {
     fun roleVerdict(
         role: Role, p: PeerReport?, s: Settings, nowElapsed: Long, linkUpSinceElapsed: Long,
     ): RoleVerdict {
-        if (p == null) return RoleVerdict.Here("never_seen")
-        if (p.missingGates.isNotEmpty()) return RoleVerdict.Here("gates:${p.missingGates.joinToString("|")}")
-        if (p.powerSave) return RoleVerdict.Here("power_save")
+        if (p == null) return RoleVerdict.Unknown
+        if (p.missingGates.isNotEmpty()) return RoleVerdict.Vetoed("gates:${p.missingGates.joinToString("|")}")
+        if (p.powerSave) return RoleVerdict.Vetoed("power_save")
         // Absent means the peer predates the field. Unknown trustworthiness is not trustworthy,
         // and "never blocks" is the safe way to be wrong.
-        if (!p.reportedPowerSave) return RoleVerdict.Here("no_power_report")
+        if (!p.reportedPowerSave) return RoleVerdict.Vetoed("no_power_report")
         // `< 20`, not `in 0..19`: an unreported battery is -1, and that must veto too.
-        if (!p.plugged && p.batteryPct < 20) return RoleVerdict.Here("low_battery:${p.batteryPct}")
+        if (!p.plugged && p.batteryPct < 20) return RoleVerdict.Vetoed("low_battery:${p.batteryPct}")
         val absentMs = nowElapsed - p.lastSeenElapsed
-        if (absentMs < awayFloorMs(s)) return RoleVerdict.Here("present:${absentMs / 1000}s")
+        if (absentMs < awayFloorMs(s)) return RoleVerdict.Present("present:${absentMs / 1000}s")
         // This phone's OWN link being down must never read as the other phone having left.
         if (linkUpSinceElapsed == 0L || linkUpSinceElapsed > p.lastSeenElapsed)
-            return RoleVerdict.Here("own_link_unstable")
+            return RoleVerdict.Vetoed("own_link_unstable")
         return RoleVerdict.Away("${role.name.lowercase()} away ${absentMs / 1000}s")
     }
 
     /**
+     * Every blockable role's verdict, armed or not. The ONE place the gate's inputs are gathered:
+     * both the ring decision and the rows that arm it fold over this list, so the screen cannot be
+     * reading a different clock, link or peer slot than the decision it describes.
+     */
+    fun views(
+        s: Settings, nowElapsed: Long, linkUpSinceElapsed: Long, peer: (Role) -> PeerReport?,
+    ): List<AwayView> =
+        BLOCKABLE.map { AwayView(it, roleVerdict(it, peer(it), s, nowElapsed, linkUpSinceElapsed)) }
+
+    /**
      * OR over the armed roles: either one genuinely away blocks. The whys of the roles that did
      * not block are kept, so a morning that rang still says why.
+     *
+     * Takes the views rather than gathering them, so the caller that needs both the decision and
+     * the rows evaluates the gate's inputs exactly once.
      */
-    fun verdict(
-        s: Settings, nowElapsed: Long, linkUpSinceElapsed: Long, peer: (Role) -> PeerReport?,
-    ): RingVerdict {
-        val armed = armedRoles(s)
+    fun fold(s: Settings, views: List<AwayView>): RingVerdict {
+        val armed = views.filter { armed(s, it.role) }
         if (armed.isEmpty()) return RingVerdict.NotArmed
         val whys = mutableListOf<String>()
-        for (role in armed) {
-            when (val v = roleVerdict(role, peer(role), s, nowElapsed, linkUpSinceElapsed)) {
-                is RoleVerdict.Away -> return RingVerdict.Blocked(v.reason)
-                is RoleVerdict.Here -> whys += "${role.name.lowercase()}=${v.why}"
+        for (v in armed) {
+            // Exhaustive, so a new verdict variant is a compile error here rather than a silent
+            // fall-through into "does not block".
+            when (val rv = v.verdict) {
+                is RoleVerdict.Away -> return RingVerdict.Blocked(rv.why)
+                is RoleVerdict.Present, is RoleVerdict.Vetoed, RoleVerdict.Unknown ->
+                    whys += "${v.role.name.lowercase()}=${rv.why}"
             }
         }
         return RingVerdict.Allowed(whys.joinToString(","))

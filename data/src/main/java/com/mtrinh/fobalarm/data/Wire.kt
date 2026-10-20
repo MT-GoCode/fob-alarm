@@ -61,11 +61,44 @@ object Wire {
         put("peerBlockers", JSONArray(s.peerBlockers))
         put("sentinel", s.sentinel?.let { deviceToJson(it) } ?: JSONObject.NULL)
         put("ringBlock", s.ringBlock ?: JSONObject.NULL)
+        put("away", JSONArray().apply { s.away.forEach { put(awayToJson(it)) } })
         put("lastHeartbeatMs", s.lastHeartbeatMs)
         put("testUntilMs", s.testUntilMs)
         put("testSnoozedUntilMs", s.testSnoozedUntilMs)
         put("problems", JSONArray(s.problems))
         put("warnings", JSONArray(s.warnings))
+    }
+
+    /** The tag is written from the variant, so no reader has to recognise a `why` string. */
+    private fun awayToJson(a: AwayView) = JSONObject()
+        .put("role", a.role.name)
+        .put("state", when (a.verdict) {
+            is RoleVerdict.Away -> "AWAY"
+            is RoleVerdict.Present -> "PRESENT"
+            is RoleVerdict.Vetoed -> "VETOED"
+            RoleVerdict.Unknown -> "UNKNOWN"
+        })
+        .put("why", a.verdict.why)
+
+    /**
+     * Null for a role or a state this build does not know. Dropping the view is the honest answer:
+     * decoding an unrecognised verdict as a known one would have the reader's row describe a state
+     * the writer did not report, and throwing would fail the WHOLE snapshot decode -- on the phone
+     * that dismisses the alarm -- over a field it may not even render.
+     *
+     * A reader that renders these rows must therefore treat a missing view for an armed role as
+     * unknown rather than as nothing to say.
+     */
+    private fun awayFrom(o: JSONObject): AwayView? {
+        val role = runCatching { Role.valueOf(o.optString("role")) }.getOrNull() ?: return null
+        val why = o.optString("why")
+        return AwayView(role, when (o.optString("state")) {
+            "AWAY" -> RoleVerdict.Away(why)
+            "PRESENT" -> RoleVerdict.Present(why)
+            "VETOED" -> RoleVerdict.Vetoed(why)
+            "UNKNOWN" -> RoleVerdict.Unknown
+            else -> return null
+        })
     }
 
     private fun deviceToJson(d: DeviceView) = JSONObject()
@@ -246,6 +279,9 @@ object Wire {
             } ?: emptyList(),
             sentinel = o.optJSONObject("sentinel")?.let { deviceFrom(it) },
             ringBlock = if (o.isNull("ringBlock")) null else o.optString("ringBlock").takeIf { it.isNotBlank() },
+            away = o.optJSONArray("away")?.let { a ->
+                (0 until a.length()).mapNotNull { awayFrom(a.getJSONObject(it)) }
+            } ?: emptyList(),
             lastHeartbeatMs = o.optLong("lastHeartbeatMs", 0),
             testUntilMs = o.optLong("testUntilMs", 0),
             testSnoozedUntilMs = o.optLong("testSnoozedUntilMs", 0),

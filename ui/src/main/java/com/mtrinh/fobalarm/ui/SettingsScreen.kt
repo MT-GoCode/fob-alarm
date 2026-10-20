@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.mtrinh.fobalarm.core.RingGate
+import com.mtrinh.fobalarm.core.Role
 import com.mtrinh.fobalarm.core.Settings
 import com.mtrinh.fobalarm.core.Snapshot
 
@@ -93,13 +95,22 @@ fun SettingsScreen(
         }
 
         if (isAlarmRole) {
-            Section("Away")
+            Section("Away", note = "Only a phone that is connected and healthy can stop a ring, " +
+                "and only a scheduled alarm: a nap you set by hand always rings. " +
+                "Whenever a phone cannot be judged absent, the alarm rings.")
+            // The gate's own verdict for the role, not a second reading of the presence fields:
+            // a row that disagreed with the decision it describes would be worse than no row.
+            val reach = { role: Role ->
+                s.away.firstOrNull { it.role == role }?.note(RingGate.armed(s.settings, role))
+            }
             LockedRow(locked) { on ->
                 ToggleSetting("Don't ring if the sentinel is away", s.settings.blockRingIfSentinelAway,
+                    note = reach(Role.SENTINEL),
                     enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfSentinelAway = v) } }
             }
             LockedRow(locked) { on ->
                 ToggleSetting("Don't ring if the controller is away", s.settings.blockRingIfControllerAway,
+                    note = listOfNotNull(reach(Role.CONTROLLER), CONTROLLER_AWAY_CAVEAT).joinToString(" "),
                     enabled = on) { v -> app.patch("Away") { it.copy(blockRingIfControllerAway = v) } }
             }
             LockedRow(locked) { on ->
@@ -156,10 +167,24 @@ fun LockedRow(locked: Boolean, content: @Composable (enabled: Boolean) -> Unit) 
     }
 }
 
+/**
+ * Why turning this one on is riskier than the sentinel's. Stated where it can change a decision,
+ * which is the row itself; the field's doc comment points here rather than keeping a second copy.
+ */
+private const val CONTROLLER_AWAY_CAVEAT =
+    "Only sensible if you carry the controller: a wall-mounted one going quiet usually means the " +
+        "link broke, which is exactly when the alarm must ring."
+
 @Composable
-fun ToggleSetting(label: String, value: Boolean, enabled: Boolean = true, onSet: (Boolean) -> Unit) {
+fun ToggleSetting(
+    label: String, value: Boolean, note: String? = null, enabled: Boolean = true,
+    onSet: (Boolean) -> Unit,
+) {
     Row(Modifier.fillMaxWidth().padding(vertical = S.sm), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = T.body)
+            note?.let { Text(it, fontSize = T.caption, color = Muted) }
+        }
         Switch(checked = value, onCheckedChange = onSet, enabled = enabled)
     }
 }

@@ -108,7 +108,7 @@ object Group {
 
     /**
      * When THIS phone's group last came up, on the monotonic clock. 0 means down.
-     * `ringBlockReason` refuses to block unless the group has been up since before the sentinel
+     * `RingGate.roleVerdict` refuses to block unless the group has been up since before the peer
      * was last heard -- otherwise an outage on the alarm phone (teardown, 120 s rebind backoff)
      * would read as the owner having left.
      */

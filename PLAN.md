@@ -483,3 +483,83 @@ against the string `"null"` in six places and with `isNull` in six others.
 Whether a nap missed by an outage should ring late. The engine's rule for alarms says yes; a nap is
 minutes-scale, so one resurrected hours later by a boot may be worse than none. The loss is now
 recorded either way (`nap_expired_undelivered`), so the silent-failure half is closed regardless.
+
+## 9. 0.3.114 — the away rows say what they can actually do
+
+Found by eye, on the phone, in about four seconds: with no sentinel set up, "Don't ring if the
+sentinel is away" can be switched on. It reads ON and does nothing. `RingGate.roleVerdict` treats a
+peer it has never heard from as present — every branch fails toward ringing, which is correct — so
+an inert block was indistinguishable from a working one, and the only report was a morning that rang
+when the owner expected silence.
+
+The gate was right. The screen was lying by omission.
+
+**`RoleVerdict` now has four variants where it had two**, and that is the whole fix:
+
+| variant | blocks? | what an armed switch means |
+| --- | --- | --- |
+| `Away` | yes | would suppress a scheduled alarm firing now, whatever the other role says |
+| `Present` | no | **working** — will suppress once the phone has been gone past the floor |
+| `Vetoed` | no | **inert** — power save, low battery, unfinished setup, our own link down |
+| `Unknown` | no | **inert** — no phone of that role has reported since this app started |
+
+`Present` and `Vetoed` were one `Here`. The gate treats all four exactly as it treated two, and
+every `why` token is byte-identical, so no decision moved and history reads the same. The split
+exists so the row routes on a tag rather than recognising a string, and so that a *working* block is
+never described in the same words as an inert one.
+
+The first attempt at this shipped that second failure: one sentence for all of `Here`, so an armed
+block with the sentinel at home, plugged in, reporting every 30 s said "cannot stop a ring right now
+(present:3s), so the alarm will ring" — every night, until the owner learned to ignore the line and
+then ignored it on the night it was true. Caught by adversarial review before it was committed, and
+`working-block-called-broken` is now the mutant that stops it coming back.
+
+**The rest.**
+
+- **One place gathers the gate's inputs.** `RingGate.views(…)` builds the list and
+  `RingGate.fold(settings, views)` decides from it; `Svc.views()` is the only caller of the former,
+  and `buildSnapshot` evaluates it once for both `ringBlock` and `away`. Previously the snapshot's
+  block reason and its rows each read `SystemClock`, `Group.listenerUpSinceElapsed` and `presenceOf`
+  separately, so "the row cannot disagree with the decision" was true by luck. `RingGate.verdict`,
+  `RingGate.armedRoles` and `Svc.ringBlockReason` are deleted -- the first two became wrappers with
+  one caller each, which is how two paths start. `ringBlockDecision` is still the only thing
+  that logs.
+- `RingGate.armed(settings, role)` replaces the arming `buildList`, so the UI asks the gate whether
+  a row is armed instead of reading the two booleans itself. `Role.ALARM` errors: the alarm phone's
+  own absence is not a thing, and answering "not armed" would hide the caller's mistake.
+- **Every sentence is row-local and present-tense**, which took three attempts. `fold` ORs the
+  armed roles, so one role being unable to block says nothing about whether the alarm rings: with
+  both switches on, the sentinel unknown and the controller away, "the alarm will ring" on the
+  sentinel row would contradict the controller row directly below it, and be the wrong one. Only an
+  armed `Away` may speak of the ring, because the fold returns on the first of them. The tense
+  matters for the same reason the role does: the gate decides at fire time, a phone can return in
+  between, and a nap bypasses the gate entirely — so "the **next** alarm will not ring" was wrong
+  twice over, and the three sentences that promise silence now say "scheduled".
+- `Vetoed`'s sentence names no role, deliberately: `own_link_unstable` is the alarm phone's own
+  group being down, and the row must not blame the peer for it. A test pins that exception.
+- The controller-away caveat — a wall-mounted controller going quiet usually means the *link* broke,
+  which is exactly when the alarm must ring — moved out of the `Settings` field's doc comment onto
+  the row that arms it. One copy, where it can change a decision.
+
+**Proof.** 135 tests, was 121. 46 mutants, was 32: seven refreshed because the `Here` split moved
+their target lines, fourteen new. The two that matter are `inert-block-says-nothing` (reinstates the
+shipped defect) and `working-block-called-broken` (reinstates the one review caught).
+
+### Deferred, recorded rather than done
+
+- **The Away section renders only on the alarm phone** (`isAlarmRole`), so the controller cannot see
+  or change these two settings though it edits every other setting remotely. A product decision, not
+  a defect, and not what was asked for. The wire carries `away` faithfully, so it is a one-line UI
+  edit — but whoever makes it must render a **missing** view for an armed role as *unknown*, not as
+  nothing to say, or the original defect comes back on that phone. `Wire.awayFrom` drops a view
+  whose role or state this build does not recognise, which is deliberate: throwing would fail the
+  whole snapshot decode, on the phone that dismisses the alarm, over a field it may not render.
+- **`Status.kt`'s sentinel line uses a hard-coded `120_000`** while the gate uses `awayFloorMs`
+  (default 600 s). With the sentinel silent five minutes, Status says "away 5m" and the new row says
+  it is present. Both are correct — they answer different questions, "is it talking" and "is it
+  absent enough to block" — but on one screen they read as a contradiction. The fix is wording, not
+  logic, and it predates this diff.
+- **`Vetoed`'s raw token in the row** (`power_save`, `low_battery:14`, `gates:a|b`). Each has a
+  different owner action, so plain English would need a tag per reason — five variants' worth of
+  types for copy, when Status already renders the peer's battery, power-save state and failing gates
+  as proper rows.

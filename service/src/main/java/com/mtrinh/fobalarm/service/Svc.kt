@@ -91,15 +91,18 @@ object Svc : AlarmHost {
         // The screen wants a wall-clock instant; convert back at read time.
         lastSeenMs = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - p.lastSeenElapsed))
 
-    /** The live inputs the pure gate needs. Read once per decision, never cached. */
-    private fun ringVerdict(): RingVerdict = RingGate.verdict(
+    /**
+     * The live inputs the pure gate needs, gathered in ONE place. Read once per decision, never
+     * cached: the ring decision and the rows that explain it must not be able to read a different
+     * clock, link or peer slot from each other.
+     *
+     * **Pure** -- it is read by every snapshot, so it must not log. [ringBlockDecision] is the one
+     * place that records an answer.
+     */
+    private fun views(): List<AwayView> = RingGate.views(
         settings, SystemClock.elapsedRealtime(), Group.listenerUpSinceElapsed, ::presenceOf)
 
-    /**
-     * Why a ring is blocked, or null to ring. **Pure** -- it is read by every snapshot, so it must
-     * not log. [ringBlockDecision] is the one place that records an answer.
-     */
-    fun ringBlockReason(): String? = (ringVerdict() as? RingVerdict.Blocked)?.reason
+    private fun ringVerdict(): RingVerdict = RingGate.fold(settings, views())
 
     /**
      * The gate, called once per fire. Logs the answer either way, so every morning's decision is
@@ -374,6 +377,9 @@ object Svc : AlarmHost {
 
     private fun buildSnapshot(): Snapshot {
         val gates = GateEval.current(app, state.settings, lastNextFire != null)
+        // Only the alarm phone judges presence, so only it has rows to show -- and an empty list
+        // folds to NotArmed, which is the same null block reason the role check gave before.
+        val awayNow = if (state.settings.role == Role.ALARM) views() else emptyList()
         val s = state.session
         val ov = state.override
         val ovFire = (ov as? Override.Time)?.fireAtMs
@@ -419,7 +425,10 @@ object Svc : AlarmHost {
             lastEvents = recentEvents(10),
             // Stale peer reports must not linger after the peer goes away.
             sentinel = sentinelPresence?.let { toDeviceView(it, Role.SENTINEL) },
-            ringBlock = if (state.settings.role == Role.ALARM) ringBlockReason() else null,
+            // One evaluation behind both, so the block reason and the rows that explain it cannot
+            // be reading a different clock, link or peer slot from each other.
+            ringBlock = (RingGate.fold(state.settings, awayNow) as? RingVerdict.Blocked)?.reason,
+            away = awayNow,
             peerBlockers = if (peerDevice?.lastSeenMs?.let {
                     System.currentTimeMillis() - it < RingGate.PRESENT_WINDOW_MS } == true) peerBlockers else emptyList(),
             lastHeartbeatMs = peerDevice?.lastSeenMs ?: 0,

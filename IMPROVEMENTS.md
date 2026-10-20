@@ -1827,3 +1827,51 @@ unrepresentable* exists to stop defects, and on a path where this round introduc
 fixing others, a no-behaviour-change refactor with a wide blast radius is a cost with nothing
 attached. The evidence is in PLAN.md so a later round can disagree with the reasoning rather than
 rediscover the question.
+
+## The away switches could be armed against a phone that was not there
+
+With no sentinel set up, "Don't ring if the sentinel is away" could be switched on. It read ON and
+did nothing: `RingGate.roleVerdict` treats a peer it has never heard from as present, because every
+branch of the gate fails toward ringing. An inert block was indistinguishable from a working one,
+and the only report was a morning that rang when silence was expected. Found by eye, on the phone.
+
+The gate was right; the screen was lying by omission. `RoleVerdict` had two variants and needed
+four — `Present` (armed and working, will block once the phone leaves) and `Vetoed` (armed and
+inert: power save, low battery, unfinished setup, our own link down) were one `Here`. The gate
+treats all four exactly as it treated two and every `why` token is unchanged, so no decision moved.
+The split exists so the row that arms a block routes on a tag instead of recognising a string.
+
+**The first attempt shipped the same failure reversed.** One sentence for all of `Here` meant an
+armed block with the sentinel at home, plugged in, reporting every 30 s said *"cannot stop a ring
+right now (present:3s), so the alarm will ring"* — every night, until the line is ignored on the
+night it is true. `Status.kt`'s own comment had already named that trap: a block line is shown
+"only when a ring would actually be blocked right now, so it is never a theoretical warning the
+owner learns to ignore". Review caught it before the commit; `working-block-called-broken` is the
+mutant that keeps it out.
+
+It took three passes to get eight sentences honest, and every correction was the same mistake in a
+different place — a row stating something it is not in a position to know:
+
+- **"No sentinel has *ever* connected"** is false after any restart. Presence is in memory only, on
+  purpose, so a cold start reads never-seen for a sentinel that has run for months. Now "has
+  reported since this app started".
+- **"the *next* alarm will not ring"** was wrong twice over: the gate decides at fire time and the
+  phone can return in between, and a nap goes straight to `Ring` without consulting the gate. Now
+  present tense, and the three sentences that promise silence say "scheduled".
+- **"so the alarm will ring"** is a whole-gate claim from a row that sees one role. `fold` ORs the
+  armed roles: with both switches on, the sentinel unknown and the controller away, the gate blocks
+  — so that line on the sentinel row would have contradicted the controller row directly below it.
+  Only an armed `Away` may speak of the ring, because the fold returns on the first of them.
+- **"the sentinel is not in a state that can stop a ring"** blamed the peer for `own_link_unstable`,
+  which is the alarm phone's *own* group being down. `Vetoed` now names no role at all.
+- **"The sentinel is here"** was a sighting claim from `Present`, which only means "silent for less
+  than the floor" — and the floor goes up to 24 h, so a phone gone 50 minutes under a 1 h limit read
+  as present. Now "has not been gone past the away limit".
+
+`RingGate.views` gathers the gate's inputs and `RingGate.fold` decides from them; `Svc.views()` is
+the only caller, and `buildSnapshot` evaluates it once for both the block reason and the rows — they
+had been reading the clock, the link and the peer slots separately, so "the row cannot disagree with
+the decision" was true by luck. `RingGate.verdict` and `RingGate.armedRoles` went with it, each
+having become a wrapper with a single caller.
+
+135 tests, 46 mutants, every one killed by the test that names it.
