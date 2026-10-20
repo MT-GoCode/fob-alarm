@@ -542,7 +542,17 @@ then ignored it on the night it was true. Caught by adversarial review before it
   the row that arms it. One copy, where it can change a decision.
 
 **Proof.** 135 tests, was 121. 46 mutants, was 32: seven refreshed because the `Here` split moved
-their target lines, fourteen new. The two that matter are `inert-block-says-nothing` (reinstates the
+their target lines, fourteen new.
+
+The claim this change rests on is that no ring decision moved, and reading the diff is not proof of
+it. So the pre-split `RingGate` was taken verbatim from `HEAD~1` as an oracle and compared against
+the live gate over the cartesian product of both switches, five away limits, five link states, and
+every peer shape that reaches a distinct branch -- silence either side of the 120 s and floor
+boundaries, battery -1/0/19/20/80, plugged, power save, unreported power save, failing gates, and
+absent -- for both roles. **240,300 combinations, no divergence**, comparing the whole `RingVerdict`
+including the `Blocked` reason and the joined `Allowed` whys, so the strings that reach history are
+pinned too. The probe was proved non-vacuous by changing `< 20` to `in 0..19` in the oracle, which
+reddened it, and then deleted: the old code is gone, so a permanent copy of it would be cruft. The two that matter are `inert-block-says-nothing` (reinstates the
 shipped defect) and `working-block-called-broken` (reinstates the one review caught).
 
 ### Deferred, recorded rather than done
