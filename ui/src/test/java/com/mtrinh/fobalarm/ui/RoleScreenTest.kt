@@ -1,16 +1,19 @@
 package com.mtrinh.fobalarm.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.mtrinh.fobalarm.core.Role
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -29,6 +32,31 @@ class RoleScreenTest {
 
     @get:Rule val compose = createComposeRule()
 
+    /**
+     * Rendering a screen must never change the alarm. Asserted here rather than by a fake that
+     * throws: `LocalStateClient` wraps host calls in `runCatching`, so a throw is swallowed and
+     * turned into a snackbar, a retry, or nothing at all.
+     */
+    @After fun `rendering changed nothing`() {
+        assertEquals(emptyList(), lastFakeHost?.mutations ?: emptyList<String>(),
+            "a screen mutated the alarm while merely being rendered")
+    }
+
+    /**
+     * Binds a label to ITS value. Two bare `exists` calls are two independent facts: with one
+     * shared battery number, swapping the two power rows' sources left both strings present and
+     * the mutant survived.
+     *
+     * Matched as ONE node carrying both, which is what `Line`'s merged semantics make it. Sibling
+     * matching could not work: unmerged, every Text on the screen was a sibling of every other, so
+     * both "This phone" nodes had a sibling reading "37%".
+     */
+    private fun assertRow(label: String, value: String) {
+        compose.onNode(
+            hasText(label, substring = false) and hasText(value, substring = true)
+        ).assertExists()
+    }
+
     private fun exists(text: String, substring: Boolean = true) =
         compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
 
@@ -40,7 +68,10 @@ class RoleScreenTest {
      * authority, ring-takeover and battery-label tests would all have stayed green.
      */
     private fun assertOnStatusTab() {
-        compose.onNodeWithText("Power", substring = true).assertIsDisplayed()
+        // Exists, not isDisplayed: the alarm phone's Status screen is long enough that "Power"
+        // sits below the fold, and whether a row happens to be on-screen at this window height is
+        // a layout fact, not the thing any of these tests is about.
+        compose.onNodeWithText("Power", substring = true).assertExists()
         assertTrue(!exists(M_TRYING), "this is the connect screen, not the Status tab")
     }
 
@@ -56,8 +87,10 @@ class RoleScreenTest {
         // `$OWN_BATTERY%`, not the words "This phone": that label also appears on the Permissions
         // row and as a Setup heading, so asserting it passed whether or not the power row
         // rendered -- which the `sentinel-own-power-row-dropped` mutant proved by surviving.
-        assertTrue(exists("$OWN_BATTERY%"), "a sentinel must account for its own power: the gate " +
-                "vetoes its block below 20% unplugged, so the owner has to see it")
+        // Bound to its label: the gate vetoes a sentinel's block below 20% unplugged, so the
+        // owner must see THIS phone's battery and not some other row's.
+        assertRow("This phone", "$OWN_BATTERY%")
+        assertRow("Alarm phone", "$PEER_BATTERY%")
         assertTrue(!exists("Controller"), "a sentinel has no controller row to show")
     }
 
@@ -66,19 +99,24 @@ class RoleScreenTest {
         // never being rendered for anyone.
         compose.renderRoot(Role.CONTROLLER)
         assertOnStatusTab()
-        assertTrue(exists("Controller"), "the controller IS the phone that stops it")
-        // And the row carries THIS phone's battery, not the alarm phone's. Asserting the label
-        // alone let `Role.CONTROLLER -> s.peer` survive: the row would still be there, showing
-        // the wrong phone.
-        assertTrue(exists("$OWN_BATTERY%"), "the controller's row must be the controller's")
+        assertRow("Controller", "$OWN_BATTERY%")
+        assertRow("Alarm phone", "$PEER_BATTERY%")
     }
 
-    // --- the sentinel has no authority over the alarm --------------------------
+    @Test fun `the alarm phone's power rows are its own and its controller's`() {
+        // Each label bound to its own phone's battery, in both directions.
+        compose.renderRoot(Role.ALARM)
+        assertOnStatusTab()
+        assertRow("Alarm phone", "$OWN_BATTERY%")
+        assertRow("Controller", "$PEER_BATTERY%")
+    }
 
     @Test fun `a sentinel is offered no action that changes the alarm`() {
         compose.renderRoot(Role.SENTINEL)
         assertOnStatusTab()
-        listOf("Skip it", "Move it", "Nap for", "Nap until", "Revert").forEach {
+        // "Revert" is not here: it never renders for anyone with tomorrow = NONE, so asserting
+        // its absence could not fail and was not coverage.
+        listOf("Skip it", "Move it", "Nap for", "Nap until").forEach {
             assertTrue(!exists(it), "a sentinel must not be able to $it: it is the pocket phone " +
                     "the design distrusts, and the mutating routes carry no role")
         }
@@ -93,8 +131,6 @@ class RoleScreenTest {
             assertTrue(exists(it), "the controller is the phone that acts, and lost: $it")
         }
     }
-
-    // --- tabs ------------------------------------------------------------------
 
     @Test fun `a sentinel has exactly Status and Setup`() {
         // Hand-written, in owner language, not read from any table in the production code.
@@ -113,8 +149,6 @@ class RoleScreenTest {
         }
     }
 
-    // --- a ring must not take over a sentinel's screen -------------------------
-
     @Test fun `a ringing alarm takes over the controller's screen`() {
         // The positive arm. Without it, a change that stopped the ring screen appearing for
         // ANYONE would leave the sentinel test below green and the product broken.
@@ -130,10 +164,6 @@ class RoleScreenTest {
             "a sentinel cannot dismiss, so a ring must not seize its screen and offer it a " +
                 "button that belongs to a controller")
     }
-
-    // --- a joiner that has never heard from the alarm phone --------------------
-
-    // --- which group am I paired with --------------------------------------------
 
     // --- defect 3, now provable: who is shown the HOST's editor -----------------
 

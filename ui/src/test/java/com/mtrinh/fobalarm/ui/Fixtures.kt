@@ -19,34 +19,39 @@ import kotlinx.coroutines.runBlocking
  */
 class FakeHost(var snap: Snapshot) : AlarmHost {
     /**
-     * Reads answer; everything that CHANGES the alarm throws. Rendering a screen must never
-     * mutate the thing it renders, and a fake that quietly returned a snapshot would let such a
-     * call pass unnoticed -- which is the one bug class a screen test is uniquely placed to catch.
+     * Every call that would CHANGE the alarm, in order. Rendering a screen must add nothing here.
+     *
+     * Recorded rather than thrown: `LocalStateClient` wraps every host call in `runCatching`,
+     * which swallows `error()` -- `act()` turns it into a "not saved" snackbar, `dismiss()` retries
+     * for ten seconds, and `lock()` ignores the result entirely. So a throwing fake fails nothing,
+     * and "the suite passes" said nothing at all about screens mutating what they render. It is
+     * asserted in an `@After` instead, where it cannot be swallowed.
      */
-    private fun refuse(what: String): Nothing =
-        error("a screen rendered and called $what; rendering must not change the alarm")
+    val mutations = mutableListOf<String>()
+
+    private fun record(what: String): Snapshot { mutations += what; return snap }
 
     override fun snapshot() = snap
     override fun history(sinceSeq: Long, limit: Int) = snap.lastEvents
     override fun checkClock() = snap
     override fun export() = Backup(1, snap.settings, snap.lastEvents, NOW)
 
-    override fun dismiss(ringId: String, requestId: String, actor: Actor) = refuse("dismiss")
-    override fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor) = refuse("patchSettings")
-    override fun nap(minutes: Int, requestId: String, actor: Actor) = refuse("nap")
-    override fun napUntil(hhmm: String, requestId: String, actor: Actor) = refuse("napUntil")
-    override fun clearNap(requestId: String, actor: Actor) = refuse("clearNap")
-    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor) = refuse("setOverride")
-    override fun clearOverride(requestId: String, actor: Actor) = refuse("clearOverride")
-    override fun unlock(secret: String) = refuse("unlock")
-    override fun lock() = refuse("lock")
-    override fun snooze() = refuse("snooze")
-    override fun testRing(silent: Boolean, requestId: String) = refuse("testRing")
-    override fun stopTest() = refuse("stopTest")
+    override fun dismiss(ringId: String, requestId: String, actor: Actor) = record("dismiss")
+    override fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor) = record("patchSettings")
+    override fun nap(minutes: Int, requestId: String, actor: Actor) = record("nap")
+    override fun napUntil(hhmm: String, requestId: String, actor: Actor) = record("napUntil")
+    override fun clearNap(requestId: String, actor: Actor) = record("clearNap")
+    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor) = record("setOverride")
+    override fun clearOverride(requestId: String, actor: Actor) = record("clearOverride")
+    override fun snooze() = record("snooze")
+    override fun testRing(silent: Boolean, requestId: String) = record("testRing")
+    override fun stopTest() = record("stopTest")
+    override fun unlock(secret: String): String { mutations += "unlock"; return "token" }
+    override fun lock() { mutations += "lock" }
 }
 
-fun appState(snap: Snapshot, scope: CoroutineScope, isLocal: Boolean) =
-    AppState(LocalStateClient(FakeHost(snap)), scope, isLocal = isLocal)
+/** The host behind the last [renderRoot], so an `@After` can ask what the render did. */
+internal var lastFakeHost: FakeHost? = null
 
 /** Every gate passing, so a test that is not about setup is not derailed by it. */
 fun gatesAllPass() = Gates(
@@ -58,14 +63,19 @@ fun gatesAllPass() = Gates(
     batteryUnrestricted = true)
 
 fun device(
-    role: Role?, battery: Int = 80, plugged: Boolean = false, id: String = "dev-${role?.name}",
+    role: Role?, battery: Int = PEER_BATTERY, plugged: Boolean = false, id: String = "dev-${role?.name}",
     lastSeenMs: Long = NOW, appVersion: String = "0.3",
 ) = DeviceView(battery, plugged, appVersion, role, id, lastSeenMs)
 
 const val NOW = 1_800_000_000_000L
 
-/** Distinct from every other device in the fixtures, so "whose battery is this" is unambiguous. */
+/**
+ * Distinct per phone, so "whose battery is this" is unambiguous AND a label can be bound to its
+ * value. With one shared number, swapping the two rows' sources left both strings present and the
+ * mutant survived.
+ */
 const val OWN_BATTERY = 37
+const val PEER_BATTERY = 64
 
 /**
  * A snapshot with every field defaulted to "nothing interesting is happening", so a test names
@@ -131,7 +141,7 @@ fun ComposeContentTestRule.renderRoot(
     staleFor: Long = 0,
 ): AppState {
     var t = NOW
-    val host = FakeHost(snap ?: snapshot(role))
+    val host = FakeHost(snap ?: snapshot(role)).also { lastFakeHost = it }
     val app = AppState(LocalStateClient(host), CoroutineScope(Dispatchers.Unconfined),
         isLocal = role == Role.ALARM, now = { t })
     // Installed synchronously BEFORE setContent. Arriving later leaves the tree a spinner, and

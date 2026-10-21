@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import com.mtrinh.fobalarm.core.*
@@ -20,9 +21,8 @@ import com.mtrinh.fobalarm.core.*
 fun StatusBlock(
     s: Snapshot, role: Role, nowMs: Long, localGates: Gates?, onCheckClock: () -> Unit,
 ) {
-    // ROUTED from RootScreen, not re-derived from the snapshot. Reading `s.self.role` made the
-    // role two facts that could disagree, and needed a `?: Role.ALARM` fallback for a case no
-    // phone produces -- a silent default on the screen that answers "will it ring".
+    // ROUTED from RootScreen, never re-derived from the snapshot: two sources for one fact can
+    // disagree, and deriving it needs a default for a state no phone produces.
     val iAmAlarm = role == Role.ALARM
     val problems = s.problems
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
@@ -190,10 +190,18 @@ private fun PermissionLine(label: String, g: Gates, role: Role) {
 private fun battery(d: DeviceView): String =
     (if (d.batteryPct < 0) "battery unknown" else "${d.batteryPct}%") + if (d.plugged) ", plugged in" else ", on battery"
 
-/** One status line: what, then its state, coloured by whether it is fine. */
+/**
+ * One status line: what, then its state, coloured by whether it is fine.
+ *
+ * Merged semantics, so the label and its value are ONE node. Unmerged, every Text on the screen
+ * was a sibling of every other: a screen reader read twenty-two loose fragments instead of
+ * "Controller, 64%", and nothing could tell which value belonged to which label -- so swapping two
+ * rows' sources left both strings present and went unnoticed.
+ */
 @Composable
 private fun Line(label: String, value: String, ok: Boolean?) {
-    Row(Modifier.fillMaxWidth().padding(vertical = S.xs), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.padding(vertical = S.xs),
+        verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = T.body, modifier = Modifier.weight(1f))
         Text(value, fontSize = T.label, fontWeight = FontWeight.SemiBold,
             color = when (ok) { true -> Good; false -> Bad; null -> MaterialTheme.colorScheme.onSurface })

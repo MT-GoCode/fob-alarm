@@ -136,12 +136,15 @@ data class GateInfo(
          */
         private fun needs(role: Role): Set<String> = when (role) {
             Role.ALARM -> ALL.map { it.key }.toSet()
-            Role.CONTROLLER -> CONTROLLER_NEEDS
-            Role.SENTINEL -> CONTROLLER_NEEDS - "fullScreenIntent"
+            Role.CONTROLLER -> setOf("foregroundService", "fullScreenIntent",
+                "localNetworkPermission", "batteryUnrestricted", "notHibernating")
+            // Stated in full, NOT as the controller's set minus one. Subtracting made a sentinel
+            // "a controller without alerting", so a permission added for the controller later
+            // would reach the sentinel with nobody choosing it -- which is exactly the defect
+            // this function was changed to fix.
+            Role.SENTINEL -> setOf("foregroundService",
+                "localNetworkPermission", "batteryUnrestricted", "notHibernating")
         }
-
-        private val CONTROLLER_NEEDS = setOf("foregroundService", "fullScreenIntent",
-            "localNetworkPermission", "batteryUnrestricted", "notHibernating")
         /** Not ring-blocking, but the two phones cannot stay linked for a month without them. */
         private val PRODUCT_NEEDS = setOf("localNetworkPermission", "batteryUnrestricted")
     }

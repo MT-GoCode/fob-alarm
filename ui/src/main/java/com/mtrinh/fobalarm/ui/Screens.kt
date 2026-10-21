@@ -89,10 +89,9 @@ fun RootScreen(
                     Section("What it last said")
                     Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, role, app.nowMs, app.localGates) { app.checkClock() } } }
                 }
-                // Never a dead end, same rule as the spinner below. Before this screen existed
-                // for joiners, an un-connected phone fell through to the spinner, which carries
-                // the switcher; routing joiners here instead took the only way out of a wrongly
-                // chosen role away, leaving clearing app data as the fix.
+                // Never a dead end, the same rule the spinner below states: a role chosen
+                // wrongly before first contact must stay changeable, or clearing app data is the
+                // only way out. Every branch of this screen has to honour it, not just one.
                 Spacer(Modifier.height(S.lg))
                 roleSwitcher()
                 Spacer(Modifier.height(S.lg))
