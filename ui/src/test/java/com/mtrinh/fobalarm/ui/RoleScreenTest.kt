@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.mtrinh.fobalarm.core.Role
 import org.junit.Rule
 import org.junit.Test
@@ -120,6 +121,45 @@ class RoleScreenTest {
     }
 
     // --- a joiner that has never heard from the alarm phone --------------------
+
+    // --- which group am I paired with --------------------------------------------
+
+    // --- defect 3, now provable: who is shown the HOST's editor -----------------
+
+    @Test fun `a sentinel is shown the joiner summary and never the host's editor`() {
+        // Defect 3 as shipped: a sentinel fell through a two-way branch to the host's credential
+        // editor -- offered the group's own name and passphrase, with editing gated behind the
+        // ALARM phone's password. It was unprovable while the choice lived in `:app`; the slots
+        // are split now, so `:ui` makes it and this test can see it.
+        compose.renderRoot(Role.SENTINEL)
+        compose.onNodeWithText("Setup", substring = false).performClick()
+        assertTrue(exists(M_JOINER_SUMMARY), "a sentinel must be told which group it joined")
+        assertTrue(!exists(M_HOST_PAIRING), "a sentinel joins a group; it does not host one")
+    }
+
+    @Test fun `the controller is shown the joiner summary too`() {
+        compose.renderRoot(Role.CONTROLLER)
+        compose.onNodeWithText("Setup", substring = false).performClick()
+        assertTrue(exists(M_JOINER_SUMMARY))
+        assertTrue(!exists(M_HOST_PAIRING), "only the phone that hosts the group edits it")
+    }
+
+    @Test fun `the alarm phone is shown the host's editor`() {
+        // The opposite arm, so the two tests above cannot pass by the editor never rendering.
+        compose.renderRoot(Role.ALARM)
+        compose.onNodeWithText("Setup", substring = false).performClick()
+        assertTrue(exists(M_HOST_PAIRING), "the alarm phone hosts the group and edits it")
+        assertTrue(!exists(M_JOINER_SUMMARY))
+    }
+
+    @Test fun `only the alarm phone is offered the device editors`() {
+        // `deviceSettings` was nullable, so whether `:app` passed it WAS the decision. Now it is
+        // always passed and `:ui` decides, which is why this can be asserted at all.
+        compose.renderRoot(Role.CONTROLLER)
+        compose.onNodeWithText("Settings", substring = false).performClick()
+        assertTrue(!exists(M_DEVICE_SETTINGS), "the ringtone and password belong to the phone " +
+                "that rings; a controller editing them would be editing nothing it owns")
+    }
 
     @Test fun `a joiner with no snapshot is shown the connect screen, not a dead spinner`() {
         // Defects 1 and 2 collapse into this one observable. The sentinel used to reach `s!!` and

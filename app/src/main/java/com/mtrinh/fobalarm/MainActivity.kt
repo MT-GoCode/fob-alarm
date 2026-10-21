@@ -144,16 +144,16 @@ class MainActivity : ComponentActivity() {
                             RootScreen(
                                 app = app,
                                 role = chosen,
-                                pairing = { Pairing(chosen) },
-                                deviceSettings = if (chosen == Role.ALARM) ({ DeviceSettings() }) else null,
+                                // Content, unconditionally. Not one of these is a decision:
+                                // every role defect this app shipped was `:app` deciding by
+                                // whether it passed a slot at all, which no screen test could
+                                // see. `:ui` decides which of these to render, from the role.
+                                hostPairing = { HostPairing() },
+                                joinerSummary = { JoinerSummary() },
+                                deviceSettings = { DeviceSettings() },
                                 roleSwitcher = { RoleSwitcher() },
+                                trying = { Trying() },
                                 onFixGate = { fix(it) },
-                                // Both non-alarm roles, not just the controller. This screen is
-                                // the ONLY place the group name and passphrase can be entered, and
-                                // without them LinkService never joins -- so a sentinel without it
-                                // polls an address it has never learned, forever. It carries no
-                                // authority: a name, a passphrase, a permission button and a log.
-                                trying = if (chosen != Role.ALARM) ({ Trying() }) else null,
                             )
                         }
                     }
@@ -289,29 +289,28 @@ class MainActivity : ComponentActivity() {
     // ---- role-conditional UI ------------------------------------------------
 
     /**
-     * Pairing. On the phone that HOSTS the group: the name and passphrase, editable. On a phone
-     * that JOINS one: which group it is configured to join, read-only, with where to change it.
-     * Neither is the live link; the bar at the top of every screen is.
+     * What a phone that JOINS a group is told about it: which group, read-only, and where to
+     * change it. No role branch -- `:ui` decides who sees this, so that choice is testable.
      */
     @Composable
-    private fun Pairing(role: Role) {
+    private fun JoinerSummary() {
         val snap = if (::app.isInitialized) app.snapshot else null
         val set = !snap?.settings?.passphrase.isNullOrBlank()
-        // Exhaustive, so a fourth role cannot inherit a path by being the `else`. As a two-way
-        // branch this gave the SENTINEL the host's editor -- offering it the alarm phone's own
-        // credentials, and gating its own join details behind the ALARM phone's password.
-        val hosts = when (role) {
-            Role.ALARM -> true
-            Role.CONTROLLER, Role.SENTINEL -> false
-        }
-        if (!hosts) {
-            Section("Pairing")
-            // The configured group, not the live link: the bar at the top shows the link.
-            Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",
-                fontSize = T.body, color = if (set) Muted else Bad)
-            Text("To change the name or passphrase, disconnect first. The connecting screen has the fields.", fontSize = T.caption, color = Muted)
-            return
-        }
+        Section("Pairing")
+        // The configured group, not the live link: the bar at the top shows the link.
+        Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",
+            fontSize = T.body, color = if (set) Muted else Bad)
+        Text("To change the name or passphrase, disconnect first. The connecting screen has the fields.", fontSize = T.caption, color = Muted)
+    }
+
+    /**
+     * What the phone that HOSTS the group edits: the name and passphrase it serves. Not the live
+     * link; the bar at the top of every screen is that.
+     */
+    @Composable
+    private fun HostPairing() {
+        val snap = if (::app.isInitialized) app.snapshot else null
+        val set = !snap?.settings?.passphrase.isNullOrBlank()
 
         val locked = (snap?.settings?.hasPassword ?: true) && !app.unlocked
         var name by remember(snap?.settings?.ssid) { mutableStateOf(snap?.settings?.ssid ?: Settings.DEFAULT_SSID) }

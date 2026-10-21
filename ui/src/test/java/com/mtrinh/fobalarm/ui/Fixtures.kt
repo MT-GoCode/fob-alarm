@@ -96,7 +96,8 @@ fun snapshot(
     problems = problems, warnings = warnings)
 
 /** Markers, so a test can tell WHICH slot :ui chose to render rather than trusting that it did. */
-const val M_PAIRING = "MARKER-PAIRING"
+const val M_HOST_PAIRING = "MARKER-HOST-PAIRING"
+const val M_JOINER_SUMMARY = "MARKER-JOINER-SUMMARY"
 const val M_DEVICE_SETTINGS = "MARKER-DEVICE-SETTINGS"
 const val M_ROLE_SWITCHER = "MARKER-ROLE-SWITCHER"
 const val M_TRYING = "MARKER-TRYING"
@@ -105,9 +106,11 @@ const val M_TRYING = "MARKER-TRYING"
  * The ONE way a screen test puts a screen on the screen.
  *
  * Every test goes through here so that changing `RootScreen`'s signature edits this function and
- * nothing else. The slot defaults mirror what `:app` passes today -- which is a characterisation,
- * not a guarantee: whether `:app` passes them correctly is a decision `:app` holds and no test
- * here can see. That gap is the point of a later stratum, and is recorded in DEBT.
+ * nothing else -- which it just did, when the slots stopped being nullable.
+ *
+ * No slot is conditional, because `:app` no longer makes them conditional: every role decision is
+ * now `:ui`'s, and therefore visible from here. The residue is only what composable `:app` names
+ * for each slot, and the content of those composables.
  *
  * [staleFor] advances the clock AFTER the snapshot is installed, which is the only way to build
  * the state that matters most: a joiner holding a snapshot it has not heard about recently.
@@ -117,8 +120,6 @@ fun ComposeContentTestRule.renderRoot(
     role: Role,
     snap: Snapshot? = snapshot(role),
     staleFor: Long = 0,
-    trying: (@Composable () -> Unit)? = if (role != Role.ALARM) ({ Text(M_TRYING) }) else null,
-    deviceSettings: (@Composable () -> Unit)? = if (role == Role.ALARM) ({ Text(M_DEVICE_SETTINGS) }) else null,
 ): AppState {
     var t = NOW
     val host = FakeHost(snap ?: snapshot(role))
@@ -131,11 +132,15 @@ fun ComposeContentTestRule.renderRoot(
     app.syncClock()
     setContent {
         FobTheme {
+            // Every slot passed unconditionally, exactly as `:app` does. There is no wiring
+            // decision left for a test to accidentally make on `:ui`'s behalf -- which is what
+            // made the old `trying`-is-null test tautological.
             RootScreen(app, role,
-                pairing = { Text(M_PAIRING) },
-                deviceSettings = deviceSettings,
+                hostPairing = { Text(M_HOST_PAIRING) },
+                joinerSummary = { Text(M_JOINER_SUMMARY) },
+                deviceSettings = { Text(M_DEVICE_SETTINGS) },
                 roleSwitcher = { Text(M_ROLE_SWITCHER) },
-                trying = trying)
+                trying = { Text(M_TRYING) })
         }
     }
     return app

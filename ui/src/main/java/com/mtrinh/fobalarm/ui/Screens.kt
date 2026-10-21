@@ -45,16 +45,18 @@ import com.mtrinh.fobalarm.core.entries
 fun RootScreen(
     app: AppState,
     role: Role,
-    pairing: @Composable () -> Unit,                  // both roles, role-specific content
-    deviceSettings: (@Composable () -> Unit)? = null, // alarm phone: ringtone, password
-    roleSwitcher: @Composable () -> Unit,
-    onFixGate: (String) -> Unit = {},
     /**
-     * CONTROLLER and SENTINEL: the whole "trying to connect" screen. Name, passphrase, permission,
-     * log. Required for both, because it is the only place the group credentials can be entered
-     * and neither role can reach the alarm phone without them.
+     * Content, never decisions. Every slot is non-null and passed unconditionally: when a slot
+     * was nullable, whether `:app` passed it WAS the role decision, and no test here could see
+     * it. Four role defects lived in exactly that gap. Which slot gets rendered, for which role,
+     * is decided below -- in the module whose screens are under test.
      */
-    trying: (@Composable () -> Unit)? = null,
+    hostPairing: @Composable () -> Unit,
+    joinerSummary: @Composable () -> Unit,
+    deviceSettings: @Composable () -> Unit,
+    roleSwitcher: @Composable () -> Unit,
+    trying: @Composable () -> Unit,
+    onFixGate: (String) -> Unit = {},
 ) {
     val isAlarmRole = role == Role.ALARM
     val s = app.snapshot
@@ -76,7 +78,9 @@ fun RootScreen(
     val ringing = s != null && role != Role.SENTINEL &&
             (s.ring != null || s.testUntilMs > s.serverTimeMs) &&
             (isAlarmRole || app.nowMs < liveUntil)
-    if (!isAlarmRole && !app.connected && !ringing && trying != null) {
+    // A phone that JOINS a group and cannot currently reach it gets the connect screen. The
+    // decision is the role, not whether someone handed us a composable.
+    if (!isAlarmRole && !app.connected && !ringing) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             LinkBar(app, isAlarmRole)
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = S.page)) {
@@ -170,12 +174,13 @@ fun RootScreen(
         Box(Modifier.padding(pad).consumeWindowInsets(pad).alpha(if (isAlarmRole || app.connected) 1f else 0.55f)) {
             when (tab) {
                 0 -> WaitingScreen(app, s, role)
-                1 -> SetupScreen(app, s, role, onFixGate, pairing,
+                1 -> SetupScreen(app, s, role, onFixGate, hostPairing, joinerSummary,
                         // The sentinel has no Settings tab, which is where this otherwise lives.
                         extra = if (role == Role.SENTINEL) roleSwitcher else null)
                 2 -> SettingsScreen(app, s, isAlarmRole,
-                        deviceSettings = deviceSettings?.let { ds -> { pairing(); ds() } },
-                        roleSwitcher = if (isAlarmRole) roleSwitcher else ({ pairing(); roleSwitcher() }))
+                        // The device editors belong to the phone that owns the hardware.
+                        deviceSettings = if (isAlarmRole) deviceSettings else null,
+                        roleSwitcher = roleSwitcher)
                 else -> HistoryScreen(app)
             }
         }
@@ -610,7 +615,8 @@ private fun WaitingScreen(app: AppState, s: Snapshot, role: Role) {
 @Composable
 private fun SetupScreen(
     app: AppState, s: Snapshot, role: Role,
-    onFix: (String) -> Unit, pairing: @Composable () -> Unit,
+    onFix: (String) -> Unit,
+    hostPairing: @Composable () -> Unit, joinerSummary: @Composable () -> Unit,
     /** Appended at the end. The sentinel's role switcher, which has no Settings tab to live on. */
     extra: (@Composable () -> Unit)? = null,
 ) {
@@ -660,7 +666,14 @@ private fun SetupScreen(
             compatMissing.forEach { (info, _) -> Text(info.explain, fontSize = T.label, color = Muted) }
         }
 
-        if (isAlarmRole) pairing()
+        // EVERY role: Setup is the one tab all three have, and a phone that joins a group has to
+        // be able to see which group that is. Exhaustive, so a fourth role cannot inherit the
+        // host's editor by being the `else` -- which is the shape of every role defect this app
+        // has shipped.
+        when (role) {
+            Role.ALARM -> hostPairing()
+            Role.CONTROLLER, Role.SENTINEL -> joinerSummary()
+        }
         extra?.invoke()
     }
 }
