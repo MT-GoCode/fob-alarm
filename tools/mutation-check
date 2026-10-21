@@ -33,6 +33,8 @@ GATE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/Gate.kt"
 WIRE = "data/src/main/java/com/mtrinh/fobalarm/data/Wire.kt"
 GATEINFO = "core/src/main/kotlin/com/mtrinh/fobalarm/core/GateInfo.kt"
 SETTINGSSOURCE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/SettingsSource.kt"
+STATUS = "ui/src/main/java/com/mtrinh/fobalarm/ui/Status.kt"
+SCREENS = "ui/src/main/java/com/mtrinh/fobalarm/ui/Screens.kt"
 
 # (id, file, exact text to replace, replacement, substring of the test that must fail)
 MUTANTS = [
@@ -213,6 +215,34 @@ MUTANTS = [
      'Role.SENTINEL -> CONTROLLER_NEEDS - "fullScreenIntent"',
      'Role.SENTINEL -> setOf("foregroundService")',
      "exact set each role reports is written out here"),
+    # --- the screens. Reachable only since the :ui harness existed; every role defect this app
+    # --- has shipped was a two-way branch over three roles that no :core test could see.
+    ("sentinel-battery-labelled-controller", STATUS,
+     """val controller = when (s.self.role) {          // the phone that stops it
+        Role.ALARM -> s.peer
+        Role.CONTROLLER -> s.self
+        Role.SENTINEL, null -> null
+    }""",
+     "val controller = if (iAmAlarm) s.peer else s.self",
+     "power rows name this phone, never the controller"),
+    ("sentinel-own-power-row-dropped", STATUS,
+     'if (s.self.role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)',
+     "",
+     "power rows name this phone, never the controller"),
+    ("sentinel-gets-the-settings-tab", SCREENS,
+     'val tabs = if (role == Role.SENTINEL) listOf("Status", "Setup")',
+     'val tabs = if (false) listOf("Status", "Setup")',
+     "sentinel has exactly Status and Setup"),
+    ("sentinel-gets-the-action-rows", SCREENS,
+     "        if (role != Role.SENTINEL) {", "        if (true) {",
+     "offered no action that changes the alarm"),
+    ("ring-takes-over-the-sentinel", SCREENS,
+     "val ringing = s != null && role != Role.SENTINEL &&", "val ringing = s != null &&",
+     "leaves a sentinel on its ordinary screen"),
+    ("joiner-never-sees-the-connect-screen", SCREENS,
+     "if (!isAlarmRole && !app.connected && !ringing && trying != null) {",
+     "if (!isAlarmRole && app.connected && !ringing && trying != null) {",
+     "no snapshot is shown the connect screen"),
     ("nap-consults-gate", GATE,
      "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
      "nap never consults the gate"),

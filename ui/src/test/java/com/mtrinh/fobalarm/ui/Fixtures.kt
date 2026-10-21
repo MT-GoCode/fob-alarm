@@ -1,9 +1,14 @@
 package com.mtrinh.fobalarm.ui
 
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import com.mtrinh.fobalarm.core.*
 import com.mtrinh.fobalarm.data.AlarmHost
 import com.mtrinh.fobalarm.data.LocalStateClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 /**
  * What a screen test needs to render a screen, and nothing else.
@@ -50,6 +55,9 @@ fun device(
 
 const val NOW = 1_800_000_000_000L
 
+/** Distinct from every other device in the fixtures, so "whose battery is this" is unambiguous. */
+const val OWN_BATTERY = 37
+
 /**
  * A snapshot with every field defaulted to "nothing interesting is happening", so a test names
  * only what it is about and a reader can see the one thing that differs.
@@ -78,9 +86,63 @@ fun snapshot(
     gates = gates, armGate = null, nextFire = nextFire, ring = ring,
     clock = ClockView(NOW, NOW, 0, "network", 0),
     ap = ApView(settings.ssid, true, 1, NOW - 60_000, null),
-    self = device(selfRole, plugged = selfRole == Role.ALARM), peer = peer,
+    // A battery no other row can show, so an assertion about THIS phone's power cannot be
+    // satisfied by the peer's row or by the word "This phone" appearing as some other label.
+    self = device(selfRole, battery = OWN_BATTERY, plugged = selfRole == Role.ALARM), peer = peer,
     lastOutcome = null, appVersion = "0.3", settingsSchemaVersion = 1,
     tomorrow = tomorrow, nap = nap, settings = settings, lastEvents = events,
     sentinel = sentinel, ringBlock = ringBlock, away = away,
     lastHeartbeatMs = peer?.lastSeenMs ?: 0, testUntilMs = testUntilMs,
     problems = problems, warnings = warnings)
+
+/** Markers, so a test can tell WHICH slot :ui chose to render rather than trusting that it did. */
+const val M_PAIRING = "MARKER-PAIRING"
+const val M_DEVICE_SETTINGS = "MARKER-DEVICE-SETTINGS"
+const val M_ROLE_SWITCHER = "MARKER-ROLE-SWITCHER"
+const val M_TRYING = "MARKER-TRYING"
+
+/**
+ * The ONE way a screen test puts a screen on the screen.
+ *
+ * Every test goes through here so that changing `RootScreen`'s signature edits this function and
+ * nothing else. The slot defaults mirror what `:app` passes today -- which is a characterisation,
+ * not a guarantee: whether `:app` passes them correctly is a decision `:app` holds and no test
+ * here can see. That gap is the point of a later stratum, and is recorded in DEBT.
+ *
+ * [staleFor] advances the clock AFTER the snapshot is installed, which is the only way to build
+ * the state that matters most: a joiner holding a snapshot it has not heard about recently.
+ * 30 s or more renders as disconnected.
+ */
+fun ComposeContentTestRule.renderRoot(
+    role: Role,
+    snap: Snapshot? = snapshot(role),
+    staleFor: Long = 0,
+    trying: (@Composable () -> Unit)? = if (role != Role.ALARM) ({ Text(M_TRYING) }) else null,
+    deviceSettings: (@Composable () -> Unit)? = if (role == Role.ALARM) ({ Text(M_DEVICE_SETTINGS) }) else null,
+): AppState {
+    var t = NOW
+    val host = FakeHost(snap ?: snapshot(role))
+    val app = AppState(LocalStateClient(host), CoroutineScope(Dispatchers.Unconfined),
+        isLocal = role == Role.ALARM, now = { t })
+    // Installed synchronously BEFORE setContent. Arriving later leaves the tree a spinner, and
+    // then every "no Dismiss button" assertion passes for the wrong reason.
+    if (snap != null) runBlocking { app.refresh() }
+    t = NOW + staleFor
+    app.syncClock()
+    setContent {
+        FobTheme {
+            RootScreen(app, role,
+                pairing = { Text(M_PAIRING) },
+                deviceSettings = deviceSettings,
+                roleSwitcher = { Text(M_ROLE_SWITCHER) },
+                trying = trying)
+        }
+    }
+    return app
+}
+
+/** A live ring, ending well in the future so a joiner's screen is still allowed to show it. */
+fun ringing(phase: RingPhase = RingPhase.RINGING) = RingView(
+    ringId = "ring-1", startedAtMs = NOW - 60_000, trigger = OccurrenceSource.SCHEDULED,
+    phase = phase, snoozeCount = 0, snoozeUntilMs = null,
+    endsByMs = NOW + 30 * 60_000, audible = "playing")

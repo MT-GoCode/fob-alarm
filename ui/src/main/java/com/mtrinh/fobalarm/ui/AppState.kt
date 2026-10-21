@@ -29,6 +29,13 @@ class AppState(
     private val isLocal: Boolean = false,
     /** Controller-side: persist each export locally so the alarm phone is not the only copy. */
     private val onExport: ((Backup) -> Unit)? = null,
+    /**
+     * The ONE clock this object reads. Injected because five separate
+     * `System.currentTimeMillis()` calls made the "one ticking clock for the whole UI" below a
+     * claim rather than a fact, and because a screen test cannot otherwise build the state that
+     * matters most -- a joiner holding a snapshot it has not heard about for a minute.
+     */
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
 
     var snapshot by mutableStateOf<Snapshot?>(null); private set
@@ -65,7 +72,7 @@ class AppState(
         get() = if (isLocal) (snapshot?.peer?.lastSeenMs ?: 0L) else lastOkMs
     /** The last time a request to the other phone failed; a failure flips the link red at once. */
     var lastFailMs by mutableLongStateOf(0L); private set
-    fun noteFailure() { lastFailMs = System.currentTimeMillis() }
+    fun noteFailure() { lastFailMs = now() }
 
     /**
      * Connected means: the last thing we heard from the other phone was a success, and it
@@ -76,12 +83,15 @@ class AppState(
     val connected: Boolean get() = linkAtMs != 0L && nowMs - linkAtMs < 30_000
 
     /** One ticking clock for the whole UI, so screens do not each run their own loop. */
-    var nowMs by mutableLongStateOf(System.currentTimeMillis()); private set
+    var nowMs by mutableLongStateOf(now()); private set
+
+    /** What the ticking loop does, named so a test can do it without running an infinite loop. */
+    internal fun syncClock() { nowMs = now() }
 
     /** Constantly: half a second while ringing, three seconds idle, one second while red. */
     fun startPolling(fastMs: Long = 500, idleMs: Long = 3_000, retryMs: Long = 1_000) {
         scope.launch {
-            while (true) { nowMs = System.currentTimeMillis(); delay(500) }
+            while (true) { syncClock(); delay(500) }
         }
         scope.launch {
             var sinceBackup = 0L
@@ -89,15 +99,15 @@ class AppState(
                 refresh()
                 // The alarm phone is the sole source of truth (invariant 3), so the
                 // controller keeps a copy. Piggybacks the poll; no new endpoint.
-                if (onExport != null && System.currentTimeMillis() - sinceBackup > 6 * 3600_000L) {
-                    client.export().onSuccess { onExport.invoke(it); sinceBackup = System.currentTimeMillis() }
+                if (onExport != null && now() - sinceBackup > 6 * 3600_000L) {
+                    client.export().onSuccess { onExport.invoke(it); sinceBackup = now() }
                 }
                 val s = snapshot
                 // Same bound as the ring screen, for the same reason: the fast cadence has
                 // to last as long as the ring can, not ten minutes.
                 val liveUntil = maxOf(s?.ring?.endsByMs ?: 0L, s?.testUntilMs ?: 0L)
                 val live = (s?.ring != null || (s != null && s.testUntilMs > s.serverTimeMs)) &&
-                        (isLocal || System.currentTimeMillis() < liveUntil)
+                        (isLocal || now() < liveUntil)
                 delay(if (live) fastMs else if (!isLocal && !connected) retryMs else idleMs)
             }
         }
@@ -114,13 +124,13 @@ class AppState(
     private fun accept(s: Snapshot) {
         if (s.ring?.ringId != lastRingId) {
             if (lastRingId != null && s.ring != null) {
-                buttonLockedUntilMs = System.currentTimeMillis() + 1500
+                buttonLockedUntilMs = now() + 1500
             }
             lastRingId = s.ring?.ringId
             dismissUi = DismissUi.Idle
         }
         snapshot = s
-        lastOkMs = System.currentTimeMillis()
+        lastOkMs = now()
     }
 
     suspend fun refresh() {
@@ -140,10 +150,10 @@ class AppState(
 
     fun dismiss() {
         val ringId = snapshot?.ring?.ringId ?: return
-        if (System.currentTimeMillis() < buttonLockedUntilMs) return
+        if (now() < buttonLockedUntilMs) return
         val requestId = UUID.randomUUID().toString()
         scope.launch {
-            val startedAt = System.currentTimeMillis()
+            val startedAt = now()
             while (true) {
                 dismissUi = DismissUi.Waiting
                 val r = client.dismiss(ringId, requestId)   // idempotent by content
@@ -176,7 +186,7 @@ class AppState(
                     }
                     else -> {
                         if (!isLocal) noteFailure()
-                        if (System.currentTimeMillis() - startedAt > 10_000) {
+                        if (now() - startedAt > 10_000) {
                             dismissUi = DismissUi.Unreachable(
                                 if (isLocal) "Could not stop it." else "Can't reach the alarm phone. Use the key.")
                             return@launch
@@ -240,7 +250,7 @@ class AppState(
     fun loadHistory(limit: Int = 1000) {
         scope.launch {
             client.history(0, limit)
-                .onSuccess { history = it.reversed(); lastOkMs = System.currentTimeMillis() }
+                .onSuccess { history = it.reversed(); lastOkMs = now() }
                 .onFailure { if (!isLocal) noteFailure() }
         }
     }
