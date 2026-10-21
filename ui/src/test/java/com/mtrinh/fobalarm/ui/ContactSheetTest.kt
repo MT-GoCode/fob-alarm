@@ -26,7 +26,10 @@ import java.io.File
  */
 @RunWith(ParameterizedRobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w411dp-h891dp-xhdpi")
+// Phone WIDTH, but a tall window on purpose. A capture is of the viewport, not of the scrollable
+// content, so at a real 891dp the alarm phone's Settings tab cut off at the Away section -- hiding
+// the rows this sheet exists to let someone look at. Seeing everything beats simulating the fold.
+@Config(sdk = [34], qualifiers = "w411dp-h2200dp-xhdpi")
 class ContactSheetTest(private val case: Case) {
 
     data class Case(val name: String, val role: Role, val tab: String?, val build: () -> Any?) {

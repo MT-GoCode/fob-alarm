@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.mtrinh.fobalarm.core.Role
+import com.mtrinh.fobalarm.core.Settings
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -131,6 +132,51 @@ class RoleScreenTest {
             snap = snapshot(Role.ALARM, gates = gatesAllPass().copy(exactAlarm = false)))
         compose.clickTab("Setup")
         assertTrue(exists("alarm cannot ring yet"), "on the alarm phone that is the literal cost")
+    }
+
+    // --- the away rows say what they can actually do ---------------------------
+
+    @Test fun `an away row with no such phone says it cannot stop a ring`() {
+        // The defect that started all of this: the switch could be turned on with no sentinel
+        // ever set up, read ON, and do nothing. Asserted on the rendered row, not on note().
+        // Switch OFF: "could not". The row warns BEFORE it is armed, which is the whole point --
+        // the owner turned this on expecting it to do something.
+        compose.renderRoot(Role.ALARM)
+        compose.clickTab("Settings")
+        assertTrue(exists("No sentinel has reported"),
+            "a block against a phone that has never reported must say so")
+        assertTrue(exists("could not stop a ring"), "off, so the conditional wording")
+    }
+
+    @Test fun `an armed away row with no such phone admits the alarm will ring`() {
+        // Switch ON: "cannot", and it says the alarm rings. An armed block that does nothing is
+        // indistinguishable from a working one otherwise -- the defect that started this.
+        compose.renderRoot(Role.ALARM, snap = snapshot(Role.ALARM,
+            settings = Settings(role = Role.ALARM, blockRingIfSentinelAway = true,
+                ssid = "DIRECT-xy-fob", passphrase = "passphrase1")))
+        compose.clickTab("Settings")
+        assertTrue(exists("cannot stop a ring"), "armed, so the flat wording")
+        // And it must NOT claim the alarm rings. This row sees one role; the gate ORs two, so
+        // the controller's block may be stopping the ring regardless. The first version of this
+        // test asserted the opposite and went red -- the code was right.
+        assertTrue(!exists("the alarm will ring"),
+            "a row-local fact must not be stated as the whole gate's outcome")
+    }
+
+    @Test fun `an away row whose phone is present does not call itself broken`() {
+        // The inverse, caught in review before it shipped: a WORKING block must not read like a
+        // broken one, or the line is ignored on the night it matters.
+        compose.renderRoot(Role.ALARM)
+        compose.clickTab("Settings")
+        assertTrue(!exists("the controller cannot stop"),
+            "the controller is present; its block is armed and working")
+    }
+
+    @Test fun `the controller's away row carries its standing caveat`() {
+        compose.renderRoot(Role.ALARM)
+        compose.clickTab("Settings")
+        assertTrue(exists("wall-mounted one going quiet"),
+            "a wall-mounted controller going quiet means the link broke, which is when it must ring")
     }
 
     @Test fun `a joiner is not shown a section heading with nothing under it`() {

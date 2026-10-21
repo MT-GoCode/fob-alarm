@@ -22,7 +22,7 @@ N=$(ls "$DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
   echo 'img{width:260px;border:1px solid #333;border-radius:8px;display:block}'
   echo 'figcaption{padding:6px 2px;color:#9a9a9a;font-size:12px}</style>'
   echo "<h1>Every screen every role can see &mdash; $N states, $(date '+%Y-%m-%d %H:%M')</h1>"
-  echo "<p style=color:#777>Rendered off-device by the test suite. No phone, no emulator. Not a gate: nothing here fails a build.</p>"
+  echo "<p style=color:#777>Rendered off-device by the test suite. No phone, no emulator. Not a gate: nothing here fails a build.<br>Phone width, but a tall window: a capture is of the viewport, so a real 891dp fold hid the rows worth looking at.</p>"
   for role in alarm controller sentinel; do
     echo "<h2>$role</h2><div class=g>"
     for f in "$DIR"/$role-*.png; do

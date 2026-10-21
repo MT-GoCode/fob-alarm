@@ -99,7 +99,14 @@ fun snapshot(
     ring: RingView? = null,
     nap: NapView = NapView(false, null),
     tomorrow: TomorrowView = TomorrowView("NONE", null, null),
-    away: List<AwayView> = emptyList(),
+    /**
+     * Defaults to what an ALARM phone always produces: a verdict for BOTH blockable roles. Empty
+     * is a state no alarm phone ever reports, and defaulting to it rendered the away rows with no
+     * sentences at all -- hiding the feature those rows exist for.
+     */
+    away: List<AwayView> = if (selfRole != Role.ALARM) emptyList() else listOf(
+        AwayView(Role.SENTINEL, RoleVerdict.Unknown),
+        AwayView(Role.CONTROLLER, RoleVerdict.Present("present:0s"))),
     ringBlock: String? = null,
     problems: List<String> = emptyList(),
     warnings: List<String> = emptyList(),

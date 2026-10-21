@@ -35,6 +35,7 @@ GATEINFO = "core/src/main/kotlin/com/mtrinh/fobalarm/core/GateInfo.kt"
 SETTINGSSOURCE = "core/src/main/kotlin/com/mtrinh/fobalarm/core/SettingsSource.kt"
 STATUS = "ui/src/main/java/com/mtrinh/fobalarm/ui/Status.kt"
 SCREENS = "ui/src/main/java/com/mtrinh/fobalarm/ui/Screens.kt"
+SETTINGSSCREEN = "ui/src/main/java/com/mtrinh/fobalarm/ui/SettingsScreen.kt"
 
 # (id, file, exact text to replace, replacement, substring of the test that must fail)
 MUTANTS = [
@@ -292,6 +293,9 @@ MUTANTS = [
      'Role.SENTINEL -> "This phone cannot vouch for where you are"',
      'Role.SENTINEL -> "The phones cannot connect yet"',
      "unfinished setup says what it costs THIS role"),
+    ("away-row-loses-its-sentence", SETTINGSSCREEN,
+     "                    note = reach(Role.SENTINEL),", "                    note = null,",
+     "no such phone says it cannot stop a ring"),
     ("nap-consults-gate", GATE,
      "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
      "nap never consults the gate"),
