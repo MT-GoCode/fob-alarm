@@ -31,13 +31,15 @@ android {
                 val capturing = (System.getProperty("fobalarm.screens") ?: "on") != "off"
                 val dir = layout.buildDirectory.dir("screens").get().asFile
                 it.doFirst {
-                    if (capturing) {
-                        // Images from renamed or deleted cases would otherwise linger and be
-                        // published under a fresh date.
-                        dir.deleteRecursively(); dir.mkdirs()
-                        File(dir, ".captured").writeText("")
-                    } else File(dir, ".captured").delete()
+                    // Images from renamed or deleted cases would otherwise linger and be
+                    // published under a fresh date.
+                    if (capturing) { dir.deleteRecursively(); dir.mkdirs() }
+                    File(dir, ".captured").delete()
                 }
+                // doLast, not doFirst: gradle skips it when the task fails, so the mark means
+                // "this run finished green". Written at the start it meant "a run began", and a
+                // failed run would publish a partial set with cells silently missing.
+                it.doLast { if (capturing) File(dir, ".captured").writeText("") }
                 // Forwarded so `tools/mutation-check` can switch the capture off for its 65 runs.
                 it.systemProperty("fobalarm.screens",
                     System.getProperty("fobalarm.screens") ?: "on")

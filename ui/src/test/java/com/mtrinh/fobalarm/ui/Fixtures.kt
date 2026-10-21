@@ -94,7 +94,10 @@ fun snapshot(
     selfRole: Role,
     peer: DeviceView? = if (selfRole == Role.ALARM) device(Role.CONTROLLER) else device(Role.ALARM),
     sentinel: DeviceView? = null,
-    settings: Settings = Settings(role = selfRole, ssid = "DIRECT-xy-fob", passphrase = "passphrase1"),
+    // The alarm time MATCHES the default nextFire. Left at the Settings default of 04:00 it
+    // disagreed with the 08:00 on the Status tab, and a reader of the sheet would report that.
+    settings: Settings = Settings(role = selfRole, defaultAlarmTime = "08:00",
+        ssid = "DIRECT-xy-fob", passphrase = "passphrase1"),
     nextFire: NextFire? = NextFire(NOW + 8 * 3600_000, OccurrenceSource.SCHEDULED, "scheduled"),
     ring: RingView? = null,
     nap: NapView = NapView(false, null),
