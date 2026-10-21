@@ -49,7 +49,11 @@ fun RootScreen(
     deviceSettings: (@Composable () -> Unit)? = null, // alarm phone: ringtone, password
     roleSwitcher: @Composable () -> Unit,
     onFixGate: (String) -> Unit = {},
-    /** CONTROLLER: the whole "trying to connect" screen. Name, passphrase, permission, log. */
+    /**
+     * CONTROLLER and SENTINEL: the whole "trying to connect" screen. Name, passphrase, permission,
+     * log. Required for both, because it is the only place the group credentials can be entered
+     * and neither role can reach the alarm phone without them.
+     */
     trying: (@Composable () -> Unit)? = null,
 ) {
     val isAlarmRole = role == Role.ALARM

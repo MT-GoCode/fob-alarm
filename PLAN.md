@@ -573,3 +573,35 @@ shipped defect) and `working-block-called-broken` (reinstates the one review cau
   different owner action, so plain English would need a tag per reason — five variants' worth of
   types for copy, when Status already renders the peer's battery, power-save state and failing gates
   as proper rows.
+
+## 10. 0.3.115 — the sentinel had no way to be told where to look
+
+Reported from the phones: the sentinel sat on a spinner, "alarm phone never found", next to the
+alarm phone on the same Wi-Fi.
+
+`MainActivity` passed `trying = if (chosen == Role.CONTROLLER) ({ Trying() }) else null`. `Trying()`
+is the only screen carrying the group name and passphrase fields, so a sentinel never saw them --
+and 0.3 had removed the sentinel's Settings tab to strip its authority, which closed its only other
+route to `Pairing`. With both credentials blank, `LinkService`'s SENTINEL branch skips the join
+entirely and falls through to `SentinelWatch.poll()`, polling a host whose address it has never
+learned. Forever, at 30 s intervals.
+
+Being on the same Wi-Fi cannot help: `PeerLink.alarmLanIp` is *learned* from a snapshot received
+while a path was working, so a phone that has never connected has only the P2P path.
+
+The same class of defect as the 0.3 sentinel crash, in the same file: a role treated as "controller
+or not" when there are three. `trying` is now `chosen != Role.ALARM`, and the parameter's KDoc said
+CONTROLLER, which is why the gap was invisible on reading. The screen carries no authority -- a
+title, a permission button, two fields, a log, and a save that writes this phone's OWN settings --
+so widening it grants a sentinel nothing it should not have.
+
+### Debt this turned up
+
+- **`Actor` has no SENTINEL.** `Trying()`'s save hard-codes `Actor.CONTROLLER`, so a sentinel
+  editing its own join credentials is logged as a controller. Adding the variant touches the wire
+  encoding and history rendering for a cosmetic label on a local write, so it was left alone rather
+  than widening a bug fix.
+- **No test covers the role-to-screen mapping.** Both this defect and the 0.3 crash lived in that
+  mapping, in the same expression, and neither was catchable by the suite: it is a `@Composable`
+  wiring decision in `:app`. Making it a pure `Role -> ScreenSlots` function in `:core` would put
+  it under the mutation harness. That is the right fix and it is not a one-liner.

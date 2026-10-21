@@ -148,7 +148,12 @@ class MainActivity : ComponentActivity() {
                                 deviceSettings = if (chosen == Role.ALARM) ({ DeviceSettings() }) else null,
                                 roleSwitcher = { RoleSwitcher() },
                                 onFixGate = { fix(it) },
-                                trying = if (chosen == Role.CONTROLLER) ({ Trying() }) else null,
+                                // Both non-alarm roles, not just the controller. This screen is
+                                // the ONLY place the group name and passphrase can be entered, and
+                                // without them LinkService never joins -- so a sentinel without it
+                                // polls an address it has never learned, forever. It carries no
+                                // authority: a name, a passphrase, a permission button and a log.
+                                trying = if (chosen != Role.ALARM) ({ Trying() }) else null,
                             )
                         }
                     }
