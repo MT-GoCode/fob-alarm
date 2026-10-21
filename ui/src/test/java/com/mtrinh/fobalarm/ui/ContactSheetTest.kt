@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.mtrinh.fobalarm.core.Role
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -75,6 +76,10 @@ class ContactSheetTest(private val case: Case) {
     @get:Rule val compose = createComposeRule()
 
     @Test fun capture() {
+        // The mutation harness runs the whole suite once per mutant, and this class asserts
+        // nothing -- no mutant can ever be killed by it. Capturing 28 screens 65 times over was
+        // pure cost, so the harness switches it off and `./gradlew test` still writes the sheet.
+        assumeTrue("screens off", System.getProperty("fobalarm.screens") != "off")
         val built = case.build()
         when (built) {
             null -> compose.renderRoot(case.role, snap = null)

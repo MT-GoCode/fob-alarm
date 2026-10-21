@@ -309,7 +309,9 @@ def run_suite():
     """
     env = dict(os.environ)
     env.setdefault("JAVA_HOME", "/Applications/Android Studio.app/Contents/jbr/Contents/Home")
-    p = subprocess.run(["./gradlew", "test", "--console=plain"],
+    # The contact sheet asserts nothing, so no mutant can be killed by it; capturing 28 screens
+    # once per mutant tripled every run for no signal.
+    p = subprocess.run(["./gradlew", "test", "--console=plain", "-Dfobalarm.screens=off"],
                        cwd=ROOT, env=env, capture_output=True, text=True)
     out = p.stdout + p.stderr
     if p.returncode == 0:

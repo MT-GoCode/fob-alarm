@@ -25,3 +25,11 @@
   than an index -- with authority derived once inside it. Not a record of booleans: `hostsGroup`
   and `showsConnectScreen` would always be each other's negation, and a boolean cannot say WHICH
   ring face, so `isAlarmRole` would survive inside it.
+- **The gate's reasons are log tokens shown verbatim to the owner.** On the alarm phone's Status
+  screen, "Sentinel away 20m" sits directly above "Next ring blocked: sentinel away 1200s" -- the
+  same duration, twice, in different units, because `RingVerdict.Blocked.reason` is a sentence
+  built for history and then printed. Same root as the raw `Vetoed` tokens in the away rows
+  (`power_save`, `low_battery:14`). The fix is NOT to reformat the string: parsing "1200s" back out
+  would be the exhaust-based derivation this codebase keeps deleting. It is for the verdict to
+  carry structure -- role and seconds -- and for the sentence to be built once at each audience,
+  history and screen. Found by looking at the contact sheet.

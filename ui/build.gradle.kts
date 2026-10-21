@@ -20,7 +20,12 @@ android {
             // Roborazzi's capture is a no-op unless recording is on. Set here rather than passed
             // on the command line, so `./gradlew test` writes the sheet and there is no second
             // way to invoke the suite.
-            all { it.systemProperty("roborazzi.test.record", "true") }
+            all {
+                it.systemProperty("roborazzi.test.record", "true")
+                // Forwarded so `tools/mutation-check` can switch the capture off for its 65 runs.
+                it.systemProperty("fobalarm.screens",
+                    System.getProperty("fobalarm.screens") ?: "on")
+            }
         }
     }
 }
