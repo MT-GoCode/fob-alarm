@@ -88,6 +88,12 @@ class ContactSheetTest(private val case: Case) {
     @get:Rule val compose = createComposeRule()
 
     @Test fun capture() {
+        // Every case this class KNOWS about, and every one it has actually captured. A filtered
+        // run -- `--tests '*sentinel*'` -- wipes the directory, captures one role and finishes
+        // green, so without this the published sheet could cover a third of the app and look
+        // complete. The tool requires the two lists to match.
+        OUT.mkdirs()
+        File(OUT, "expected.txt").writeText(cases().joinToString("\n") { it.name })
         // The mutation harness runs the whole suite once per mutant, and this class asserts
         // nothing -- no mutant can ever be killed by it. Capturing 27 screens 65 times over was
         // pure cost, so the harness switches it off and `./gradlew test` still writes the sheet.
@@ -101,5 +107,6 @@ class ContactSheetTest(private val case: Case) {
         case.tab?.let { compose.clickTab(it) }
         OUT.mkdirs()
         compose.onRoot().captureRoboImage(File(OUT, "${case.name}.png").path)
+        File(OUT, "captured.txt").appendText("${case.name}\n")
     }
 }

@@ -135,4 +135,7 @@ of adversarial review had all missed. Every one of them only checks what someone
   is no second way to invoke the suite.
 - NOT a gate, deliberately: no baseline images, no pixel comparison, nothing to approve when a font
   renders differently. It fails a build only if a screen throws while rendering.
-- `tools/contact-sheet` arranges them into one page; it is published as a single URL.
+- `tools/contact-sheet` arranges them into one page, published as a single URL. It refuses to
+  publish unless the last run finished green AND captured every case it knows about: a run that
+  merely succeeded is not the same as a sheet that is complete, and a one-role sheet that looks
+  whole is the false confidence this exists to remove.

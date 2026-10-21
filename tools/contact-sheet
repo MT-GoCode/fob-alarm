@@ -14,6 +14,15 @@ N=$(ls "$DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
   echo "FATAL: the last test run did not capture screens. Re-run ./gradlew test" >&2
   exit 1
 }
+# EVERY case, not just the ones that ran. A filtered run finishes green having captured a subset,
+# and a sheet covering one role while looking complete is the kind of false confidence this whole
+# thing exists to remove.
+MISSING=$(comm -23 <(sort -u "$DIR/expected.txt") <(sort -u "$DIR/captured.txt") 2>/dev/null)
+[ -z "$MISSING" ] || {
+  echo "FATAL: these cases were never captured -- a filtered run? Re-run ./gradlew test" >&2
+  echo "$MISSING" >&2
+  exit 1
+}
 {
   echo '<!doctype html><meta charset=utf-8><title>fobalarm screens</title>'
   echo '<style>body{background:#111;color:#ddd;font:14px -apple-system,sans-serif;margin:24px}'
