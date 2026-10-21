@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -22,10 +24,19 @@ android {
             // way to invoke the suite.
             all {
                 it.systemProperty("roborazzi.test.record", "true")
-                // Images from renamed or deleted cases would otherwise linger and be published
-                // under a fresh date, so the page could show screens that no longer exist.
-                if ((System.getProperty("fobalarm.screens") ?: "on") != "off") {
-                    it.doFirst { delete(layout.buildDirectory.dir("screens")) }
+                // Whether the LAST run captured is MARKED, not inferred from timestamps: the
+                // test-result XML is always written after the images, so comparing the two
+                // reported every healthy run as stale. The mark is set here, where the fact is
+                // known, and `tools/contact-sheet` routes on it.
+                val capturing = (System.getProperty("fobalarm.screens") ?: "on") != "off"
+                val dir = layout.buildDirectory.dir("screens").get().asFile
+                it.doFirst {
+                    if (capturing) {
+                        // Images from renamed or deleted cases would otherwise linger and be
+                        // published under a fresh date.
+                        dir.deleteRecursively(); dir.mkdirs()
+                        File(dir, ".captured").writeText("")
+                    } else File(dir, ".captured").delete()
                 }
                 // Forwarded so `tools/mutation-check` can switch the capture off for its 65 runs.
                 it.systemProperty("fobalarm.screens",

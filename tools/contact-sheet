@@ -7,14 +7,13 @@ DIR=ui/build/screens
 [ -d "$DIR" ] || { echo "no screens yet -- run ./gradlew test" >&2; exit 1; }
 N=$(ls "$DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
 [ "$N" -gt 0 ] || { echo "no PNGs in $DIR" >&2; exit 1; }
-# Refuse to publish images older than the test results that should have produced them: capture
-# can be switched off from gradle.properties, and a page of stale screens under today's date is
-# worse than no page.
-RESULTS=ui/build/test-results/testDebugUnitTest
-if [ -d "$RESULTS" ] && [ -n "$(find "$RESULTS" -name '*.xml' -newer "$DIR" -print -quit 2>/dev/null)" ]; then
-  echo "FATAL: $DIR is older than the last test run -- capture was off. Re-run ./gradlew test" >&2
+# Refuse to publish images the last test run did not produce. The run MARKS this; comparing
+# timestamps instead reported every healthy run as stale, because the result XML is written after
+# the images. A page of screens that no longer exist, under today's date, is worse than no page.
+[ -f "$DIR/.captured" ] || {
+  echo "FATAL: the last test run did not capture screens. Re-run ./gradlew test" >&2
   exit 1
-fi
+}
 {
   echo '<!doctype html><meta charset=utf-8><title>fobalarm screens</title>'
   echo '<style>body{background:#111;color:#ddd;font:14px -apple-system,sans-serif;margin:24px}'
