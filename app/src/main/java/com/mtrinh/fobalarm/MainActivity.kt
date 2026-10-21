@@ -289,15 +289,22 @@ class MainActivity : ComponentActivity() {
     // ---- role-conditional UI ------------------------------------------------
 
     /**
-     * Pairing. On the alarm phone: the group name and passphrase it hosts, editable. On the
-     * controller: the group it is configured to join, editable. Neither is the live link;
-     * the bar at the top of every screen is. Same words on both phones.
+     * Pairing. On the phone that HOSTS the group: the name and passphrase, editable. On a phone
+     * that JOINS one: which group it is configured to join, read-only, with where to change it.
+     * Neither is the live link; the bar at the top of every screen is.
      */
     @Composable
     private fun Pairing(role: Role) {
         val snap = if (::app.isInitialized) app.snapshot else null
         val set = !snap?.settings?.passphrase.isNullOrBlank()
-        if (role == Role.CONTROLLER) {
+        // Exhaustive, so a fourth role cannot inherit a path by being the `else`. As a two-way
+        // branch this gave the SENTINEL the host's editor -- offering it the alarm phone's own
+        // credentials, and gating its own join details behind the ALARM phone's password.
+        val hosts = when (role) {
+            Role.ALARM -> true
+            Role.CONTROLLER, Role.SENTINEL -> false
+        }
+        if (!hosts) {
             Section("Pairing")
             // The configured group, not the live link: the bar at the top shows the link.
             Text(if (set) "Alarm phone's group: ${snap?.settings?.ssid ?: ""}" else "Not paired",

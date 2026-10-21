@@ -605,3 +605,36 @@ so widening it grants a sentinel nothing it should not have.
   mapping, in the same expression, and neither was catchable by the suite: it is a `@Composable`
   wiring decision in `:app`. Making it a pure `Role -> ScreenSlots` function in `:core` would put
   it under the mutation harness. That is the right fix and it is not a one-liner.
+
+### 0.3.117 — the same defect again, found by being asked why the roles differ
+
+Asked why the sentinel and controller do not share one first-link flow, the answer turned out to be
+a third instance of the same bug rather than a decision.
+
+`Pairing(role)` was `if (role == Role.CONTROLLER) { joiner summary; return }` followed by the
+alarm phone's hosting editor. A SENTINEL is not CONTROLLER, so it fell through and was offered the
+**host's** credential editor -- and that path gates editing on `snap.settings.hasPassword`, the
+ALARM phone's password, so a sentinel could not see its own join details until it unlocked another
+phone's settings.
+
+The axis that matters is hosting, not role: one phone hosts the group, the others join it. It is now
+an exhaustive `when (role)` producing `hosts: Boolean`, so a fourth role is a compile error rather
+than an inheritance of whichever path is the `else`.
+
+**The pattern, now three for three.** Every role defect in this app has been a two-way branch over
+three roles, in the UI, with the sentinel silently taking the `else`:
+
+| where | branch | what the sentinel got |
+| --- | --- | --- |
+| `RootScreen` (0.3) | `isAlarmRole && s == null` | fell through to `s!!` -- crash on launch |
+| `MainActivity` (0.3.116) | `trying = if (chosen == CONTROLLER)` | no connect screen, so no way to enter credentials |
+| `Pairing` (0.3.117) | `if (role == CONTROLLER)` | the host's editor, locked behind the alarm's password |
+
+`:service` has never had one, because it routes on `when (role)` with all three arms and the
+compiler enforces it. `:ui` and `:app` used booleans and `else`. That is the whole difference, and
+it is the argument for the deferred item below rather than a style preference.
+
+**Checked and correct, not the same bug:** `isLocal = role == ALARM` (local vs remote client),
+`deviceSettings` alarm-only, `onExport` controller-only, `sentinelExtras` sentinel-only, and the
+role-pick permission prompt firing only for ALARM -- both joiners reach the same permission button
+on the connect screen, which also handles the twice-denied case.
