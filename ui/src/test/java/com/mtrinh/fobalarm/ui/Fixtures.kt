@@ -18,22 +18,31 @@ import kotlinx.coroutines.runBlocking
  * from it, and the screens would then be exercised against something no phone ever runs.
  */
 class FakeHost(var snap: Snapshot) : AlarmHost {
+    /**
+     * Reads answer; everything that CHANGES the alarm throws. Rendering a screen must never
+     * mutate the thing it renders, and a fake that quietly returned a snapshot would let such a
+     * call pass unnoticed -- which is the one bug class a screen test is uniquely placed to catch.
+     */
+    private fun refuse(what: String): Nothing =
+        error("a screen rendered and called $what; rendering must not change the alarm")
+
     override fun snapshot() = snap
-    override fun dismiss(ringId: String, requestId: String, actor: Actor) = snap
-    override fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor) = snap
-    override fun nap(minutes: Int, requestId: String, actor: Actor) = snap
-    override fun napUntil(hhmm: String, requestId: String, actor: Actor) = snap
-    override fun clearNap(requestId: String, actor: Actor) = snap
-    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor) = snap
-    override fun clearOverride(requestId: String, actor: Actor) = snap
     override fun history(sinceSeq: Long, limit: Int) = snap.lastEvents
-    override fun export() = Backup(1, snap.settings, snap.lastEvents, NOW)
-    override fun unlock(secret: String) = "token"
-    override fun lock() {}
-    override fun snooze() = snap
-    override fun testRing(silent: Boolean, requestId: String) = snap
-    override fun stopTest() = snap
     override fun checkClock() = snap
+    override fun export() = Backup(1, snap.settings, snap.lastEvents, NOW)
+
+    override fun dismiss(ringId: String, requestId: String, actor: Actor) = refuse("dismiss")
+    override fun patchSettings(ifVersion: Long, patch: Settings, requestId: String, token: String?, actor: Actor) = refuse("patchSettings")
+    override fun nap(minutes: Int, requestId: String, actor: Actor) = refuse("nap")
+    override fun napUntil(hhmm: String, requestId: String, actor: Actor) = refuse("napUntil")
+    override fun clearNap(requestId: String, actor: Actor) = refuse("clearNap")
+    override fun setOverride(kind: String, time: String?, requestId: String, actor: Actor) = refuse("setOverride")
+    override fun clearOverride(requestId: String, actor: Actor) = refuse("clearOverride")
+    override fun unlock(secret: String) = refuse("unlock")
+    override fun lock() = refuse("lock")
+    override fun snooze() = refuse("snooze")
+    override fun testRing(silent: Boolean, requestId: String) = refuse("testRing")
+    override fun stopTest() = refuse("stopTest")
 }
 
 fun appState(snap: Snapshot, scope: CoroutineScope, isLocal: Boolean) =

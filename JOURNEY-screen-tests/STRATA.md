@@ -22,7 +22,8 @@ the decisions held in `:app` need the refactor first, and they are deliberately 
   later strata are surgery on the earlier ones.
 - The snapshot is installed synchronously BEFORE `setContent`, or the tree is a spinner and every
   "no Dismiss button" check passes for the wrong reason.
-- `FakeHost` throws on every mutating call, so a screen that fires one during render fails loudly.
+- `FakeHost` answers reads and THROWS on every call that changes the alarm, so a screen that fires
+  one during render fails loudly instead of silently mutating what it renders.
 
 **Verifiable execution.** `./gradlew test` runs `:ui:testDebugUnitTest` beside `:core` and `:data`.
 **Human-verifiable result.** `renderRoot(SENTINEL)` produces a tree whose dumped node list is

@@ -17,8 +17,13 @@ import com.mtrinh.fobalarm.core.*
  * it last check itself, what happened last night.
  */
 @Composable
-fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -> Unit) {
-    val iAmAlarm = s.self.role == Role.ALARM
+fun StatusBlock(
+    s: Snapshot, role: Role, nowMs: Long, localGates: Gates?, onCheckClock: () -> Unit,
+) {
+    // ROUTED from RootScreen, not re-derived from the snapshot. Reading `s.self.role` made the
+    // role two facts that could disagree, and needed a `?: Role.ALARM` fallback for a case no
+    // phone produces -- a silent default on the screen that answers "will it ring".
+    val iAmAlarm = role == Role.ALARM
     val problems = s.problems
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
     val willRing = problems.isEmpty() && s.nextFire != null
@@ -26,10 +31,10 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
     // Three roles, three arms. As `if (iAmAlarm) s.peer else s.self` this showed a SENTINEL its
     // OWN battery under the label "Controller": the client overwrites `peer` with the phone it
     // polled, so a sentinel's snapshot carries the alarm phone and never the controller at all.
-    val controller = when (s.self.role) {          // the phone that stops it
+    val controller = when (role) {                 // the phone that stops it
         Role.ALARM -> s.peer
         Role.CONTROLLER -> s.self
-        Role.SENTINEL, null -> null
+        Role.SENTINEL -> null
     }
     val peerRecent = s.peer != null && nowMs - s.peer!!.lastSeenMs < 120_000
 
@@ -112,14 +117,14 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
     // The sentinel's own power is load-bearing, not trivia: the gate vetoes its block outright
     // below 20% unplugged, so the phone whose absence is meant to silence the alarm has to be
     // able to show why it currently cannot.
-    if (s.self.role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)
+    if (role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)
 
     // --- permissions, this phone and the other one ----------------------------
     Section("Permissions")
     // The same rows Setup shows for this phone, so the two screens can never disagree.
     // This phone's OWN role: a sentinel asked for the controller's set was told it was missing
     // a lock-screen permission it has no use for.
-    PermissionLine("This phone", localGates ?: s.gates, s.self.role ?: Role.ALARM)
+    PermissionLine("This phone", localGates ?: s.gates, role)
     if (iAmAlarm) {
         Line("Controller", when {
             !peerRecent -> "not heard from"

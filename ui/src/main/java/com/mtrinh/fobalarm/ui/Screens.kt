@@ -87,8 +87,14 @@ fun RootScreen(
                 trying()
                 if (s != null) {
                     Section("What it last said")
-                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, app.nowMs, app.localGates) { app.checkClock() } } }
+                    Box(Modifier.alpha(0.55f)) { Column { StatusBlock(s, role, app.nowMs, app.localGates) { app.checkClock() } } }
                 }
+                // Never a dead end, same rule as the spinner below. Before this screen existed
+                // for joiners, an un-connected phone fell through to the spinner, which carries
+                // the switcher; routing joiners here instead took the only way out of a wrongly
+                // chosen role away, leaving clearing app data as the fix.
+                Spacer(Modifier.height(S.lg))
+                roleSwitcher()
                 Spacer(Modifier.height(S.lg))
             }
         }
@@ -540,7 +546,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, role: Role) {
             Spacer(Modifier.height(S.sm))
         }
 
-        StatusBlock(s, app.nowMs, app.localGates) { app.checkClock() }
+        StatusBlock(s, role, app.nowMs, app.localGates) { app.checkClock() }
 
         // A SENTINEL gets none of these. It is a presence beacon, and the phone it runs on is
         // the one the whole design distrusts -- the pocket phone that must not be able to skip

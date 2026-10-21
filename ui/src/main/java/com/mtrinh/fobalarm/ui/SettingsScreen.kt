@@ -24,7 +24,9 @@ fun SettingsScreen(
     app: AppState,
     s: Snapshot,
     isAlarmRole: Boolean,
-    deviceSettings: (@Composable () -> Unit)?,   // alarm phone only: pairing, ringtone, password
+    // Alarm phone only: ringtone and password. NOT pairing -- the group credentials live on the
+    // Setup tab, in one place for all three roles, rather than on two tabs for one of them.
+    deviceSettings: (@Composable () -> Unit)?,
     roleSwitcher: @Composable () -> Unit,        // both phones
 ) {
     var showUnlock by remember { mutableStateOf(false) }

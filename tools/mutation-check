@@ -218,15 +218,15 @@ MUTANTS = [
     # --- the screens. Reachable only since the :ui harness existed; every role defect this app
     # --- has shipped was a two-way branch over three roles that no :core test could see.
     ("sentinel-battery-labelled-controller", STATUS,
-     """val controller = when (s.self.role) {          // the phone that stops it
+     """val controller = when (role) {                 // the phone that stops it
         Role.ALARM -> s.peer
         Role.CONTROLLER -> s.self
-        Role.SENTINEL, null -> null
+        Role.SENTINEL -> null
     }""",
      "val controller = if (iAmAlarm) s.peer else s.self",
      "power rows name this phone, never the controller"),
     ("sentinel-own-power-row-dropped", STATUS,
-     'if (s.self.role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)',
+     'if (role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)',
      "",
      "power rows name this phone, never the controller"),
     ("sentinel-gets-the-settings-tab", SCREENS,
@@ -253,7 +253,18 @@ MUTANTS = [
     ("device-editors-for-every-role", SCREENS,
      "                        deviceSettings = if (isAlarmRole) deviceSettings else null,",
      "                        deviceSettings = deviceSettings,",
-     "only the alarm phone is offered the device editors"),
+     "controller is not offered the device editors"),
+    ("connect-screen-is-a-dead-end", SCREENS,
+     "                roleSwitcher()\n                Spacer(Modifier.height(S.lg))\n            }\n        }\n        return",
+     "            }\n        }\n        return",
+     "never connected can still change its role"),
+    ("sentinel-cannot-change-role", SCREENS,
+     "extra = if (role == Role.SENTINEL) roleSwitcher else null)",
+     "extra = null)",
+     "sentinel can still change its role"),
+    ("controller-battery-from-the-peer", STATUS,
+     "        Role.CONTROLLER -> s.self", "        Role.CONTROLLER -> s.peer",
+     "power rows do name the controller"),
     ("nap-consults-gate", GATE,
      "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
      "nap never consults the gate"),

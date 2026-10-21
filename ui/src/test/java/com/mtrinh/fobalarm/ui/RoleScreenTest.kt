@@ -32,9 +32,16 @@ class RoleScreenTest {
     private fun exists(text: String, substring: Boolean = true) =
         compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
 
-    /** The anchor that proves we are looking at a rendered Status tab and not an empty tree. */
+    /**
+     * Proves we are on the Status TAB -- not an empty tree, and not the connect screen.
+     *
+     * "Power" alone was not enough: the connect screen renders the whole of `StatusBlock` under
+     * "What it last said", so a phone wrongly held on the connect screen satisfied it, and the
+     * authority, ring-takeover and battery-label tests would all have stayed green.
+     */
     private fun assertOnStatusTab() {
         compose.onNodeWithText("Power", substring = true).assertIsDisplayed()
+        assertTrue(!exists(M_TRYING), "this is the connect screen, not the Status tab")
     }
 
     // --- defect 4: a sentinel's own battery was labelled "Controller" -----------
@@ -60,6 +67,10 @@ class RoleScreenTest {
         compose.renderRoot(Role.CONTROLLER)
         assertOnStatusTab()
         assertTrue(exists("Controller"), "the controller IS the phone that stops it")
+        // And the row carries THIS phone's battery, not the alarm phone's. Asserting the label
+        // alone let `Role.CONTROLLER -> s.peer` survive: the row would still be there, showing
+        // the wrong phone.
+        assertTrue(exists("$OWN_BATTERY%"), "the controller's row must be the controller's")
     }
 
     // --- the sentinel has no authority over the alarm --------------------------
@@ -152,13 +163,43 @@ class RoleScreenTest {
         assertTrue(!exists(M_JOINER_SUMMARY))
     }
 
-    @Test fun `only the alarm phone is offered the device editors`() {
+    @Test fun `the alarm phone is offered the device editors`() {
+        // The positive arm FIRST. Without it the controller test below passes if the Settings
+        // click did nothing, or if the editors were deleted for everyone.
+        compose.renderRoot(Role.ALARM)
+        compose.onNodeWithText("Settings", substring = false).performClick()
+        assertTrue(exists(M_DEVICE_SETTINGS),
+            "the ringtone and the settings password belong to the phone that rings")
+    }
+
+    @Test fun `a controller is not offered the device editors`() {
         // `deviceSettings` was nullable, so whether `:app` passed it WAS the decision. Now it is
         // always passed and `:ui` decides, which is why this can be asserted at all.
         compose.renderRoot(Role.CONTROLLER)
         compose.onNodeWithText("Settings", substring = false).performClick()
-        assertTrue(!exists(M_DEVICE_SETTINGS), "the ringtone and password belong to the phone " +
-                "that rings; a controller editing them would be editing nothing it owns")
+        // Anchored on something the Settings tab always has for every role, so "absent" cannot
+        // mean "never navigated". NOT "Away" -- that section is alarm-only, which this test
+        // discovered by going red.
+        assertTrue(exists(M_ROLE_SWITCHER),
+            "this must be the Settings tab for the absence below to mean anything")
+        assertTrue(!exists(M_DEVICE_SETTINGS), "a controller editing the ringtone would be " +
+                "editing hardware it does not own")
+    }
+
+    @Test fun `a sentinel can still change its role`() {
+        // Its ONLY way out: the sentinel has no Settings tab, so the role switcher is appended to
+        // Setup. Nothing asserted this, so deleting it survived -- and a sentinel with no way to
+        // change role can only be fixed by clearing app data.
+        compose.renderRoot(Role.SENTINEL)
+        compose.onNodeWithText("Setup", substring = false).performClick()
+        assertTrue(exists(M_ROLE_SWITCHER), "a phone set to the wrong role must not be a dead end")
+    }
+
+    @Test fun `a joiner that has never connected can still change its role`() {
+        // The other dead end: before any snapshot exists, the connect screen is all there is.
+        compose.renderRoot(Role.SENTINEL, snap = null)
+        assertTrue(exists(M_TRYING))
+        assertTrue(exists(M_ROLE_SWITCHER), "a wrong role chosen at setup must be escapable")
     }
 
     @Test fun `a joiner with no snapshot is shown the connect screen, not a dead spinner`() {
