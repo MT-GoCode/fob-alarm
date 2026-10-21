@@ -33,3 +33,11 @@
   would be the exhaust-based derivation this codebase keeps deleting. It is for the verdict to
   carry structure -- role and seconds -- and for the sentence to be built once at each audience,
   history and screen. Found by looking at the contact sheet.
+- **The sheet renders `:app`'s slots as markers.** Pairing, the connect screen, the device editors
+  and the role switcher appear as `MARKER-...` text, because those composables read `Svc`
+  singletons that `:ui` cannot construct. So the sheet shows every screen's COMPOSITION but not
+  the content of four slots -- including the connect screen, where defect 2 lived. Closing this
+  means moving those composables out of `:app`, the same refactor as the `RoleUi` item.
+- **The controller's dismiss outcomes are not in the sheet.** "Waiting", and "Can't reach the
+  alarm phone. Use the key." are `dismissUi` states only reachable by actually calling `dismiss`,
+  so no snapshot can pose them. They are the screen a person uses at 3am when the link is down.

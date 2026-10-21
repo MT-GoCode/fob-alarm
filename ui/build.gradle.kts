@@ -22,6 +22,11 @@ android {
             // way to invoke the suite.
             all {
                 it.systemProperty("roborazzi.test.record", "true")
+                // Images from renamed or deleted cases would otherwise linger and be published
+                // under a fresh date, so the page could show screens that no longer exist.
+                if ((System.getProperty("fobalarm.screens") ?: "on") != "off") {
+                    it.doFirst { delete(layout.buildDirectory.dir("screens")) }
+                }
                 // Forwarded so `tools/mutation-check` can switch the capture off for its 65 runs.
                 it.systemProperty("fobalarm.screens",
                     System.getProperty("fobalarm.screens") ?: "on")

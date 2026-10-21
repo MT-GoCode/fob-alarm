@@ -106,9 +106,35 @@ class RoleScreenTest {
         assertRow("Alarm phone", "$PEER_BATTERY%")
     }
 
+    @Test fun `an unfinished setup says what it costs THIS role`() {
+        // One sentence for everyone told a CONNECTED joiner "The phones cannot connect yet",
+        // under a green link bar, and never said what the missing permission actually costs it.
+        val short = gatesAllPass().copy(foregroundService = false)
+
+        compose.renderRoot(Role.SENTINEL, snap = snapshot(Role.SENTINEL, gates = short))
+        compose.clickTab("Setup")
+        assertTrue(exists("vouch for where you are"),
+            "a sentinel's permissions decide whether its absence can silence the alarm")
+        assertTrue(!exists("cannot connect"), "it IS connected; the bar above says so")
+    }
+
+    @Test fun `a controller's unfinished setup says it may not show the alarm`() {
+        compose.renderRoot(Role.CONTROLLER,
+            snap = snapshot(Role.CONTROLLER, gates = gatesAllPass().copy(foregroundService = false)))
+        compose.clickTab("Setup")
+        assertTrue(exists("may not be able to show the alarm"))
+        assertTrue(!exists("cannot connect"))
+    }
+
+    @Test fun `the alarm phone's unfinished setup says the alarm cannot ring`() {
+        compose.renderRoot(Role.ALARM,
+            snap = snapshot(Role.ALARM, gates = gatesAllPass().copy(exactAlarm = false)))
+        compose.clickTab("Setup")
+        assertTrue(exists("alarm cannot ring yet"), "on the alarm phone that is the literal cost")
+    }
+
     @Test fun `a joiner is not shown a section heading with nothing under it`() {
-        // Found by LOOKING at the first screenshot, not by any of the assertions above: every row
-        // under "Link" is the alarm phone's to know, but the heading was printed for everyone.
+        // Every row under "Link" is the alarm phone's to know, so a joiner gets no heading.
         compose.renderRoot(Role.SENTINEL)
         assertOnStatusTab()
         assertTrue(!exists("Link"), "a sentinel has no link rows, so it gets no Link heading")

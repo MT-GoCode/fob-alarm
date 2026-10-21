@@ -19,11 +19,8 @@ import java.io.File
  * Every screen every role can see, rendered to a PNG, for a human to look at.
  *
  * NOT a gate and not an assertion: no baseline images, no pixel comparison, nothing to approve
- * when a colour changes. It exists because all six defects in this app's role handling were found
- * the same way -- a person looked at a screen and saw it was wrong -- and because a suite of
- * assertions can only catch what someone already thought to assert. The empty "Link" heading on a
- * sentinel's screen was found in the first image this produced, after eighteen assertions and four
- * review rounds had missed it.
+ * when a colour changes. A suite of assertions can only catch what someone already thought to
+ * assert; this exists for everything else.
  *
  * One cell per row of the table below. `index.html` is the page to open.
  */
@@ -77,7 +74,7 @@ class ContactSheetTest(private val case: Case) {
 
     @Test fun capture() {
         // The mutation harness runs the whole suite once per mutant, and this class asserts
-        // nothing -- no mutant can ever be killed by it. Capturing 28 screens 65 times over was
+        // nothing -- no mutant can ever be killed by it. Capturing 27 screens 65 times over was
         // pure cost, so the harness switches it off and `./gradlew test` still writes the sheet.
         assumeTrue("screens off", System.getProperty("fobalarm.screens") != "off")
         val built = case.build()

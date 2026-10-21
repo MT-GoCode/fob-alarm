@@ -24,8 +24,7 @@ the decisions held in `:app` need the refactor first, and they are deliberately 
   "no Dismiss button" check passes for the wrong reason.
 - `FakeHost` answers reads and RECORDS every call that changes the alarm; an `@After` asserts the
   record is empty. Not a throwing fake: `LocalStateClient` wraps host calls in `runCatching`, so a
-  throw is swallowed into a snackbar, a retry, or nothing, and fails no test. This line has been
-  wrong twice; it now says what the code does.
+  throw is swallowed into a snackbar, a retry, or nothing, and fails no test.
 
 **Verifiable execution.** `./gradlew test` runs `:ui:testDebugUnitTest` beside `:core` and `:data`.
 **Human-verifiable result.** `renderRoot(SENTINEL)` produces a tree whose dumped node list is

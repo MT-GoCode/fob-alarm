@@ -288,6 +288,10 @@ MUTANTS = [
      '''    Section("Link")
     if (iAmAlarm) {''',
      "not shown a section heading with nothing under it"),
+    ("setup-headline-the-same-for-every-role", SCREENS,
+     'Role.SENTINEL -> "This phone cannot vouch for where you are"',
+     'Role.SENTINEL -> "The phones cannot connect yet"',
+     "unfinished setup says what it costs THIS role"),
     ("nap-consults-gate", GATE,
      "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
      "nap never consults the gate"),

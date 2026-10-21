@@ -646,7 +646,15 @@ private fun SetupScreen(
             val ringBlocked = required.any { !it.second && GateInfo.of(it.first.key)?.blocking == true }
             Card(colors = CardDefaults.cardColors(containerColor = Bad)) {
                 Column(Modifier.padding(S.md)) {
-                    Text(if (ringBlocked && isAlarmRole) "The alarm cannot ring yet" else "The phones cannot connect yet",
+                    // Per role, exhaustively. One sentence for everyone said "The phones cannot
+                    // connect yet" to a joiner that was connected -- under a green link bar --
+                    // and never said what the missing permission actually costs that role.
+                    Text(when (role) {
+                        Role.ALARM ->
+                            if (ringBlocked) "The alarm cannot ring yet" else "Setup is not finished"
+                        Role.CONTROLLER -> "This phone may not be able to show the alarm"
+                        Role.SENTINEL -> "This phone cannot vouch for where you are"
+                    },
                         fontSize = T.body, fontWeight = FontWeight.Bold, color = Color.Black)
                     Text("See the $missing item${if (missing == 1) "" else "s"} marked below.",
                         fontSize = T.caption, color = Color.Black)

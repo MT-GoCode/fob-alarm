@@ -89,9 +89,8 @@ fun StatusBlock(
     }
 
     // --- the link -------------------------------------------------------------
-    // The heading is inside the guard too, not just its rows. Every row here is the alarm phone's
-    // to know, so on a joiner this printed a section title with nothing underneath it. A joiner's
-    // link state is the bar at the top of every screen.
+    // The heading is inside the guard with its rows: every row here is the alarm phone's to
+    // know, and a joiner's link state is the bar at the top of every screen.
     if (iAmAlarm) {
         Section("Link")
         Line("Group", if (s.ap.running) "up" else "down", ok = s.ap.running)
