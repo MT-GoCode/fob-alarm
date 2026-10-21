@@ -638,3 +638,16 @@ it is the argument for the deferred item below rather than a style preference.
 `deviceSettings` alarm-only, `onExport` controller-only, `sentinelExtras` sentinel-only, and the
 role-pick permission prompt firing only for ALARM -- both joiners reach the same permission button
 on the connect screen, which also handles the twice-denied case.
+
+### 0.3.118 — instance four, in the Status screen
+
+`val controller = if (iAmAlarm) s.peer else s.self` resolved to the sentinel ITSELF, so the Power
+section labelled the sentinel's own battery "Controller". The real controller is not in a sentinel's
+snapshot at all: `HttpStateClient.withSelf` overwrites `peer` with the phone it polled, which for a
+sentinel is the alarm phone. Now an exhaustive `when (s.self.role)`, plus a correctly labelled
+"This phone" row for the sentinel -- load-bearing, because the gate vetoes its block below 20%
+unplugged and the owner needs to see why a block cannot fire.
+
+Still open, a judgement rather than a defect: a sentinel receives the controller's nag cards
+(`Nag.evaluate` is gated on `isAlarmRole`). Reasonable on a carried phone, noise on one with no
+authority that may be elsewhere.

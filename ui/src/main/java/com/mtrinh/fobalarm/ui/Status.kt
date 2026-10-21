@@ -23,7 +23,14 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
     val peerMissing = s.peerBlockers.mapNotNull { GateInfo.of(it)?.label }
     val willRing = problems.isEmpty() && s.nextFire != null
     val alarm = if (iAmAlarm) s.self else s.peer          // the phone that rings
-    val controller = if (iAmAlarm) s.peer else s.self     // the phone that stops it
+    // Three roles, three arms. As `if (iAmAlarm) s.peer else s.self` this showed a SENTINEL its
+    // OWN battery under the label "Controller": the client overwrites `peer` with the phone it
+    // polled, so a sentinel's snapshot carries the alarm phone and never the controller at all.
+    val controller = when (s.self.role) {          // the phone that stops it
+        Role.ALARM -> s.peer
+        Role.CONTROLLER -> s.self
+        Role.SENTINEL, null -> null
+    }
     val peerRecent = s.peer != null && nowMs - s.peer!!.lastSeenMs < 120_000
 
     // --- will it ring, and when ------------------------------------------
@@ -102,6 +109,10 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
     alarm?.let { Line("Alarm phone", battery(it), ok = it.plugged) }
         ?: Line("Alarm phone", "unknown", ok = false)
     controller?.let { Line("Controller", if (iAmAlarm && !peerRecent) "not heard from" else battery(it), ok = null) }
+    // The sentinel's own power is load-bearing, not trivia: the gate vetoes its block outright
+    // below 20% unplugged, so the phone whose absence is meant to silence the alarm has to be
+    // able to show why it currently cannot.
+    if (s.self.role == Role.SENTINEL) Line("This phone", battery(s.self), ok = s.self.plugged)
 
     // --- permissions, this phone and the other one ----------------------------
     Section("Permissions")
