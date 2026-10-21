@@ -117,7 +117,9 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
     // --- permissions, this phone and the other one ----------------------------
     Section("Permissions")
     // The same rows Setup shows for this phone, so the two screens can never disagree.
-    PermissionLine("This phone", localGates ?: s.gates, iAmAlarm)
+    // This phone's OWN role: a sentinel asked for the controller's set was told it was missing
+    // a lock-screen permission it has no use for.
+    PermissionLine("This phone", localGates ?: s.gates, s.self.role ?: Role.ALARM)
     if (iAmAlarm) {
         Line("Controller", when {
             !peerRecent -> "not heard from"
@@ -125,7 +127,7 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
             else -> peerMissing.joinToString() + " missing"
         }, ok = if (!peerRecent) null else peerMissing.isEmpty())
     } else {
-        PermissionLine("Alarm phone", s.gates, true)
+        PermissionLine("Alarm phone", s.gates, Role.ALARM)
     }
 
     // --- self checks -------------------------------------------------------------
@@ -173,9 +175,9 @@ fun StatusBlock(s: Snapshot, nowMs: Long, localGates: Gates?, onCheckClock: () -
 }
 
 @Composable
-private fun PermissionLine(label: String, g: Gates, alarmRole: Boolean) {
+private fun PermissionLine(label: String, g: Gates, role: Role) {
     if (g.evaluatedAtMs == 0L) { Line(label, "checking", ok = null); return }
-    val missing = setupRows(g, alarmRole).filter { !it.second }
+    val missing = setupRows(g, role).filter { !it.second }
     Line(label, if (missing.isEmpty()) "all allowed" else missing.joinToString { it.first.label } + " missing",
         ok = if (missing.isEmpty()) true else if (missing.any { it.first.blocking }) false else null)
 }

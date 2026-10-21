@@ -334,6 +334,74 @@ class GateTest {
         assertTrue(allPassing.allPass, "all fields true must mean allPass")
     }
 
+    /** Nothing granted, so what a role reports IS its full blocking set. */
+    private fun nothingGranted() = Gates(
+        evaluatedAtMs = 1, scheduleExists = false, exactAlarm = false, foregroundService = false,
+        p2pSupported = false, groupCredentialsSet = false, localNetworkPermission = false,
+        notificationPolicyAccess = false, dndAllowsAlarms = false, volumeNotFixed = false,
+        fullScreenIntent = false, notHibernating = false, thermalOk = false, audioPlayable = false,
+        powerOk = false, vibrationEnabled = false, freeDiskOk = false, noBluetoothAudio = false,
+        batteryUnrestricted = false)
+
+    @Test fun `the exact set each role reports is written out here, not read from the table`() {
+        // Written by hand, in full. Deriving the expectation from `forRole` would move with any
+        // mutant and assert nothing -- which is how a set that handed the sentinel a lock-screen
+        // permission went unnoticed. What a role REPORTS is what the peer's gate vetoes on, so
+        // these three lists are the contract, not an implementation detail.
+        val none = nothingGranted()
+        assertEquals(
+            setOf("foregroundService", "localNetworkPermission", "batteryUnrestricted"),
+            none.missingFor(Role.SENTINEL).toSet(),
+            "a sentinel neither rings nor alerts; it only has to be reachable and un-throttled")
+        assertEquals(
+            setOf("foregroundService", "fullScreenIntent", "localNetworkPermission",
+                "batteryUnrestricted"),
+            none.missingFor(Role.CONTROLLER).toSet(),
+            "the controller adds exactly one thing: it shows the alert over the lock screen")
+        assertEquals(
+            setOf("foregroundService", "exactAlarm", "fullScreenIntent", "localNetworkPermission",
+                "batteryUnrestricted"),
+            none.missingFor(Role.ALARM).toSet(),
+            "the alarm phone answers for everything, including scheduling")
+    }
+
+    @Test fun `a sentinel without the lock-screen permission can still block a ring`() {
+        // The defect: `forRole(alarmRole: Boolean)` handed the SENTINEL the CONTROLLER's set, and
+        // a joiner REPORTS its missing blocking gates to the alarm phone, which vetoes the away
+        // block of any peer missing one. So a phone that never rings was required to grant "show
+        // over the lock screen" or its absence could never silence anything -- which is most
+        // likely why the sentinel block had never been seen to fire.
+        val g = allGatesPassing().copy(fullScreenIntent = false)
+        assertEquals(emptyList(), g.missingFor(Role.SENTINEL),
+            "a sentinel does not alert, so this must not be held against it")
+        assertTrue(g.missingFor(Role.CONTROLLER).contains("fullScreenIntent"),
+            "the controller DOES alert over the lock screen and still needs it")
+        // The consequence, through the gate rather than asserted of the table: such a sentinel,
+        // genuinely away, blocks.
+        assertEquals("sentinel away 1200s",
+            assertBlocked(verdict(settings(), peer(20 * 60_000, gates = g.missingFor(Role.SENTINEL)))))
+    }
+
+    @Test fun `a sentinel still needs whatever makes its silence meaningful`() {
+        // NOT "fewer permissions". Each of these decides whether Android may stall its polling,
+        // and a stalled sentinel goes quiet while sitting on the bedside table -- trusting that
+        // silence would suppress the alarm. Vetoing an untrustworthy sentinel fails toward
+        // ringing, which is the gate's whole invariant.
+        val all = allGatesPassing()
+        assertTrue(all.copy(foregroundService = false).missingFor(Role.SENTINEL).contains("foregroundService"))
+        assertTrue(all.copy(localNetworkPermission = false).missingFor(Role.SENTINEL).contains("localNetworkPermission"))
+        assertTrue(all.copy(batteryUnrestricted = false).missingFor(Role.SENTINEL).contains("batteryUnrestricted"))
+        // `notHibernating` is shown in Setup but is NOT reported, so it never vetoes -- it is
+        // advisory. Asserted explicitly because the first version of this test claimed the
+        // opposite and went red, and because `blocking` is doing two jobs: "setup wall" and
+        // "peer veto". See DEBT.
+        assertFalse(all.copy(notHibernating = false).missingFor(Role.SENTINEL).contains("notHibernating"))
+        // And the alarm phone answers for everything, including what it alone needs.
+        assertTrue(all.copy(exactAlarm = false).missingFor(Role.ALARM).contains("exactAlarm"))
+        assertEquals(emptyList(), all.copy(exactAlarm = false).missingFor(Role.SENTINEL),
+            "a sentinel schedules nothing, so the alarm's own permissions are not its business")
+    }
+
     @Test fun `an unknown gate key is an error, never a pass`() {
         // The test above only supplies keys that exist, so it cannot tell `else -> error()` from
         // `else -> true` -- every real key resolves through its own branch either way. The

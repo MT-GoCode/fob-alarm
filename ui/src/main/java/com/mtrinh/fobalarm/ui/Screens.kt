@@ -137,7 +137,7 @@ fun RootScreen(
     // missing; once granted, nothing disappears and everything stays reachable.
     val myGates = app.localGates ?: s.gates
     val setupBlocked = myGates.evaluatedAtMs != 0L &&
-            setupRows(myGates, isAlarmRole).any { it.first.blocking && !it.second }
+            setupRows(myGates, role).any { it.first.blocking && !it.second }
     if (setupBlocked && !pushed) { tab = 1; pushed = true }
 
     // The sentinel gets no Settings tab: it has no authority over the alarm phone's policy, and
@@ -170,7 +170,7 @@ fun RootScreen(
         Box(Modifier.padding(pad).consumeWindowInsets(pad).alpha(if (isAlarmRole || app.connected) 1f else 0.55f)) {
             when (tab) {
                 0 -> WaitingScreen(app, s, role)
-                1 -> SetupScreen(app, s, isAlarmRole, onFixGate, pairing,
+                1 -> SetupScreen(app, s, role, onFixGate, pairing,
                         // The sentinel has no Settings tab, which is where this otherwise lives.
                         extra = if (role == Role.SENTINEL) roleSwitcher else null)
                 2 -> SettingsScreen(app, s, isAlarmRole,
@@ -609,7 +609,7 @@ private fun WaitingScreen(app: AppState, s: Snapshot, role: Role) {
 
 @Composable
 private fun SetupScreen(
-    app: AppState, s: Snapshot, isAlarmRole: Boolean,
+    app: AppState, s: Snapshot, role: Role,
     onFix: (String) -> Unit, pairing: @Composable () -> Unit,
     /** Appended at the end. The sentinel's role switcher, which has no Settings tab to live on. */
     extra: (@Composable () -> Unit)? = null,
@@ -623,7 +623,8 @@ private fun SetupScreen(
         return
     }
 
-    val rows = setupRows(g, isAlarmRole)
+    val isAlarmRole = role == Role.ALARM
+    val rows = setupRows(g, role)
     val required = rows.filter { it.first.blocking }
     val optional = rows.filter { !it.first.blocking }
     val missing = required.count { !it.second }
@@ -665,7 +666,7 @@ private fun SetupScreen(
 }
 
 /** The one list, from core: what this phone's role needs, and whether it has it. */
-internal fun setupRows(g: Gates, isAlarmRole: Boolean): List<Pair<GateInfo, Boolean>> = g.rowsFor(isAlarmRole)
+internal fun setupRows(g: Gates, role: Role): List<Pair<GateInfo, Boolean>> = g.rowsFor(role)
 
 @Composable
 private fun PermissionRow(info: GateInfo, ok: Boolean, required: Boolean, onFix: (String) -> Unit) {

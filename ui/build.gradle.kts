@@ -13,6 +13,17 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // Robolectric needs the merged resources to inflate a theme.
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+}
+
+// The screen tests run on the DEBUG variant only. `ui-test-manifest`, which supplies the
+// ComponentActivity a Compose test hosts its tree in, is published for debug builds -- so a
+// release unit-test variant would compile and then fail for want of a manifest. The screens are
+// byte-identical across variants, so there is nothing a release run would observe that debug does
+// not. `./gradlew test` remains the one command; this says there is no second thing to run.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { it.enableUnitTest = false }
 }
 dependencies {
     // :ui depends on StateClient + Snapshot and nothing else. It must never know
@@ -29,4 +40,12 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.icons)
     implementation(libs.coroutines.android)
+
+    // Screen tests: real Compose trees on the JVM. Probed before adoption -- renders in 15-35 s,
+    // and a deliberately wrong assertion fails, so the assertions observe the tree.
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test"))
 }

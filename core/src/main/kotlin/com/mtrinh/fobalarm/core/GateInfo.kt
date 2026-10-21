@@ -115,9 +115,30 @@ data class GateInfo(
          * `blocking` in the table above means "the alarm will not ring", which is what
          * Health reports; this is the setup meaning, per role.
          */
-        fun forRole(alarmRole: Boolean): List<GateInfo> = ofKind(GateKind.PERMISSION)
-            .filter { alarmRole || it.key in CONTROLLER_NEEDS }
+        fun forRole(role: Role): List<GateInfo> = ofKind(GateKind.PERMISSION)
+            .filter { it.key in needs(role) }
             .map { if (it.key in PRODUCT_NEEDS) it.copy(blocking = true) else it }
+
+        /**
+         * Exhaustive. As `alarmRole: Boolean` this handed the SENTINEL the controller's set, and
+         * that set is not a display detail: a joiner REPORTS its missing blocking gates to the
+         * alarm phone, which vetoes the away block of any peer that is missing one. So a sentinel
+         * was required to grant "Show over the lock screen" -- on a phone that never rings and
+         * never alerts -- or its absence could never silence anything.
+         *
+         * What stays is deliberate and is not "fewer permissions". `batteryUnrestricted` keeps
+         * vetoing a sentinel, because it decides whether Android may throttle its polling: a
+         * sentinel the OS can stall goes quiet while sitting on the bedside table, and trusting
+         * that silence would suppress the alarm. Vetoing an untrustworthy sentinel fails toward
+         * ringing, which is the gate's whole invariant. `fullScreenIntent` is different in kind --
+         * it bears on alerting, which a sentinel never does -- so including it was a category
+         * error rather than a conservative choice.
+         */
+        private fun needs(role: Role): Set<String> = when (role) {
+            Role.ALARM -> ALL.map { it.key }.toSet()
+            Role.CONTROLLER -> CONTROLLER_NEEDS
+            Role.SENTINEL -> CONTROLLER_NEEDS - "fullScreenIntent"
+        }
 
         private val CONTROLLER_NEEDS = setOf("foregroundService", "fullScreenIntent",
             "localNetworkPermission", "batteryUnrestricted", "notHibernating")
@@ -127,12 +148,12 @@ data class GateInfo(
 }
 
 /** Each permission a role needs, paired with whether this phone has it. */
-fun Gates.rowsFor(alarmRole: Boolean): List<Pair<GateInfo, Boolean>> =
-    GateInfo.forRole(alarmRole).map { it to value(it.key) }
+fun Gates.rowsFor(role: Role): List<Pair<GateInfo, Boolean>> =
+    GateInfo.forRole(role).map { it to value(it.key) }
 
 /** The keys a phone in this role is missing and needs: what it reports to the other phone. */
-fun Gates.missingFor(alarmRole: Boolean): List<String> =
-    rowsFor(alarmRole).filter { it.first.blocking && !it.second }.map { it.first.key }
+fun Gates.missingFor(role: Role): List<String> =
+    rowsFor(role).filter { it.first.blocking && !it.second }.map { it.first.key }
 
 /** Pair each definition with its measured value, so every consumer reads one list. */
 fun Gates.entries(): List<Pair<GateInfo, Boolean>> = GateInfo.ALL.map { it to value(it.key) }

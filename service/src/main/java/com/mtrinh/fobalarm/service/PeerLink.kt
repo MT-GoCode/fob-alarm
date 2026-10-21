@@ -40,7 +40,10 @@ object PeerLink {
         // Our own failing gates, so the alarm phone can show them -- and so it refuses to trust
         // this phone's absence while any of them is missing.
         localBlockers = {
-            GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null).missingFor(alarmRole = false)
+            // This phone's OWN role, not "not the alarm". A sentinel that reported the
+            // controller's set told the alarm phone it was missing a lock-screen permission it
+            // has no use for, and the gate then vetoed its away block for good.
+            GateEval.current(Svc.app, Svc.settings, Svc.lastNextFire != null).missingFor(role)
         },
         extraParams = { mapOf("role" to role.name) + extra() },
     )
