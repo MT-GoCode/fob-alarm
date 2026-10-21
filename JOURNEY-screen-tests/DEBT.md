@@ -10,3 +10,18 @@
 - **`PeerLink.missingFor(role)` is untestable.** `:service` has no unit tests, so the fix that
   actually stops a sentinel reporting the controller's set is proved only by the `:core` behaviour
   it calls. The call site itself is unguarded.
+
+- **`RoleUi` in `:core` -- the structural fix, deliberately not done.** `LinkBar`,
+  `RingingScreen` and `SettingsScreen` still take `isAlarmRole: Boolean`, which is the
+  two-way-branch-over-three-roles shape behind all five role defects. The case for doing it: a
+  fifth role, or a new screen, would inherit the `else` again. The case against doing it NOW, which
+  won: all three sites are correct today, two are unreachable for a sentinel, the class is covered
+  by screen tests and mutants over those screens, and it is 200-300 lines of no-behaviour-change
+  refactor across five files on the screens the fire path uses -- this project's record is that six
+  of round 32's fourteen defects were introduced while fixing something else. Do it as its own
+  round, with the suite green before and after and nothing else in the diff.
+  The shape, already designed: `RoleUi.of(role)` returning sum-typed fields --
+  `Link { HOSTS, JOINS }`, `RingFace { BOX_TRACK, BUTTON, NONE }`, `Tab` routed on the value rather
+  than an index -- with authority derived once inside it. Not a record of booleans: `hostsGroup`
+  and `showsConnectScreen` would always be each other's negation, and a boolean cannot say WHICH
+  ring face, so `isAlarmRole` would survive inside it.

@@ -13,8 +13,16 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    // Robolectric needs the merged resources to inflate a theme.
-    testOptions { unitTests { isIncludeAndroidResources = true } }
+    testOptions {
+        // Robolectric needs the merged resources to inflate a theme.
+        unitTests {
+            isIncludeAndroidResources = true
+            // Roborazzi's capture is a no-op unless recording is on. Set here rather than passed
+            // on the command line, so `./gradlew test` writes the sheet and there is no second
+            // way to invoke the suite.
+            all { it.systemProperty("roborazzi.test.record", "true") }
+        }
+    }
 }
 
 // The screen tests run on the DEBUG variant only. `ui-test-manifest`, which supplies the
@@ -47,5 +55,8 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    // PROBE: screenshot capture off-device. Roborazzi rides Robolectric's native graphics.
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.32.2")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.32.2")
     testImplementation(kotlin("test"))
 }

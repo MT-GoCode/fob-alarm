@@ -2,7 +2,10 @@ package com.mtrinh.fobalarm.ui
 
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
+import androidx.compose.ui.test.performClick
 import com.mtrinh.fobalarm.core.*
 import com.mtrinh.fobalarm.data.AlarmHost
 import com.mtrinh.fobalarm.data.LocalStateClient
@@ -170,3 +173,20 @@ fun ringing(phase: RingPhase = RingPhase.RINGING) = RingView(
     ringId = "ring-1", startedAtMs = NOW - 60_000, trigger = OccurrenceSource.SCHEDULED,
     phase = phase, snoozeCount = 0, snoozeUntilMs = null,
     endsByMs = NOW + 30 * 60_000, audible = "playing")
+
+/** A nap armed for twenty minutes' time. */
+val NapViewArmed = NapView(true, NOW + 20 * 60_000)
+
+/** Tomorrow's alarm skipped once. */
+val TomorrowSkipped = TomorrowView("SKIP", null, NOW + 8 * 3600_000)
+
+/**
+ * Clicks the TAB with this label, not merely a node carrying the word.
+ *
+ * A screen often also has a heading of the same name -- and when setup is incomplete the app
+ * auto-navigates to Setup, so "Setup" matches both the tab and that screen's own title. Only the
+ * tab has a click action.
+ */
+fun ComposeContentTestRule.clickTab(label: String) {
+    onNode(hasText(label, substring = false) and hasClickAction()).performClick()
+}

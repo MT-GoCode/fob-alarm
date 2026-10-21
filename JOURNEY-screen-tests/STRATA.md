@@ -22,8 +22,10 @@ the decisions held in `:app` need the refactor first, and they are deliberately 
   later strata are surgery on the earlier ones.
 - The snapshot is installed synchronously BEFORE `setContent`, or the tree is a spinner and every
   "no Dismiss button" check passes for the wrong reason.
-- `FakeHost` answers reads and THROWS on every call that changes the alarm, so a screen that fires
-  one during render fails loudly instead of silently mutating what it renders.
+- `FakeHost` answers reads and RECORDS every call that changes the alarm; an `@After` asserts the
+  record is empty. Not a throwing fake: `LocalStateClient` wraps host calls in `runCatching`, so a
+  throw is swallowed into a snackbar, a retry, or nothing, and fails no test. This line has been
+  wrong twice; it now says what the code does.
 
 **Verifiable execution.** `./gradlew test` runs `:ui:testDebugUnitTest` beside `:core` and `:data`.
 **Human-verifiable result.** `renderRoot(SENTINEL)` produces a tree whose dumped node list is
@@ -121,3 +123,17 @@ own role. Tests assert the exact set per role from a hand-written list.
 Whole-codebase review against `code-principles.md`, hunting vacuous assertions, tests that would
 pass with the screens blank, and any role branch left behind. Full suite plus the whole mutation
 harness green in one run. Build, serve, install.
+
+## STRATUM 6 — DONE. The contact sheet
+
+Built, and it earned its place in the first image it produced: the sentinel's Status screen printed
+a "Link" heading with nothing underneath it, which eighteen assertions, 63 mutants and four rounds
+of adversarial review had all missed. Every one of them only checks what someone thought to check.
+
+- `ContactSheetTest` is parameterised over role x state and writes one PNG per cell with Roborazzi,
+  under Robolectric native graphics at sdk 34, 411x891 xhdpi. ~4 s a screen.
+- Recording is switched on in gradle config, so plain `./gradlew test` writes the images and there
+  is no second way to invoke the suite.
+- NOT a gate, deliberately: no baseline images, no pixel comparison, nothing to approve when a font
+  renders differently. It fails a build only if a screen throws while rendering.
+- `tools/contact-sheet` arranges them into one page; it is published as a single URL.

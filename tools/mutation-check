@@ -278,6 +278,16 @@ MUTANTS = [
     ("alarm-phone-shows-its-own-battery-as-the-controller", STATUS,
      "        Role.ALARM -> s.peer", "        Role.ALARM -> s.self",
      "alarm phone's power rows are its own"),
+    ("rendering-mutates-the-alarm", SCREENS,
+     "    LaunchedEffect(tab) { app.reload() }          // every navigation re-reads the alarm phone",
+     "    LaunchedEffect(tab) { app.reload(); app.lock() }",
+     "controller has all four tabs"),
+    ("empty-link-heading-for-joiners", STATUS,
+     '''    if (iAmAlarm) {
+        Section("Link")''',
+     '''    Section("Link")
+    if (iAmAlarm) {''',
+     "not shown a section heading with nothing under it"),
     ("nap-consults-gate", GATE,
      "trigger == OccurrenceSource.NAP -> FireAction.Ring", "",
      "nap never consults the gate"),

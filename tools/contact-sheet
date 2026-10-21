@@ -1,0 +1,29 @@
+#!/bin/bash
+# Build one page from the PNGs the screen tests wrote, and print where it is.
+# Not a gate: the suite writes the images, this only arranges them for a human to look at.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+DIR=ui/build/screens
+[ -d "$DIR" ] || { echo "no screens yet -- run ./gradlew test" >&2; exit 1; }
+N=$(ls "$DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
+[ "$N" -gt 0 ] || { echo "no PNGs in $DIR" >&2; exit 1; }
+{
+  echo '<!doctype html><meta charset=utf-8><title>fobalarm screens</title>'
+  echo '<style>body{background:#111;color:#ddd;font:14px -apple-system,sans-serif;margin:24px}'
+  echo 'h1{font-size:18px}h2{font-size:14px;color:#8cf;margin:28px 0 8px;text-transform:uppercase;letter-spacing:.08em}'
+  echo '.g{display:flex;flex-wrap:wrap;gap:18px}figure{margin:0;width:260px}'
+  echo 'img{width:260px;border:1px solid #333;border-radius:8px;display:block}'
+  echo 'figcaption{padding:6px 2px;color:#9a9a9a;font-size:12px}</style>'
+  echo "<h1>Every screen every role can see &mdash; $N states, $(date '+%Y-%m-%d %H:%M')</h1>"
+  echo "<p style=color:#777>Rendered off-device by the test suite. No phone, no emulator. Not a gate: nothing here fails a build.</p>"
+  for role in alarm controller sentinel; do
+    echo "<h2>$role</h2><div class=g>"
+    for f in "$DIR"/$role-*.png; do
+      [ -e "$f" ] || continue
+      b=$(basename "$f" .png)
+      echo "<figure><img src=\"$(basename "$f")\" loading=lazy><figcaption>${b#$role-}</figcaption></figure>"
+    done
+    echo "</div>"
+  done
+} > "$DIR/index.html"
+echo "wrote $DIR/index.html with $N screens"

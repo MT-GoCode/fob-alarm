@@ -29,8 +29,12 @@ routes on `when (role)` with all three arms and the compiler enforces it.
    and no device.
 3. **A contact sheet of every role in every state**, rendered off-device, that a human can look at
    in one glance and see that a sentinel is never offered a dismiss button.
-4. **Every role-conditional UI decision is one exhaustive value in `:core`**, so a fifth role would
-   be a compile error in every place that has to handle it, and the mutation harness can attack it.
+4. **Every role decision that has ever been got wrong is now watched by a test that fails when it
+   is got wrong again.** Not the same as "one exhaustive value in `:core`", which is what this item
+   originally demanded and which is deliberately NOT built -- see DEBT. `RootScreen`, `SetupScreen`,
+   `StatusBlock` and the pairing choice route on `Role` exhaustively; `LinkBar`, `RingingScreen` and
+   `SettingsScreen` still take a boolean. All three are correct, two are unreachable for a sentinel,
+   and all three now have screen tests and mutants over them.
 
 ## Non-negotiable
 

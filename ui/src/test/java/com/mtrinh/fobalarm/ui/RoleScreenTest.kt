@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.mtrinh.fobalarm.core.Role
 import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,6 +38,8 @@ class RoleScreenTest {
      * throws: `LocalStateClient` wraps host calls in `runCatching`, so a throw is swallowed and
      * turned into a snackbar, a retry, or nothing at all.
      */
+    @Before fun `forget the previous test's host`() { lastFakeHost = null }
+
     @After fun `rendering changed nothing`() {
         assertEquals(emptyList(), lastFakeHost?.mutations ?: emptyList<String>(),
             "a screen mutated the alarm while merely being rendered")
@@ -101,6 +104,22 @@ class RoleScreenTest {
         assertOnStatusTab()
         assertRow("Controller", "$OWN_BATTERY%")
         assertRow("Alarm phone", "$PEER_BATTERY%")
+    }
+
+    @Test fun `a joiner is not shown a section heading with nothing under it`() {
+        // Found by LOOKING at the first screenshot, not by any of the assertions above: every row
+        // under "Link" is the alarm phone's to know, but the heading was printed for everyone.
+        compose.renderRoot(Role.SENTINEL)
+        assertOnStatusTab()
+        assertTrue(!exists("Link"), "a sentinel has no link rows, so it gets no Link heading")
+        assertTrue(exists("Power"), "the headings it DOES have are still there")
+    }
+
+    @Test fun `the alarm phone is shown its link section`() {
+        compose.renderRoot(Role.ALARM)
+        assertOnStatusTab()
+        assertRow("Group", "up")
+        assertRow("Sentinel", "not set up")
     }
 
     @Test fun `the alarm phone's power rows are its own and its controller's`() {
@@ -173,14 +192,14 @@ class RoleScreenTest {
         // ALARM phone's password. It was unprovable while the choice lived in `:app`; the slots
         // are split now, so `:ui` makes it and this test can see it.
         compose.renderRoot(Role.SENTINEL)
-        compose.onNodeWithText("Setup", substring = false).performClick()
+        compose.clickTab("Setup")
         assertTrue(exists(M_JOINER_SUMMARY), "a sentinel must be told which group it joined")
         assertTrue(!exists(M_HOST_PAIRING), "a sentinel joins a group; it does not host one")
     }
 
     @Test fun `the controller is shown the joiner summary too`() {
         compose.renderRoot(Role.CONTROLLER)
-        compose.onNodeWithText("Setup", substring = false).performClick()
+        compose.clickTab("Setup")
         assertTrue(exists(M_JOINER_SUMMARY))
         assertTrue(!exists(M_HOST_PAIRING), "only the phone that hosts the group edits it")
     }
@@ -188,7 +207,7 @@ class RoleScreenTest {
     @Test fun `the alarm phone is shown the host's editor`() {
         // The opposite arm, so the two tests above cannot pass by the editor never rendering.
         compose.renderRoot(Role.ALARM)
-        compose.onNodeWithText("Setup", substring = false).performClick()
+        compose.clickTab("Setup")
         assertTrue(exists(M_HOST_PAIRING), "the alarm phone hosts the group and edits it")
         assertTrue(!exists(M_JOINER_SUMMARY))
     }
@@ -197,7 +216,7 @@ class RoleScreenTest {
         // The positive arm FIRST. Without it the controller test below passes if the Settings
         // click did nothing, or if the editors were deleted for everyone.
         compose.renderRoot(Role.ALARM)
-        compose.onNodeWithText("Settings", substring = false).performClick()
+        compose.clickTab("Settings")
         assertTrue(exists(M_DEVICE_SETTINGS),
             "the ringtone and the settings password belong to the phone that rings")
     }
@@ -206,7 +225,7 @@ class RoleScreenTest {
         // `deviceSettings` was nullable, so whether `:app` passed it WAS the decision. Now it is
         // always passed and `:ui` decides, which is why this can be asserted at all.
         compose.renderRoot(Role.CONTROLLER)
-        compose.onNodeWithText("Settings", substring = false).performClick()
+        compose.clickTab("Settings")
         // Anchored on something the Settings tab always has for every role, so "absent" cannot
         // mean "never navigated". NOT "Away" -- that section is alarm-only, which this test
         // discovered by going red.
@@ -221,7 +240,7 @@ class RoleScreenTest {
         // Setup. Nothing asserted this, so deleting it survived -- and a sentinel with no way to
         // change role can only be fixed by clearing app data.
         compose.renderRoot(Role.SENTINEL)
-        compose.onNodeWithText("Setup", substring = false).performClick()
+        compose.clickTab("Setup")
         assertTrue(exists(M_ROLE_SWITCHER), "a phone set to the wrong role must not be a dead end")
     }
 
