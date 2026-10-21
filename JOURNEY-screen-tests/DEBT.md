@@ -41,3 +41,9 @@
 - **The controller's dismiss outcomes are not in the sheet.** "Waiting", and "Can't reach the
   alarm phone. Use the key." are `dismissUi` states only reachable by actually calling `dismiss`,
   so no snapshot can pose them. They are the screen a person uses at 3am when the link is down.
+- **`GateInfo.explain` is one string per gate, shown to three roles.** The `foregroundService` text
+  said "Needed to show the alarm screen and keep the link running" to a SENTINEL, which never
+  shows an alarm screen. Reworded so it is true for everyone, but the thorough fix is per-role
+  explanations -- and that means changing the shape of the one table every consumer iterates, for
+  text rather than behaviour. Found by looking at `sentinel-setup-incomplete`; every screen in the
+  sheet has now been looked at by a person at least once.

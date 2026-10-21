@@ -38,8 +38,11 @@ data class GateInfo(
     companion object {
         val ALL: List<GateInfo> = listOf(
             // ---- permissions: setup, blocking, actionable ----
+            // True for all three roles. "Needed to show the alarm screen" alone was false for a
+            // sentinel, which never shows one -- one string serving three audiences, the same
+            // shape as every role defect here.
             GateInfo("foregroundService", "Notifications",
-                "Needed to show the alarm screen and keep the link running.",
+                "Needed to keep this phone's link running, and on the alarm phone to show the alarm screen.",
                 GateKind.PERMISSION, blocking = true, fix = FixAction.REQUEST),
             GateInfo("exactAlarm", "Exact alarms",
                 "Not granted. Reinstall the app to get it back.",
