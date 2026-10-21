@@ -1,7 +1,10 @@
 package com.mtrinh.fobalarm.ui
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
@@ -153,7 +156,11 @@ fun ComposeContentTestRule.renderRoot(
     t = NOW + staleFor
     app.syncClock()
     setContent {
+        // The composition root the phone actually uses. Without the Surface, the branches that
+        // have no Scaffold -- the connect screen and the spinner -- render on the bare window
+        // background, so the contact sheet showed them white when the phone shows them dark.
         FobTheme {
+            Surface(Modifier.fillMaxSize()) {
             // Every slot passed unconditionally, exactly as `:app` does. There is no wiring
             // decision left for a test to accidentally make on `:ui`'s behalf -- which is what
             // made the old `trying`-is-null test tautological.
@@ -163,6 +170,7 @@ fun ComposeContentTestRule.renderRoot(
                 deviceSettings = { Text(M_DEVICE_SETTINGS) },
                 roleSwitcher = { Text(M_ROLE_SWITCHER) },
                 trying = { Text(M_TRYING) })
+            }
         }
     }
     return app
